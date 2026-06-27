@@ -1,0 +1,151 @@
+import { useState } from 'react'
+import { auth } from '../../lib/supabase'
+
+export default function Login() {
+  const [email, setEmail]       = useState('')
+  const [senha, setSenha]       = useState('')
+  const [erro, setErro]         = useState('')
+  const [loading, setLoading]   = useState(false)
+  const [showPass, setShowPass] = useState(false)
+
+  const handleLogin = async (e) => {
+    e.preventDefault()
+    setErro('')
+    setLoading(true)
+    const { error } = await auth.signIn(email, senha)
+    setLoading(false)
+    if (error) {
+      setErro(error.message === 'Invalid login credentials'
+        ? 'E-mail ou senha incorretos.'
+        : 'Erro ao entrar. Tente novamente.')
+    }
+  }
+
+  return (
+    <div className="login-page">
+      {/* Painel esquerdo — formulário */}
+      <div className="login-panel">
+        <div className="login-logo">
+          <img src="/logo-circular.png" style={{width:180, height:180, objectFit:'contain'}} alt="Cabanha Ventos da Várzea"/>
+        </div>
+
+        <form onSubmit={handleLogin}>
+          <div style={{ marginBottom: 16 }}>
+            <label>E-mail</label>
+            <input
+              type="email"
+              placeholder="seu@email.com"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              autoComplete="email"
+              required
+            />
+          </div>
+
+          <div style={{ marginBottom: 8 }}>
+            <label>Senha</label>
+            <div style={{ position: 'relative' }}>
+              <input
+                type={showPass ? 'text' : 'password'}
+                placeholder="••••••••"
+                value={senha}
+                onChange={e => setSenha(e.target.value)}
+                autoComplete="current-password"
+                required
+                style={{ paddingRight: 40 }}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPass(!showPass)}
+                style={{
+                  position: 'absolute', right: 10, top: '50%',
+                  transform: 'translateY(-50%)', background: 'none',
+                  border: 'none', cursor: 'pointer', color: '#9CA3AF',
+                  fontSize: 14, padding: 0
+                }}
+              >
+                <i className={`ti ti-eye${showPass ? '-off' : ''}`} />
+              </button>
+            </div>
+          </div>
+
+          {erro && (
+            <div style={{
+              background: '#FCEBEB', color: '#791F1F', padding: '10px 14px',
+              borderRadius: 8, fontSize: '.82rem', marginBottom: 12,
+              border: '.5px solid #F5B5B5', display: 'flex', gap: 7, alignItems: 'center'
+            }}>
+              <i className="ti ti-alert-circle" />
+              {erro}
+            </div>
+          )}
+
+          <button
+            type="submit"
+            className="btn btn-primary"
+            disabled={loading}
+            style={{ width: '100%', justifyContent: 'center', marginTop: 8, padding: '11px' }}
+          >
+            {loading ? (
+              <>
+                <div className="spinner" style={{ width: 16, height: 16 }} />
+                Entrando...
+              </>
+            ) : (
+              <>
+                <i className="ti ti-login" />
+                Entrar no sistema
+              </>
+            )}
+          </button>
+        </form>
+
+        <div style={{
+          marginTop: 32, padding: 14, background: '#F9FAFB',
+          borderRadius: 10, border: '.5px solid #E5E7EB'
+        }}>
+          <div style={{ fontSize: '.75rem', fontWeight: 600, color: '#6B7280', marginBottom: 8 }}>
+            ACESSO RESTRITO
+          </div>
+          <div style={{ fontSize: '.78rem', color: '#9CA3AF', lineHeight: 1.5 }}>
+            Este sistema é de uso exclusivo da Cabanha Ventos da Várzea.
+            Em caso de problemas, entre em contato com o administrador.
+          </div>
+        </div>
+      </div>
+
+      {/* Painel direito — visual */}
+      <div className="login-side">
+        <div style={{ textAlign: 'center', color: 'white', maxWidth: 420 }}>
+          <img src="/logo-oficial.png" style={{width:'100%', maxWidth:420, objectFit:'contain', marginBottom:24}} alt="Cabanha Ventos da Várzea"/>
+          <p style={{ color: 'rgba(255,255,255,.7)', fontSize: '.95rem', lineHeight: 1.7, marginBottom: 32 }}>
+            Sistema completo de gestão pecuária.
+            Rebanho, reprodução, financeiro, sanidade e muito mais.
+          </p>
+
+          {/* Feature list */}
+          {[
+            ['🐮', 'Cadastro completo do rebanho Angus'],
+            ['🧬', 'Painel reprodutivo com IA e voz'],
+            ['💰', 'Gestão financeira por ciclo'],
+            ['💉', 'Controle sanitário com alertas'],
+            ['📊', 'Índices zootécnicos em tempo real'],
+          ].map(([icon, text]) => (
+            <div key={text} style={{
+              display: 'flex', alignItems: 'center', gap: 12,
+              padding: '8px 0', borderBottom: '.5px solid rgba(255,255,255,.1)',
+              textAlign: 'left', fontSize: '.85rem', color: 'rgba(255,255,255,.85)'
+            }}>
+              <span style={{ fontSize: '1.2rem' }}>{icon}</span>
+              {text}
+            </div>
+          ))}
+
+          <div style={{ marginTop: 28, fontSize: '.75rem', color: 'rgba(255,255,255,.4)' }}>
+            Viamão / RS · Ciclo 2025/2026
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
