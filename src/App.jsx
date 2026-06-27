@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { auth, supabase, db } from './lib/supabase'
 import { FazendaProvider, useFazenda } from './lib/FazendaContext'
 import { ContaProvider, useConta } from './lib/ContaContext'
+import { PermissoesProvider } from './lib/PermissoesContext'
 import { ToastContainer } from './components/UI'
 import InstallPrompt from './components/InstallPrompt'
 import Layout   from './components/layout/Layout'
@@ -128,9 +129,11 @@ function ContaGuard({ user, perfil }) {
   if (loading) return <FullLoading text="Carregando conta..." />
   if (contas.length === 0) return <PrimeiroAcesso />
   return (
-    <FazendaProvider>
-      <FazendaGuard user={user} perfil={perfil} />
-    </FazendaProvider>
+    <PermissoesProvider>
+      <FazendaProvider>
+        <FazendaGuard user={user} perfil={perfil} />
+      </FazendaProvider>
+    </PermissoesProvider>
   )
 }
 

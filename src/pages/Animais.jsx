@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { usePermissoes } from '../lib/PermissoesContext'
 import { db } from '../lib/supabase'
 import { calcCategoria, idadeFormatada, fmtData, catCor, sitCor, repCor, sortBrinco } from '../lib/helpers'
 import { Loading, EmptyState, Modal, Field, MicButton, Badge, toast, BotaoPDF, ErroCarregamento } from '../components/UI'
@@ -260,6 +261,9 @@ function ArvoreGenealogica({ animal, animais, onSelect }) {
 }
 
 export default function Animais() {
+  const { podeEditar } = usePermissoes()
+  const podeEditarAnimais = podeEditar('animais')
+
   const listaRef   = useRef(null)
   const detalheRef = useRef(null)
 
@@ -490,7 +494,7 @@ export default function Animais() {
           <button className="btn btn-secondary btn-sm" onClick={() => setSelected(null)}>
             <i className="ti ti-arrow-left" /> Lista
           </button>
-          {a.situacao === 'ativo' && (
+          {podeEditarAnimais && a.situacao === 'ativo' && (
             <button className="btn btn-secondary btn-sm" onClick={() => openEdit(a)}>
               <i className="ti ti-edit" /> Editar
             </button>
@@ -616,12 +620,14 @@ export default function Animais() {
             rows={4}
             style={{ marginBottom: 10, fontSize: '.85rem' }}
           />
-          <button className="btn btn-primary btn-sm" onClick={salvarNotas} disabled={savingNotas}>
-            {savingNotas
-              ? 'Salvando...'
-              : <><i className="ti ti-device-floppy" /> Salvar anotação</>
-            }
-          </button>
+          {podeEditarAnimais && (
+            <button className="btn btn-primary btn-sm" onClick={salvarNotas} disabled={savingNotas}>
+              {savingNotas
+                ? 'Salvando...'
+                : <><i className="ti ti-device-floppy" /> Salvar anotação</>
+              }
+            </button>
+          )}
         </div>
       </div>
     )
@@ -660,9 +666,11 @@ export default function Animais() {
           onChange={e => setSearch(e.target.value)}
         />
         <div style={{ display: 'flex', gap: 8, marginLeft: 'auto' }}>
-          <button className="btn btn-primary btn-sm" onClick={openNew}>
-            <i className="ti ti-plus" /> Novo animal
-          </button>
+          {podeEditarAnimais && (
+            <button className="btn btn-primary btn-sm" onClick={openNew}>
+              <i className="ti ti-plus" /> Novo animal
+            </button>
+          )}
           <BotaoPDF contentRef={listaRef} filename="animais-cadastro" />
         </div>
       </div>
@@ -671,7 +679,7 @@ export default function Animais() {
         {filtered.length === 0
           ? <EmptyState icon="🐄" title="Nenhum animal encontrado"
               sub="Ajuste os filtros ou cadastre um novo animal."
-              action={<button className="btn btn-primary btn-sm" onClick={openNew}><i className="ti ti-plus" /> Novo animal</button>} />
+              action={podeEditarAnimais ? <button className="btn btn-primary btn-sm" onClick={openNew}><i className="ti ti-plus" /> Novo animal</button> : undefined} />
           : (
             <div className="table-wrap">
               <table>
