@@ -103,6 +103,24 @@ function PrimeiroAcesso() {
   )
 }
 
+// ── Sem vínculo com fazenda (operador sem acesso) ─────────────────
+function SemAcessoFazenda() {
+  return (
+    <div style={{ height:'100vh', display:'flex', alignItems:'center', justifyContent:'center', background:'#F9FAFB', padding:24 }}>
+      <div style={{ background:'white', borderRadius:16, padding:'40px 36px', maxWidth:420, width:'100%', boxShadow:'0 8px 32px rgba(0,0,0,.1)', textAlign:'center' }}>
+        <div style={{ fontSize:56, marginBottom:16 }}>🔒</div>
+        <h2 style={{ fontSize:'1.25rem', fontWeight:700, color:'#1E4D35', marginBottom:8 }}>Sem acesso a fazendas</h2>
+        <p style={{ fontSize:'.9rem', color:'#6B7280', marginBottom:24 }}>
+          Você ainda não tem acesso a nenhuma fazenda. Fale com o administrador da sua conta para liberar o acesso.
+        </p>
+        <button className="btn btn-primary" style={{ width:'100%' }} onClick={() => auth.signOut()}>
+          Sair
+        </button>
+      </div>
+    </div>
+  )
+}
+
 // ── Guard de conta: aguarda contas carregarem ─────────────────────
 function ContaGuard({ user, perfil }) {
   const { loading, contas } = useConta()
@@ -120,7 +138,7 @@ function FazendaGuard({ user, perfil }) {
   const { loading, fazendas } = useFazenda()
 
   if (loading) return <FullLoading text="Carregando fazendas..." />
-  if (fazendas.length === 0) return <FullLoading text="Preparando fazenda..." />
+  if (fazendas.length === 0) return <SemAcessoFazenda />
 
   return <Layout user={user} perfil={perfil} />
 }
