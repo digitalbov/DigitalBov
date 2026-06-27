@@ -5,16 +5,19 @@ import { useConta } from './ContaContext'
 const PermCtx = createContext(null)
 
 export function PermissoesProvider({ children }) {
-  const { contaAtual } = useConta()
-  const [perms, setPerms] = useState({})   // modulo -> pode_editar
+  const { contaAtual, loading: contaLoading } = useConta()
+  const [perms, setPerms] = useState({})
   const [ehAdmin, setEhAdmin] = useState(false)
-  const [loading, setLoading] = useState(true)
+  const [carregado, setCarregado] = useState(false)
 
   const carregar = useCallback(async () => {
-    if (!contaAtual) { setLoading(false); return }
+    setCarregado(false)
+    if (contaLoading) return            // espera a conta terminar de carregar
+    if (!contaAtual) { setEhAdmin(false); setPerms({}); setCarregado(true); return }
+
     const admin = contaAtual.papel === 'dono' || contaAtual.papel === 'admin'
     setEhAdmin(admin)
-    if (admin) { setPerms({}); setLoading(false); return }  // admin edita tudo
+    if (admin) { setPerms({}); setCarregado(true); return }
 
     const { data: { user } } = await supabase.auth.getUser()
     const { data } = await supabase
@@ -24,19 +27,20 @@ export function PermissoesProvider({ children }) {
     const map = {}
     ;(data || []).forEach(p => { map[p.modulo] = p.pode_editar })
     setPerms(map)
-    setLoading(false)
-  }, [contaAtual])
+    setCarregado(true)
+  }, [contaAtual, contaLoading])
 
   useEffect(() => { carregar() }, [carregar])
 
-  // podeEditar('animais') -> true/false. Admin sempre true.
+  // Enquanto não carregou, podeEditar retorna false (esconde botões por segurança)
   const podeEditar = useCallback((modulo) => {
+    if (!carregado) return false
     if (ehAdmin) return true
     return !!perms[modulo]
-  }, [ehAdmin, perms])
+  }, [carregado, ehAdmin, perms])
 
   return (
-    <PermCtx.Provider value={{ podeEditar, ehAdmin, loading }}>
+    <PermCtx.Provider value={{ podeEditar, ehAdmin, carregado }}>
       {children}
     </PermCtx.Provider>
   )

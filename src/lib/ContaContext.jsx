@@ -10,11 +10,13 @@ export function ContaProvider({ children }) {
 
   const carregarContas = useCallback(async () => {
     setLoading(true)
-    // Busca as contas das quais o usuário logado é membro (RLS garante o filtro)
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) { setContas([]); setContaAtualSt(null); setCurrentContaId(null); setLoading(false); return }
     const { data: membros } = await supabase
       .from('conta_membros')
       .select('conta_id, papel, contas(*)')
       .eq('status', 'ativo')
+      .eq('usuario_id', user.id)
 
     const lista = (membros || [])
       .map(m => m.contas ? { ...m.contas, papel: m.papel } : null)

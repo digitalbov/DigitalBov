@@ -264,6 +264,7 @@ export default function Animais() {
   const { podeEditar } = usePermissoes()
   const podeEditarAnimais = podeEditar('animais')
 
+
   const listaRef   = useRef(null)
   const detalheRef = useRef(null)
 
@@ -727,6 +728,7 @@ export default function Animais() {
 
   return (
     <>
+
       {selected ? detalhe : lista}
 
       <Modal
