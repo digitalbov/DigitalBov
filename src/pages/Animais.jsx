@@ -433,14 +433,23 @@ export default function Animais() {
     setModal(true)
   }
 
+  const limparVazios = (obj) => {
+    const camposNullable = ['data_baixa', 'mae_id', 'lote_id']
+    const out = { ...obj }
+    for (const c of camposNullable) if (out[c] === '') out[c] = null
+    return out
+  }
+
   const salvar = async () => {
-    if (!editData.brinco || !editData.sexo || !editData.proprietario_id) {
-      toast('Preencha brinco, sexo e proprietário.', 'error'); return
-    }
-    setSaving(true)
-    const payload = { ...editData }
+    let payload = { ...editData }
     delete payload.proprietario
     delete payload.lote
+    payload = limparVazios(payload)
+    if (!payload.brinco)          { toast('Preencha o brinco.', 'error'); return }
+    if (!payload.sexo)            { toast('Selecione o sexo.', 'error'); return }
+    if (!payload.proprietario_id) { toast('Selecione o proprietário.', 'error'); return }
+    if (!payload.data_nascimento) { toast('Preencha a data de nascimento.', 'error'); return }
+    setSaving(true)
     const { error } = editData.id
       ? await db.animais.update(editData.id, payload)
       : await db.animais.insert(payload)
@@ -737,7 +746,7 @@ export default function Animais() {
                   <option value="M">Macho ♂</option>
                 </select>
               </Field>
-              <Field label="Data de nascimento">
+              <Field label="Data de nascimento" required>
                 <input type="date" value={editData.data_nascimento || ''} onChange={e => setEditData(p => ({ ...p, data_nascimento: e.target.value }))} />
               </Field>
               <Field label="Categoria" hint="Calculada automaticamente">
