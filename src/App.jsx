@@ -1,7 +1,8 @@
 import { lazy, useEffect, useState, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
-import { auth, supabase } from './lib/supabase'
+import { auth, supabase, db } from './lib/supabase'
 import { FazendaProvider, useFazenda } from './lib/FazendaContext'
+import { ContaProvider, useConta } from './lib/ContaContext'
 import { ToastContainer } from './components/UI'
 import InstallPrompt from './components/InstallPrompt'
 import Layout   from './components/layout/Layout'
@@ -37,7 +38,7 @@ const TablerLink = () => {
   return null
 }
 
-// ── Loading de tela cheia (usado enquanto fazendas carregam) ──────
+// ── Loading de tela cheia ─────────────────────────────────────────
 function FullLoading({ text = 'Carregando...' }) {
   return (
     <div style={{
@@ -45,8 +46,8 @@ function FullLoading({ text = 'Carregando...' }) {
       justifyContent:'center', flexDirection:'column', gap:12,
       background:'#1E4D35'
     }}>
-      <div style={{ fontSize:48, marginBottom:8 }}>🌾</div>
-      <div style={{ color:'white', fontWeight:600, fontSize:'1.1rem' }}>Ventos da Várzea</div>
+      <div style={{ fontSize:48, marginBottom:8 }}>🐮</div>
+      <div style={{ color:'white', fontWeight:600, fontSize:'1.1rem' }}>DigitalBov</div>
       <div style={{ color:'rgba(255,255,255,.6)', fontSize:'.85rem' }}>{text}</div>
       <div style={{
         width:40, height:40, border:'3px solid rgba(255,255,255,.2)',
@@ -58,60 +59,68 @@ function FullLoading({ text = 'Carregando...' }) {
   )
 }
 
-// ── Tela de primeira fazenda ──────────────────────────────────────
-function SemFazendas() {
-  const { carregarFazendas } = useFazenda()
-  const [form, setForm] = useState({ nome: '', localizacao: '' })
+// ── Onboarding: cria conta + primeira fazenda via RPC ─────────────
+function PrimeiroAcesso() {
+  const { carregarContas } = useConta()
+  const [form, setForm] = useState({ conta: '', fazenda: '', localizacao: '' })
   const [saving, setSaving] = useState(false)
-  const { supabase: _ } = {}
+  const [erro, setErro] = useState('')
 
   const criar = async () => {
-    if (!form.nome) return
-    setSaving(true)
-    const { supabase: sb } = await import('./lib/supabase')
-    const { error } = await sb.from('fazendas').insert({ nome: form.nome, localizacao: form.localizacao, ativo: true, onboarding_concluido: false })
-    if (!error) await carregarFazendas()
+    if (!form.conta || !form.fazenda) return
+    setSaving(true); setErro('')
+    const { error } = await supabase.rpc('criar_conta_com_fazenda', {
+      p_nome_conta: form.conta,
+      p_nome_fazenda: form.fazenda
+    })
+    if (error) { setErro('Não foi possível criar. Tente novamente.'); setSaving(false); return }
+    await carregarContas()
     setSaving(false)
   }
 
   return (
     <div style={{ height:'100vh', display:'flex', alignItems:'center', justifyContent:'center', background:'#F9FAFB', padding:24 }}>
       <div style={{ background:'white', borderRadius:16, padding:'40px 36px', maxWidth:440, width:'100%', boxShadow:'0 8px 32px rgba(0,0,0,.1)', textAlign:'center' }}>
-        <div style={{ fontSize:56, marginBottom:16 }}>🏡</div>
-        <h2 style={{ fontSize:'1.35rem', fontWeight:700, color:'#1E4D35', marginBottom:8 }}>Bem-vindo ao Ventos da Várzea</h2>
-        <p style={{ fontSize:'.88rem', color:'#6B7280', marginBottom:28 }}>Vamos começar cadastrando sua primeira fazenda.</p>
+        <div style={{ fontSize:56, marginBottom:16 }}>🐮</div>
+        <h2 style={{ fontSize:'1.35rem', fontWeight:700, color:'#1E4D35', marginBottom:8 }}>Bem-vindo ao DigitalBov</h2>
+        <p style={{ fontSize:'.88rem', color:'#6B7280', marginBottom:28 }}>Vamos criar sua conta e sua primeira fazenda.</p>
         <div style={{ textAlign:'left', marginBottom:16 }}>
-          <label style={{ fontSize:'.82rem', fontWeight:600, color:'#374151', display:'block', marginBottom:6 }}>Nome da fazenda *</label>
-          <input
-            className="input" style={{ width:'100%' }}
-            placeholder="ex: Fazenda São João"
-            value={form.nome}
-            onChange={e => setForm(p => ({ ...p, nome: e.target.value }))}
-          />
+          <label style={{ fontSize:'.82rem', fontWeight:600, color:'#374151', display:'block', marginBottom:6 }}>Nome da sua conta / empresa *</label>
+          <input className="input" style={{ width:'100%' }} placeholder="ex: Agropecuária Silva"
+            value={form.conta} onChange={e => setForm(p => ({ ...p, conta: e.target.value }))} />
         </div>
-        <div style={{ textAlign:'left', marginBottom:24 }}>
-          <label style={{ fontSize:'.82rem', fontWeight:600, color:'#374151', display:'block', marginBottom:6 }}>Localização / Município</label>
-          <input
-            className="input" style={{ width:'100%' }}
-            placeholder="ex: Viamão, RS"
-            value={form.localizacao}
-            onChange={e => setForm(p => ({ ...p, localizacao: e.target.value }))}
-          />
+        <div style={{ textAlign:'left', marginBottom:16 }}>
+          <label style={{ fontSize:'.82rem', fontWeight:600, color:'#374151', display:'block', marginBottom:6 }}>Nome da primeira fazenda *</label>
+          <input className="input" style={{ width:'100%' }} placeholder="ex: Fazenda São João"
+            value={form.fazenda} onChange={e => setForm(p => ({ ...p, fazenda: e.target.value }))} />
         </div>
-        <button className="btn btn-primary" style={{ width:'100%' }} onClick={criar} disabled={saving || !form.nome}>
-          {saving ? 'Criando...' : 'Criar fazenda e começar'}
+        {erro && <p style={{ color:'#DC2626', fontSize:'.8rem', marginBottom:12 }}>{erro}</p>}
+        <button className="btn btn-primary" style={{ width:'100%' }} onClick={criar} disabled={saving || !form.conta || !form.fazenda}>
+          {saving ? 'Criando...' : 'Criar e começar'}
         </button>
       </div>
     </div>
   )
 }
 
-// ── Guard: aguarda fazendas carregarem, guarda rota ───────────────
+// ── Guard de conta: aguarda contas carregarem ─────────────────────
+function ContaGuard({ user, perfil }) {
+  const { loading, contas } = useConta()
+  if (loading) return <FullLoading text="Carregando conta..." />
+  if (contas.length === 0) return <PrimeiroAcesso />
+  return (
+    <FazendaProvider>
+      <FazendaGuard user={user} perfil={perfil} />
+    </FazendaProvider>
+  )
+}
+
+// ── Guard de fazenda: aguarda fazendas carregarem ─────────────────
 function FazendaGuard({ user, perfil }) {
   const { loading, fazendas } = useFazenda()
 
   if (loading) return <FullLoading text="Carregando fazendas..." />
-  if (fazendas.length === 0) return <SemFazendas />
+  if (fazendas.length === 0) return <FullLoading text="Preparando fazenda..." />
 
   return <Layout user={user} perfil={perfil} />
 }
@@ -119,9 +128,9 @@ function FazendaGuard({ user, perfil }) {
 function ProtectedRoutes({ user, perfil }) {
   if (!user) return <Navigate to="/login" replace />
   return (
-    <FazendaProvider>
-      <FazendaGuard user={user} perfil={perfil} />
-    </FazendaProvider>
+    <ContaProvider>
+      <ContaGuard user={user} perfil={perfil} />
+    </ContaProvider>
   )
 }
 
