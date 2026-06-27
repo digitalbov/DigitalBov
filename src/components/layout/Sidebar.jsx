@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { auth, db } from '../../lib/supabase'
 import { useFazenda } from '../../lib/FazendaContext'
+import { useConta } from '../../lib/ContaContext'
 
 const NAV = [
   { section: 'PRINCIPAL' },
@@ -33,6 +34,8 @@ export default function Sidebar({ user, perfil, mobileOpen, onClose }) {
   const navigate  = useNavigate()
   const location  = useLocation()
   const { fazendas, fazendaAtual, setFazendaAtual, carregarFazendas } = useFazenda()
+  const { contaAtual } = useConta()
+  const ehAdmin = contaAtual?.papel === 'dono' || contaAtual?.papel === 'admin'
   const [seletorAberto, setSeletorAberto] = useState(false)
   const [modalNova, setModalNova] = useState(false)
   const [novaForm, setNovaForm] = useState({ nome:'', localizacao:'' })
@@ -189,6 +192,19 @@ export default function Sidebar({ user, perfil, mobileOpen, onClose }) {
                   background:'rgba(99,135,206,.25)', color:'#93C5FD',
                   borderRadius:6, padding:'1px 6px'
                 }}>NOVO</span>
+              </button>
+            </>
+          )}
+
+          {ehAdmin && (
+            <>
+              <div className="nav-section-label">ADMINISTRAÇÃO</div>
+              <button
+                className={`nav-item ${location.pathname==='/usuarios'?'active':''}`}
+                onClick={() => handleNav('/usuarios')}
+              >
+                <i className="ti ti-users nav-item-icon" />
+                Usuários
               </button>
             </>
           )}

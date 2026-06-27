@@ -23,6 +23,7 @@ const Calendario  = lazy(() => import('./pages/Calendario'))
 const Metas       = lazy(() => import('./pages/Metas'))
 const Backup      = lazy(() => import('./pages/Backup'))
 const Comparativo = lazy(() => import('./pages/Comparativo'))
+const Usuarios    = lazy(() => import('./pages/Usuarios'))
 
 import './styles/global.css'
 
@@ -202,6 +203,7 @@ export default function App() {
           <Route path="/financeiro"  element={<Suspense fallback={null}><Financeiro /></Suspense>} />
           <Route path="/relatorios"  element={<Suspense fallback={null}><Relatorios /></Suspense>} />
           <Route path="/comparativo" element={<Suspense fallback={null}><Comparativo /></Suspense>} />
+          <Route path="/usuarios"   element={<Suspense fallback={null}><Usuarios /></Suspense>} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
