@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { auth } from '../../lib/supabase'
+import { auth, db } from '../../lib/supabase'
 import { useFazenda } from '../../lib/FazendaContext'
 
 const NAV = [
@@ -32,8 +32,11 @@ const NAV = [
 export default function Sidebar({ user, perfil, mobileOpen, onClose }) {
   const navigate  = useNavigate()
   const location  = useLocation()
-  const { fazendas, fazendaAtual, setFazendaAtual } = useFazenda()
+  const { fazendas, fazendaAtual, setFazendaAtual, carregarFazendas } = useFazenda()
   const [seletorAberto, setSeletorAberto] = useState(false)
+  const [modalNova, setModalNova] = useState(false)
+  const [novaForm, setNovaForm] = useState({ nome:'', localizacao:'' })
+  const [salvandoNova, setSalvandoNova] = useState(false)
 
   const initials = (nome) => nome
     ? nome.split(' ').filter((_,i,a) => i===0||i===a.length-1).map(w=>w[0]).join('').toUpperCase()
@@ -44,8 +47,25 @@ export default function Sidebar({ user, perfil, mobileOpen, onClose }) {
   const handleSelectFazenda = (f) => {
     setFazendaAtual(f)
     setSeletorAberto(false)
-    // Reload the current page to reflect the new farm's data
     navigate(location.pathname, { replace: true })
+    window.location.reload()
+  }
+
+  const criarFazenda = async () => {
+    if (!novaForm.nome) return
+    setSalvandoNova(true)
+    const { data, error } = await db.fazendas.insert({
+      nome: novaForm.nome,
+      localizacao: novaForm.localizacao || null,
+      ativo: true
+    })
+    setSalvandoNova(false)
+    if (error) { alert('Não foi possível criar a fazenda.'); return }
+    await carregarFazendas()
+    if (data) setFazendaAtual(data)
+    setModalNova(false)
+    setNovaForm({ nome:'', localizacao:'' })
+    setSeletorAberto(false)
     window.location.reload()
   }
 
@@ -80,18 +100,14 @@ export default function Sidebar({ user, perfil, mobileOpen, onClose }) {
                 <div style={{ fontSize:'.78rem', fontWeight:600, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
                   {fazendaAtual.nome}
                 </div>
-                {fazendas.length > 1 && (
-                  <div style={{ fontSize:'.65rem', color:'rgba(255,255,255,.55)', marginTop:1 }}>
+                <div style={{ fontSize:'.65rem', color:'rgba(255,255,255,.55)', marginTop:1 }}>
                     Trocar fazenda
                   </div>
-                )}
               </div>
-              {fazendas.length > 1 && (
-                <i className={`ti ti-chevron-${seletorAberto?'up':'down'}`} style={{ fontSize:12, flexShrink:0 }} />
-              )}
+              <i className={`ti ti-chevron-${seletorAberto?'up':'down'}`} style={{ fontSize:12, flexShrink:0 }} />
             </button>
 
-            {seletorAberto && fazendas.length > 1 && (
+            {seletorAberto && (
               <div style={{
                 position:'absolute', top:'100%', left:12, right:12, zIndex:100,
                 background:'white', borderRadius:10, boxShadow:'0 8px 24px rgba(0,0,0,.18)',
@@ -115,6 +131,17 @@ export default function Sidebar({ user, perfil, mobileOpen, onClose }) {
                     {f.id===fazendaAtual.id && <i className="ti ti-check" style={{ marginLeft:'auto', color:'#1E4D35', fontSize:14 }} />}
                   </button>
                 ))}
+                <button
+                  onClick={() => { setModalNova(true); setSeletorAberto(false) }}
+                  style={{
+                    width:'100%', padding:'10px 14px', background:'white', border:'none',
+                    cursor:'pointer', textAlign:'left', fontFamily:'inherit',
+                    display:'flex', alignItems:'center', gap:8, color:'#1E4D35', fontWeight:600
+                  }}
+                >
+                  <i className="ti ti-plus" style={{ fontSize:14 }} />
+                  <span style={{ fontSize:'.83rem' }}>Nova fazenda</span>
+                </button>
               </div>
             )}
           </div>
@@ -187,6 +214,34 @@ export default function Sidebar({ user, perfil, mobileOpen, onClose }) {
             Sair
           </button>
         </div>
+        {modalNova && (
+          <div onClick={() => setModalNova(false)} style={{
+            position:'fixed', inset:0, background:'rgba(0,0,0,.5)', zIndex:300,
+            display:'flex', alignItems:'center', justifyContent:'center', padding:20
+          }}>
+            <div onClick={e => e.stopPropagation()} style={{
+              background:'white', borderRadius:14, padding:'28px 26px', maxWidth:380, width:'100%'
+            }}>
+              <h3 style={{ fontSize:'1.1rem', fontWeight:700, color:'#1E4D35', marginBottom:16 }}>Nova fazenda</h3>
+              <div style={{ marginBottom:14 }}>
+                <label style={{ fontSize:'.8rem', fontWeight:600, color:'#374151', display:'block', marginBottom:6 }}>Nome da fazenda *</label>
+                <input className="input" style={{ width:'100%' }} placeholder="ex: Fazenda Nova"
+                  value={novaForm.nome} onChange={e => setNovaForm(p => ({...p, nome:e.target.value}))} />
+              </div>
+              <div style={{ marginBottom:20 }}>
+                <label style={{ fontSize:'.8rem', fontWeight:600, color:'#374151', display:'block', marginBottom:6 }}>Localização</label>
+                <input className="input" style={{ width:'100%' }} placeholder="ex: Viamão, RS"
+                  value={novaForm.localizacao} onChange={e => setNovaForm(p => ({...p, localizacao:e.target.value}))} />
+              </div>
+              <div style={{ display:'flex', gap:10 }}>
+                <button className="btn" style={{ flex:1 }} onClick={() => setModalNova(false)}>Cancelar</button>
+                <button className="btn btn-primary" style={{ flex:1 }} onClick={criarFazenda} disabled={salvandoNova || !novaForm.nome}>
+                  {salvandoNova ? 'Criando...' : 'Criar'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </aside>
     </>
   )
