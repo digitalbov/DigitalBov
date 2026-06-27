@@ -46,6 +46,13 @@ const T = (tabela, opts = {}) => {
   }
 }
 
+// Reforço de escopo em operações por id (camada extra além do RLS)
+const escopo = (q, opts = {}) => {
+  if (cid()) q = q.eq('conta_id', cid())
+  if (opts.semFazenda !== true && fid()) q = q.eq('fazenda_id', fid())
+  return q
+}
+
 // ── Auth helpers ──────────────────────────────────────────────────
 export const auth = {
   signIn:            (email, pw) => supabase.auth.signInWithPassword({ email, password: pw }),
@@ -66,10 +73,10 @@ export const db = {
       if (filters.sexo)            q = q.eq('sexo',            filters.sexo)
       return q
     },
-    get:      (id)    => T('animais').raw().select('*, proprietario:proprietarios(nome), lote:lotes(nome)').eq('id', id).single(),
+    get:      (id)    => escopo(T('animais').raw().select('*, proprietario:proprietarios(nome), lote:lotes(nome)').eq('id', id)).single(),
     insert:   (data)  => T('animais').insertOne(data).select().single(),
-    update:   (id, d) => T('animais').raw().update({ ...d, atualizado_em: new Date().toISOString() }).eq('id', id).select().single(),
-    delete:   (id)    => T('animais').raw().delete().eq('id', id),
+    update:   (id, d) => escopo(T('animais').raw().update({ ...d, atualizado_em: new Date().toISOString() }).eq('id', id)).select().single(),
+    delete:   (id)    => escopo(T('animais').raw().delete().eq('id', id)),
     byBrinco: (b)     => T('animais').select('*, proprietario:proprietarios(id,nome), lote:lotes(id,nome)').eq('brinco', b).maybeSingle(),
     filhos:   (b)     => T('animais').select('*, proprietario:proprietarios(id,nome), lote:lotes(id,nome)').eq('mae_brinco', b).order('brinco'),
   },
@@ -78,32 +85,32 @@ export const db = {
     list:    ()       => T('proprietarios').select('*').eq('ativo', true).order('nome'),
     listAll: ()       => T('proprietarios').select('*').order('nome'),
     insert:  (data)   => T('proprietarios').insertOne(data).select().single(),
-    update:  (id, d)  => T('proprietarios').raw().update(d).eq('id', id).select().single(),
-    delete:  (id)     => T('proprietarios').raw().delete().eq('id', id),
+    update:  (id, d)  => escopo(T('proprietarios').raw().update(d).eq('id', id)).select().single(),
+    delete:  (id)     => escopo(T('proprietarios').raw().delete().eq('id', id)),
     hasData: (id)     => T('animais').selectRaw('id', { count: 'exact', head: true }).eq('proprietario_id', id),
   },
 
   fazendas: {
     list:       ()        => T('fazendas', { semFazenda: true }).select('*').eq('ativo', true).order('nome'),
-    get:        (id)      => T('fazendas', { semFazenda: true }).raw().select('*').eq('id', id).single(),
+    get:        (id)      => escopo(T('fazendas', { semFazenda: true }).raw().select('*').eq('id', id), { semFazenda: true }).single(),
     insert:     (data)    => T('fazendas', { semFazenda: true }).insertOne(data).select().single(),
-    update:     (id, d)   => T('fazendas', { semFazenda: true }).raw().update({ ...d, atualizado_em: new Date().toISOString() }).eq('id', id).select().single(),
-    deactivate: (id)      => T('fazendas', { semFazenda: true }).raw().update({ ativo: false }).eq('id', id),
-    hardDelete: (id)      => T('fazendas', { semFazenda: true }).raw().delete().eq('id', id),
+    update:     (id, d)   => escopo(T('fazendas', { semFazenda: true }).raw().update({ ...d, atualizado_em: new Date().toISOString() }).eq('id', id), { semFazenda: true }).select().single(),
+    deactivate: (id)      => escopo(T('fazendas', { semFazenda: true }).raw().update({ ativo: false }).eq('id', id), { semFazenda: true }),
+    hardDelete: (id)      => escopo(T('fazendas', { semFazenda: true }).raw().delete().eq('id', id), { semFazenda: true }),
   },
 
   lotes: {
     list:   ()       => T('lotes').select('*').eq('ativo', true).order('nome'),
     insert: (data)   => T('lotes').insertOne(data).select().single(),
-    update: (id, d)  => T('lotes').raw().update(d).eq('id', id).select().single(),
-    delete: (id)     => T('lotes').raw().delete().eq('id', id),
+    update: (id, d)  => escopo(T('lotes').raw().update(d).eq('id', id)).select().single(),
+    delete: (id)     => escopo(T('lotes').raw().delete().eq('id', id)),
   },
 
   piquetes: {
     list:   ()       => T('piquetes').select('*, fazenda:fazendas(nome)').order('nome'),
     insert: (data)   => T('piquetes').insertOne(data).select().single(),
-    update: (id, d)  => T('piquetes').raw().update(d).eq('id', id).select().single(),
-    delete: (id)     => T('piquetes').raw().delete().eq('id', id),
+    update: (id, d)  => escopo(T('piquetes').raw().update(d).eq('id', id)).select().single(),
+    delete: (id)     => escopo(T('piquetes').raw().delete().eq('id', id)),
   },
 
   lotesInseminacao: {
@@ -115,12 +122,12 @@ export const db = {
       inseminacoes(*, animal:animais(brinco,proprietario_id,proprietario:proprietarios(nome)))
     `).order('data', { ascending: true }),
     insert: (data)  => T('lotes_inseminacao').insertOne(data).select().single(),
-    update: (id, d) => T('lotes_inseminacao').raw().update(d).eq('id', id).select().single(),
+    update: (id, d) => escopo(T('lotes_inseminacao').raw().update(d).eq('id', id)).select().single(),
   },
 
   inseminacoes: {
     insert:   (data)      => T('inseminacoes').insertOne(data),
-    update:   (id, d)     => T('inseminacoes').raw().update(d).eq('id', id),
+    update:   (id, d)     => escopo(T('inseminacoes').raw().update(d).eq('id', id)),
     upsert:   (data)      => T('inseminacoes').raw().upsert(
       { ...data, conta_id: cid(), fazenda_id: fid() },
       { onConflict: 'lote_inseminacao_id,animal_id', ignoreDuplicates: false }
@@ -140,20 +147,20 @@ export const db = {
     list:    (animalId) => T('pesagens').select('*').eq('animal_id', animalId).order('data'),
     listAll: ()         => T('pesagens').select('*, animal:animais(brinco,proprietario_id)').order('data', { ascending: false }).limit(100),
     insert:  (data)     => T('pesagens').insertOne(data).select().single(),
-    delete:  (id)       => T('pesagens').raw().delete().eq('id', id),
+    delete:  (id)       => escopo(T('pesagens').raw().delete().eq('id', id)),
   },
 
   sanidade: {
     list:   ()       => T('procedimentos_sanitarios').select('*').order('data', { ascending: false }),
     insert: (data)   => T('procedimentos_sanitarios').insertOne(data).select().single(),
-    delete: (id)     => T('procedimentos_sanitarios').raw().delete().eq('id', id),
+    delete: (id)     => escopo(T('procedimentos_sanitarios').raw().delete().eq('id', id)),
   },
 
   estoque: {
     list:   ()       => T('estoque_itens').select('*').eq('ativo', true).order('categoria, item'),
     insert: (data)   => T('estoque_itens').insertOne(data).select().single(),
-    update: (id, d)  => T('estoque_itens').raw().update(d).eq('id', id).select().single(),
-    delete: (id)     => T('estoque_itens').raw().delete().eq('id', id),
+    update: (id, d)  => escopo(T('estoque_itens').raw().update(d).eq('id', id)).select().single(),
+    delete: (id)     => escopo(T('estoque_itens').raw().delete().eq('id', id)),
   },
 
   movEstoque: {
@@ -164,7 +171,7 @@ export const db = {
   lancamentos: {
     list:   (cicloId) => T('lancamentos_financeiros').select('*').eq('ciclo_id', cicloId).order('data', { ascending: false }),
     insert: (data)    => T('lancamentos_financeiros').insertOne(data).select().single(),
-    delete: (id)      => T('lancamentos_financeiros').raw().delete().eq('id', id),
+    delete: (id)      => escopo(T('lancamentos_financeiros').raw().delete().eq('id', id)),
   },
 
   transacoes: {
@@ -186,29 +193,29 @@ export const db = {
 
   categoriasPreco: {
     list:   ()      => T('categorias_preco').select('*').order('categoria'),
-    update: (id, d) => T('categorias_preco').raw().update({ ...d, atualizado_em: new Date().toISOString() }).eq('id', id),
+    update: (id, d) => escopo(T('categorias_preco').raw().update({ ...d, atualizado_em: new Date().toISOString() }).eq('id', id)),
   },
 
   metas: {
     list:   ()      => T('metas').select('*').order('indicador'),
-    update: (id, d) => T('metas').raw().update(d).eq('id', id).select().single(),
+    update: (id, d) => escopo(T('metas').raw().update(d).eq('id', id)).select().single(),
   },
 
   planejamentos: {
     get:    ()       => T('planejamentos').select('*').eq('ativo', true).order('criado_em', { ascending: false }).limit(1).maybeSingle(),
     insert: (data)   => T('planejamentos').insertOne(data).select().single(),
-    update: (id, d)  => T('planejamentos').raw().update({ ...d, atualizado_em: new Date().toISOString() }).eq('id', id).select().single(),
+    update: (id, d)  => escopo(T('planejamentos').raw().update({ ...d, atualizado_em: new Date().toISOString() }).eq('id', id)).select().single(),
   },
 
   planejamentoAcoes: {
     list:   (planId) => T('planejamento_acoes').select('*').eq('planejamento_id', planId).order('criado_em'),
     insert: (data)   => T('planejamento_acoes').insertOne(data).select().single(),
-    update: (id, d)  => T('planejamento_acoes').raw().update(d).eq('id', id).select().single(),
-    delete: (id)     => T('planejamento_acoes').raw().delete().eq('id', id),
+    update: (id, d)  => escopo(T('planejamento_acoes').raw().update(d).eq('id', id)).select().single(),
+    delete: (id)     => escopo(T('planejamento_acoes').raw().delete().eq('id', id)),
   },
 
   benchmarks: {
     list:   ()           => T('benchmarks_rentabilidade').select('*').order('cenario'),
-    update: (cenario, d) => T('benchmarks_rentabilidade').raw().update(d).eq('cenario', cenario),
+    update: (cenario, d) => escopo(T('benchmarks_rentabilidade').raw().update(d).eq('cenario', cenario)),
   },
 }
