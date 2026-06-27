@@ -1,0 +1,1 @@
+-- Permissões: vínculo usuario_fazendas, usuario_permissoes, funções tem_acesso_fazenda/papel_na_conta/pode_editar_modulo e policies por ação. Rodado manualmente no Supabase.
