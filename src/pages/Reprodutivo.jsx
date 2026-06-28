@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { db } from '../lib/supabase'
+import { usePermissoes } from '../lib/PermissoesContext'
 import { fmtData, pct } from '../lib/helpers'
 import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, AlertBox, BotaoPDF, ErroCarregamento } from '../components/UI'
 import {
@@ -10,6 +11,9 @@ import {
 const TABS = ['Lotes de Inseminação','Nascimentos','Índices']
 
 export default function Reprodutivo() {
+  const { podeEditar } = usePermissoes()
+  const podeEditarReprod = podeEditar('reprodutivo')
+
   const refLotes   = useRef(null)
   const refDiag    = useRef(null)
   const refNasc    = useRef(null)
@@ -362,16 +366,18 @@ export default function Reprodutivo() {
           <div style={{ display:'flex', justifyContent:'space-between', marginBottom:12 }}>
             <span style={{ fontSize:'.85rem', color:'#6B7280' }}>{lotes.length} lote{lotes.length!==1?'s':''} · Ciclo {ciclo?.nome}</span>
             <div style={{ display:'flex', gap:8 }}>
-              <button className="btn btn-primary btn-sm" onClick={() => { setModal('lote'); setSelBrs([]) }}>
-                <i className="ti ti-plus" /> Novo lote de inseminação
-              </button>
+              {podeEditarReprod && (
+                <button className="btn btn-primary btn-sm" onClick={() => { setModal('lote'); setSelBrs([]) }}>
+                  <i className="ti ti-plus" /> Novo lote de inseminação
+                </button>
+              )}
               <BotaoPDF contentRef={refLotes} filename="reprodutivo-lotes" />
             </div>
           </div>
           <div ref={refLotes}>
           {lotes.length === 0
             ? <EmptyState icon="💉" title="Nenhum lote registrado" sub="Registre o primeiro lote de inseminação do ciclo."
-                action={<button className="btn btn-primary btn-sm" onClick={()=>{setModal('lote');setSelBrs([])}}><i className="ti ti-plus"/>Novo lote</button>} />
+                action={podeEditarReprod ? <button className="btn btn-primary btn-sm" onClick={()=>{setModal('lote');setSelBrs([])}}><i className="ti ti-plus"/>Novo lote</button> : undefined} />
             : lotes.map(l => {
               const ins   = l.inseminacoes || []
               const prn   = ins.filter(i=>i.diagnostico==='P').length
@@ -430,7 +436,7 @@ export default function Reprodutivo() {
           <div className="card">
             <div className="card-title">
               <span><i className="ti ti-stethoscope" /> Diagnóstico de gestação</span>
-              <MicButton hint='Fale: "zero três prenha" ou "doze vazia"' onResult={t => vozDiag(t, selLote)} />
+              {podeEditarReprod && <MicButton hint='Fale: "zero três prenha" ou "doze vazia"' onResult={t => vozDiag(t, selLote)} />}
             </div>
             <div style={{ fontSize:'.8rem', background:'#EEEDFE', color:'#3C3489', padding:'7px 10px', borderRadius:8, marginBottom:10 }}>
               <i className="ti ti-microphone" style={{ fontSize:12, marginRight:4 }} />
@@ -446,24 +452,28 @@ export default function Reprodutivo() {
                 }}>
                   <span style={{ fontWeight:500, minWidth:50 }}>{br}</span>
                   <div style={{ display:'flex', gap:6 }}>
-                    <button
-                      style={{
-                        padding:'4px 12px', borderRadius:8, fontSize:'.8rem', cursor:'pointer',
-                        fontFamily:'inherit', fontWeight:d==='P'?600:400,
-                        background:d==='P'?'#EAF3DE':'white', color:d==='P'?'#27500A':'#6B7280',
-                        border:`.5px solid ${d==='P'?'#97C459':'#E5E7EB'}`
-                      }}
-                      onClick={() => salvarDiag(selLote.id, ins.animal_id, 'P')}
-                    >Prenha</button>
-                    <button
-                      style={{
-                        padding:'4px 12px', borderRadius:8, fontSize:'.8rem', cursor:'pointer',
-                        fontFamily:'inherit', fontWeight:d==='V'?600:400,
-                        background:d==='V'?'#FCEBEB':'white', color:d==='V'?'#791F1F':'#6B7280',
-                        border:`.5px solid ${d==='V'?'#E24B4A':'#E5E7EB'}`
-                      }}
-                      onClick={() => salvarDiag(selLote.id, ins.animal_id, 'V')}
-                    >Vazia</button>
+                    {podeEditarReprod && (
+                      <button
+                        style={{
+                          padding:'4px 12px', borderRadius:8, fontSize:'.8rem', cursor:'pointer',
+                          fontFamily:'inherit', fontWeight:d==='P'?600:400,
+                          background:d==='P'?'#EAF3DE':'white', color:d==='P'?'#27500A':'#6B7280',
+                          border:`.5px solid ${d==='P'?'#97C459':'#E5E7EB'}`
+                        }}
+                        onClick={() => salvarDiag(selLote.id, ins.animal_id, 'P')}
+                      >Prenha</button>
+                    )}
+                    {podeEditarReprod && (
+                      <button
+                        style={{
+                          padding:'4px 12px', borderRadius:8, fontSize:'.8rem', cursor:'pointer',
+                          fontFamily:'inherit', fontWeight:d==='V'?600:400,
+                          background:d==='V'?'#FCEBEB':'white', color:d==='V'?'#791F1F':'#6B7280',
+                          border:`.5px solid ${d==='V'?'#E24B4A':'#E5E7EB'}`
+                        }}
+                        onClick={() => salvarDiag(selLote.id, ins.animal_id, 'V')}
+                      >Vazia</button>
+                    )}
                     {!d && <Badge color="gray">Pendente</Badge>}
                   </div>
                 </div>
@@ -499,9 +509,11 @@ export default function Reprodutivo() {
                 {ciclosNasc.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
               </select>
               <div style={{ display:'flex', gap:8 }}>
-                <button className="btn btn-primary btn-sm" onClick={() => { setForm({ data_parto: new Date().toISOString().split('T')[0] }); setModal('parto') }}>
-                  <i className="ti ti-plus" /> Registrar nascimento
-                </button>
+                {podeEditarReprod && (
+                  <button className="btn btn-primary btn-sm" onClick={() => { setForm({ data_parto: new Date().toISOString().split('T')[0] }); setModal('parto') }}>
+                    <i className="ti ti-plus" /> Registrar nascimento
+                  </button>
+                )}
                 <BotaoPDF contentRef={refNasc} filename="reprodutivo-nascimentos" />
               </div>
             </div>

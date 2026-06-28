@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { db } from '../lib/supabase'
 import { calcCategoria, calcGMD } from '../lib/helpers'
 import { Loading, Modal, Field, toast, BotaoPDF, EmptyState, ErroCarregamento } from '../components/UI'
+import { usePermissoes } from '../lib/PermissoesContext'
 
 // ── Metadata de cada indicador ────────────────────────────────────
 const CFG = {
@@ -114,6 +115,9 @@ export default function Metas() {
   const [editOpen,     setEditOpen]     = useState(false)
   const [editVals,     setEditVals]     = useState({})
   const [salvandoMeta, setSalvandoMeta] = useState(false)
+
+  const { podeEditar } = usePermissoes()
+  const podeEditarMetas = podeEditar('metas')
 
   useEffect(() => { loadAll() }, [])
 
@@ -240,9 +244,11 @@ export default function Metas() {
           <span style={{ color: '#E24B4A', fontWeight: 600 }}>{nVermelho} ✗</span>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button className="btn btn-secondary btn-sm" onClick={openEdit}>
-            <i className="ti ti-settings" /> Editar metas
-          </button>
+          {podeEditarMetas && (
+            <button className="btn btn-secondary btn-sm" onClick={openEdit}>
+              <i className="ti ti-settings" /> Editar metas
+            </button>
+          )}
           <BotaoPDF contentRef={contentRef} filename="metas-indicadores" />
         </div>
       </div>

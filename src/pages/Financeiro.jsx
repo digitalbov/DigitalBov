@@ -3,6 +3,7 @@ import { db } from '../lib/supabase'
 import { fmtMoeda, fmtData, getCicloNome, GRUPOS_REC, GRUPOS_DES } from '../lib/helpers'
 import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, AlertBox, BotaoPDF, ErroCarregamento } from '../components/UI'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
+import { usePermissoes } from '../lib/PermissoesContext'
 
 const TABS = ['Resumo','Lançamentos','Compra & Venda','Resultados','Parâmetros','Ciclos']
 
@@ -29,6 +30,9 @@ export default function Financeiro() {
   const [modalCiclo,  setModalCiclo]  = useState(false)
   const [formCiclo,   setFormCiclo]   = useState({})
   const [savingCiclo, setSavingCiclo] = useState(false)
+
+  const { podeEditar } = usePermissoes()
+  const podeEditarFinanceiro = podeEditar('financeiro')
 
   useEffect(() => { loadBase() }, [])
   useEffect(() => { if (cicloId) loadCiclo() }, [cicloId])
@@ -305,9 +309,11 @@ export default function Financeiro() {
               <button className={`pill ${filtTp==='D'?'active':''}`} onClick={()=>setFiltTp('D')}>Despesas</button>
             </div>
             <div style={{ display:'flex', gap:8 }}>
-              <button className="btn btn-primary btn-sm" onClick={()=>setModal('lanc')}>
-                <i className="ti ti-plus"/> Novo lançamento
-              </button>
+              {podeEditarFinanceiro && (
+                <button className="btn btn-primary btn-sm" onClick={()=>setModal('lanc')}>
+                  <i className="ti ti-plus"/> Novo lançamento
+                </button>
+              )}
               <BotaoPDF contentRef={refLancs} filename="financeiro-lancamentos" />
             </div>
           </div>
@@ -329,9 +335,11 @@ export default function Financeiro() {
                           {l.tipo==='R'?'+':'-'}{fmtMoeda(l.valor)}
                         </td>
                         <td>
-                          <button className="btn-icon" onClick={() => excluirLanc(l.id)}>
-                            <i className="ti ti-trash" style={{fontSize:13}}/>
-                          </button>
+                          {podeEditarFinanceiro && (
+                            <button className="btn-icon" onClick={() => excluirLanc(l.id)}>
+                              <i className="ti ti-trash" style={{fontSize:13}}/>
+                            </button>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -357,9 +365,11 @@ export default function Financeiro() {
           <div style={{display:'flex',justifyContent:'space-between',marginBottom:12}}>
             <span style={{fontSize:'.85rem',color:'#6B7280'}}>{transacs.length} transações</span>
             <div style={{ display:'flex', gap:8 }}>
-              <button className="btn btn-primary btn-sm" onClick={()=>setModal('transac')}>
-                <i className="ti ti-plus"/> Registrar transação
-              </button>
+              {podeEditarFinanceiro && (
+                <button className="btn btn-primary btn-sm" onClick={()=>setModal('transac')}>
+                  <i className="ti ti-plus"/> Registrar transação
+                </button>
+              )}
               <BotaoPDF contentRef={refTransacs} filename="financeiro-transacoes" />
             </div>
           </div>
@@ -448,6 +458,7 @@ export default function Financeiro() {
                     <td style={{fontWeight:500}}>{cp.categoria}</td>
                     <td>
                       <input type="number" defaultValue={cp.peso_medio} style={{width:80}}
+                        readOnly={!podeEditarFinanceiro}
                         onBlur={async e => {
                           await db.categoriasPreco.update(cp.id,{peso_medio:parseFloat(e.target.value)||0})
                           toast('Atualizado!')
@@ -455,6 +466,7 @@ export default function Financeiro() {
                     </td>
                     <td>
                       <input type="number" step="0.01" defaultValue={cp.preco_kg} style={{width:80}}
+                        readOnly={!podeEditarFinanceiro}
                         onBlur={async e => {
                           await db.categoriasPreco.update(cp.id,{preco_kg:parseFloat(e.target.value)||0})
                           toast('Atualizado!')
@@ -479,9 +491,11 @@ export default function Financeiro() {
         <div>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
             <span style={{fontSize:'.85rem',color:'#6B7280'}}>{ciclos.length} ciclo(s) registrado(s)</span>
-            <button className="btn btn-primary btn-sm" onClick={abrirModalNovoCiclo}>
-              <i className="ti ti-plus"/> Iniciar novo ciclo
-            </button>
+            {podeEditarFinanceiro && (
+              <button className="btn btn-primary btn-sm" onClick={abrirModalNovoCiclo}>
+                <i className="ti ti-plus"/> Iniciar novo ciclo
+              </button>
+            )}
           </div>
           <div className="table-wrap">
             <table>

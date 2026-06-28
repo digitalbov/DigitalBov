@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { db } from '../lib/supabase'
+import { usePermissoes } from '../lib/PermissoesContext'
 import { fmtData, calcGMD, fmtPeso } from '../lib/helpers'
 import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, IndexCard, BotaoPDF, Confirm, ErroCarregamento } from '../components/UI'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
@@ -12,6 +13,9 @@ export default function Pesagens() {
   const refAnimal = useRef(null)
   const refDesemp = useRef(null)
   const refProj   = useRef(null)
+
+  const { podeEditar } = usePermissoes()
+  const podeEditarPesagens = podeEditar('pesagens')
 
   const [tab,     setTab]    = useState(0)
   const [animais, setAnimais]= useState([])
@@ -129,16 +133,18 @@ export default function Pesagens() {
           <div style={{ display:'flex', justifyContent:'space-between', marginBottom:12 }}>
             <span style={{ fontSize:'.85rem', color:'#6B7280' }}>{pesagens.length} pesagens em {animaisComPeso.length} animais</span>
             <div style={{ display:'flex', gap:8 }}>
-              <button className="btn btn-primary btn-sm" onClick={() => { setForm({ tipo:'intermediaria', data: new Date().toISOString().split('T')[0] }); setModal(true) }}>
-                <i className="ti ti-plus" /> Registrar pesagem
-              </button>
+              {podeEditarPesagens && (
+                <button className="btn btn-primary btn-sm" onClick={() => { setForm({ tipo:'intermediaria', data: new Date().toISOString().split('T')[0] }); setModal(true) }}>
+                  <i className="ti ti-plus" /> Registrar pesagem
+                </button>
+              )}
               <BotaoPDF contentRef={refReg} filename="pesagens-lista" />
             </div>
           </div>
           <div ref={refReg}>
           {pesagens.length === 0
             ? <EmptyState icon="⚖️" title="Nenhuma pesagem registrada"
-                action={<button className="btn btn-primary btn-sm" onClick={()=>{setForm({tipo:'intermediaria',data:new Date().toISOString().split('T')[0]});setModal(true)}}><i className="ti ti-plus"/>Registrar</button>}/>
+                action={podeEditarPesagens ? <button className="btn btn-primary btn-sm" onClick={()=>{setForm({tipo:'intermediaria',data:new Date().toISOString().split('T')[0]});setModal(true)}}><i className="ti ti-plus"/>Registrar</button> : undefined}/>
             : (
               <div className="table-wrap">
                 <table>
@@ -155,9 +161,11 @@ export default function Pesagens() {
                           <td><Badge color="gray">{p.tipo}</Badge></td>
                           <td style={{ textAlign:'right', fontWeight:500 }}>{fmtPeso(p.peso_kg)}</td>
                           <td>
-                            <button className="btn-icon" onClick={() => setConfirmDel(p.id)}>
-                              <i className="ti ti-trash" style={{fontSize:13}}/>
-                            </button>
+                            {podeEditarPesagens && (
+                              <button className="btn-icon" onClick={() => setConfirmDel(p.id)}>
+                                <i className="ti ti-trash" style={{fontSize:13}}/>
+                              </button>
+                            )}
                           </td>
                         </tr>
                       )

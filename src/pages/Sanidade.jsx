@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { db } from '../lib/supabase'
+import { usePermissoes } from '../lib/PermissoesContext'
 import { fmtData, diasDesde } from '../lib/helpers'
 import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, AlertBox, BotaoPDF, Confirm, ErroCarregamento } from '../components/UI'
 
@@ -19,6 +20,9 @@ export default function Sanidade() {
   const refReg     = useRef(null)
   const refAlertas = useRef(null)
   const refHist    = useRef(null)
+
+  const { podeEditar } = usePermissoes()
+  const podeEditarSanidade = podeEditar('sanidade')
 
   const [tab,      setTab]     = useState(0)
   const [dados,    setDados]   = useState([])
@@ -126,16 +130,18 @@ export default function Sanidade() {
           <div style={{ display:'flex', justifyContent:'space-between', marginBottom:12 }}>
             <span style={{ fontSize:'.85rem', color:'#6B7280' }}>{dados.length} procedimentos</span>
             <div style={{ display:'flex', gap:8 }}>
-              <button className="btn btn-primary btn-sm" onClick={() => { setForm({ tipo:'Vacina' }); setModal(true) }}>
-                <i className="ti ti-plus" /> Novo procedimento
-              </button>
+              {podeEditarSanidade && (
+                <button className="btn btn-primary btn-sm" onClick={() => { setForm({ tipo:'Vacina' }); setModal(true) }}>
+                  <i className="ti ti-plus" /> Novo procedimento
+                </button>
+              )}
               <BotaoPDF contentRef={refReg} filename="sanidade-registros" />
             </div>
           </div>
           <div ref={refReg}>
           {dados.length === 0
             ? <EmptyState icon="💉" title="Nenhum procedimento registrado"
-                action={<button className="btn btn-primary btn-sm" onClick={()=>{setForm({tipo:'Vacina'});setModal(true)}}><i className="ti ti-plus"/>Registrar</button>}/>
+                action={podeEditarSanidade ? <button className="btn btn-primary btn-sm" onClick={()=>{setForm({tipo:'Vacina'});setModal(true)}}><i className="ti ti-plus"/>Registrar</button> : undefined}/>
             : (
               <div className="table-wrap">
                 <table>
@@ -161,9 +167,11 @@ export default function Sanidade() {
                             {d.custo > 0 ? `R$ ${parseFloat(d.custo).toFixed(2)}` : '—'}
                           </td>
                           <td>
-                            <button className="btn-icon" onClick={() => setConfirmDel(d.id)}>
-                              <i className="ti ti-trash" style={{ fontSize:13 }} />
-                            </button>
+                            {podeEditarSanidade && (
+                              <button className="btn-icon" onClick={() => setConfirmDel(d.id)}>
+                                <i className="ti ti-trash" style={{ fontSize:13 }} />
+                              </button>
+                            )}
                           </td>
                         </tr>
                       )

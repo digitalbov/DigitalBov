@@ -7,6 +7,7 @@ import area from '@turf/area'
 import { kml as toGeoJson } from '@tmcw/togeojson'
 import { db, supabase } from '../lib/supabase'
 import { useFazenda } from '../lib/FazendaContext'
+import { usePermissoes } from '../lib/PermissoesContext'
 import { diasDesde, fmtMoeda } from '../lib/helpers'
 import { Loading, Modal, Field, Badge, toast, EmptyState, Confirm } from '../components/UI'
 import {
@@ -224,6 +225,8 @@ function GraficoBenchmark({ titulo, valorFazenda, benchmarks, tipo }) {
 // ── COMPONENTE PRINCIPAL ──────────────────────────────────────────
 export default function Propriedade() {
   const { fazendaAtual, fazendas, carregarFazendas, atualizarFazendaAtual, setFazendaAtual } = useFazenda()
+  const { podeEditar } = usePermissoes()
+  const podeEditarProp = podeEditar('propriedade')
 
   const [section,    setSection]    = useState('resumo')
   const [planTab,    setPlanTab]    = useState('proposito')
@@ -575,9 +578,11 @@ export default function Propriedade() {
               <h3 style={{ fontSize:'1rem', fontWeight:600, color:'#374151', marginBottom:4 }}>Propriedade — {fazendaAtual?.nome}</h3>
               <p style={{ fontSize:'.83rem', color:'#6B7280' }}>Selecione uma seção para gerenciar.</p>
             </div>
-            <button className="btn btn-secondary btn-sm" onClick={() => { setSection('fazenda'); setFazendaForm({ nome:fazendaAtual?.nome, localizacao:fazendaAtual?.localizacao, area_total:fazendaAtual?.area_total, area_util:fazendaAtual?.area_util }) }}>
-              <i className="ti ti-settings" /> Configurar fazenda
-            </button>
+            {podeEditarProp && (
+              <button className="btn btn-secondary btn-sm" onClick={() => { setSection('fazenda'); setFazendaForm({ nome:fazendaAtual?.nome, localizacao:fazendaAtual?.localizacao, area_total:fazendaAtual?.area_total, area_util:fazendaAtual?.area_util }) }}>
+                <i className="ti ti-settings" /> Configurar fazenda
+              </button>
+            )}
           </div>
 
           <div className="grid-4" style={{ marginBottom:24 }}>
@@ -614,7 +619,7 @@ export default function Propriedade() {
                   <div style={{ fontSize:'.78rem', fontWeight:600, color:'#374151', marginBottom:6 }}>Objetivos do ciclo {cicloAno}/{String(cicloAno+1).slice(-2)}</div>
                   {acoesCiclo.slice(0,3).map(a => (
                     <div key={a.id} style={{ display:'flex', alignItems:'center', gap:8, marginBottom:5 }}>
-                      <input type="checkbox" checked={a.status==='concluida'} onChange={() => toggleAcao(a)} style={{ cursor:'pointer' }} />
+                      <input type="checkbox" checked={a.status==='concluida'} onChange={podeEditarProp ? () => toggleAcao(a) : undefined} disabled={!podeEditarProp} style={{ cursor: podeEditarProp ? 'pointer' : 'default' }} />
                       <span style={{ fontSize:'.82rem', color:'#374151', textDecoration:a.status==='concluida'?'line-through':'none' }}>{a.descricao}</span>
                     </div>
                   ))}
@@ -629,7 +634,7 @@ export default function Propriedade() {
       {/* ══ PROPRIETÁRIOS ════════════════════════════════════════ */}
       {section === 'props' && (
         <div>
-          <SecHeader title="Proprietários" icon="ti-users" onNew={() => openModal('prop')} newLabel="Novo proprietário" />
+          <SecHeader title="Proprietários" icon="ti-users" onNew={podeEditarProp ? () => openModal('prop') : undefined} newLabel="Novo proprietário" />
           {props.length === 0
             ? <EmptyState icon="👤" title="Nenhum proprietário" sub="Clique em Novo proprietário para começar" />
             : props.map(p => (
@@ -642,13 +647,13 @@ export default function Propriedade() {
                   <div style={{ fontSize:'.78rem', color:'#9CA3AF' }}>IE: {p.inscricao_estadual||'—'}</div>
                 </div>
                 <div style={{ display:'flex', gap:6 }}>
-                  {p.ativo === false
+                  {podeEditarProp && (p.ativo === false
                     ? <button className="btn btn-secondary btn-xs" onClick={() => reativarProprietario(p.id)}><i className="ti ti-player-play" /> Reativar</button>
                     : <>
                         <button className="btn btn-secondary btn-xs" onClick={() => openModal('prop',p)}><i className="ti ti-edit" /> Editar</button>
                         <button className="btn btn-secondary btn-xs" style={{ color:'#E24B4A' }} onClick={() => deletarOuDesativarProprietario(p)}><i className="ti ti-trash" /></button>
                       </>
-                  }
+                  )}
                 </div>
               </div>
             ))
@@ -659,7 +664,7 @@ export default function Propriedade() {
       {/* ══ PIQUETES ═════════════════════════════════════════════ */}
       {section === 'piqs' && (
         <div>
-          <SecHeader title={`Piquetes — ${totalHa.toFixed(1)} ha`} icon="ti-map" onNew={() => openModal('piq')} newLabel="Novo piquete" />
+          <SecHeader title={`Piquetes — ${totalHa.toFixed(1)} ha`} icon="ti-map" onNew={podeEditarProp ? () => openModal('piq') : undefined} newLabel="Novo piquete" />
           {piqs.length > 0 && <MapaPiquetes piqs={piqs} />}
           {piqs.length === 0
             ? <EmptyState icon="🌿" title="Nenhum piquete cadastrado" sub="Clique em Novo piquete para começar" />
@@ -673,8 +678,8 @@ export default function Propriedade() {
                       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
                         <div style={{ fontWeight:600, fontSize:'.92rem', color:'#374151' }}>{p.nome}</div>
                         <div style={{ display:'flex', gap:4 }}>
-                          <button className="btn btn-secondary btn-xs" onClick={() => openModal('piq',p)}><i className="ti ti-edit" /></button>
-                          <button className="btn btn-secondary btn-xs" style={{ color:'#E24B4A' }} onClick={() => deletarPiquete(p)}><i className="ti ti-trash" /></button>
+                          {podeEditarProp && <button className="btn btn-secondary btn-xs" onClick={() => openModal('piq',p)}><i className="ti ti-edit" /></button>}
+                          {podeEditarProp && <button className="btn btn-secondary btn-xs" style={{ color:'#E24B4A' }} onClick={() => deletarPiquete(p)}><i className="ti ti-trash" /></button>}
                         </div>
                       </div>
                       <div>
@@ -684,9 +689,11 @@ export default function Propriedade() {
                       {p.geometria && <div style={{ fontSize:'.72rem', color:'#6B7280' }}><i className="ti ti-map-2" style={{ fontSize:11 }} /> Geometria salva</div>}
                       <Badge color={emUso?'green':'amber'}><i className={`ti ${emUso?'ti-circle-check':'ti-moon'}`} style={{ fontSize:11 }} /> {emUso?'Em uso':'Em descanso'}</Badge>
                       {dias !== null && <div style={{ fontSize:'.75rem', color:'#9CA3AF' }}><i className="ti ti-clock" style={{ fontSize:12 }} /> {dias} dia{dias!==1?'s':''} neste status</div>}
-                      <button className="btn btn-secondary btn-xs" onClick={() => toggleStatus(p)} style={{ marginTop:'auto' }}>
-                        <i className={`ti ${emUso?'ti-moon':'ti-sun'}`} /> {emUso?'Colocar em descanso':'Colocar em uso'}
-                      </button>
+                      {podeEditarProp && (
+                        <button className="btn btn-secondary btn-xs" onClick={() => toggleStatus(p)} style={{ marginTop:'auto' }}>
+                          <i className={`ti ${emUso?'ti-moon':'ti-sun'}`} /> {emUso?'Colocar em descanso':'Colocar em uso'}
+                        </button>
+                      )}
                     </div>
                   )
                 })}
@@ -699,7 +706,7 @@ export default function Propriedade() {
       {/* ══ LOTES ════════════════════════════════════════════════ */}
       {section === 'lotes' && (
         <div>
-          <SecHeader title="Lotes" icon="ti-layers" onNew={() => openModal('lote')} newLabel="Novo lote" />
+          <SecHeader title="Lotes" icon="ti-layers" onNew={podeEditarProp ? () => openModal('lote') : undefined} newLabel="Novo lote" />
           {lotes.length === 0
             ? <EmptyState icon="📦" title="Nenhum lote cadastrado" sub="Clique em Novo lote para começar" />
             : lotes.map(l => (
@@ -715,8 +722,8 @@ export default function Propriedade() {
                     </div>
                   </div>
                   <div style={{ display:'flex', gap:4 }}>
-                    <button className="btn btn-secondary btn-xs" onClick={() => openModal('lote',l)}><i className="ti ti-edit" /> Editar</button>
-                    <button className="btn btn-secondary btn-xs" style={{ color:'#E24B4A' }} onClick={() => deletarLote(l)}><i className="ti ti-trash" /></button>
+                    {podeEditarProp && <button className="btn btn-secondary btn-xs" onClick={() => openModal('lote',l)}><i className="ti ti-edit" /> Editar</button>}
+                    {podeEditarProp && <button className="btn btn-secondary btn-xs" style={{ color:'#E24B4A' }} onClick={() => deletarLote(l)}><i className="ti ti-trash" /></button>}
                   </div>
                 </div>
                 {l.descricao && <div style={{ fontSize:'.78rem', color:'#6B7280', lineHeight:1.5 }}>{l.descricao}</div>}
@@ -735,9 +742,11 @@ export default function Propriedade() {
               <div style={{ fontSize:56, marginBottom:16 }}>🎯</div>
               <h3 style={{ fontWeight:600, color:'#374151', marginBottom:8 }}>Nenhum planejamento criado</h3>
               <p style={{ color:'#6B7280', marginBottom:24, fontSize:'.88rem' }}>Crie o planejamento desta fazenda com Propósito, Números e Ações.</p>
-              <button className="btn btn-primary" onClick={criarPlanejamento} disabled={saving}>
-                {saving?'Criando...':'Criar planejamento'}
-              </button>
+              {podeEditarProp && (
+                <button className="btn btn-primary" onClick={criarPlanejamento} disabled={saving}>
+                  {saving?'Criando...':'Criar planejamento'}
+                </button>
+              )}
             </div>
           ) : (
             <div>
@@ -762,7 +771,7 @@ export default function Propriedade() {
 
               {/* Tab Propósito */}
               {planTab === 'proposito' && (
-                <PlanProposito plan={plan} onSave={savePlanejamento} />
+                <PlanProposito plan={plan} onSave={savePlanejamento} podeEditar={podeEditarProp} />
               )}
 
               {/* Tab Números */}
@@ -775,6 +784,7 @@ export default function Propriedade() {
                   vTerraEfetivo={vTerraEfetivo} vRebanho={vRebanho} vTotal={vTotal}
                   benchmarks={benchmarks}
                   onSaveValores={saveValoresPlan} saving={saving}
+                  podeEditar={podeEditarProp}
                 />
               )}
 
@@ -785,6 +795,7 @@ export default function Propriedade() {
                   cicloAno={cicloAno}
                   onToggle={toggleAcao} onDelete={deletarAcao}
                   onAdd={() => openModal('acao')} onEdit={a => openModal('acao', a)}
+                  podeEditar={podeEditarProp}
                 />
               )}
             </div>
@@ -815,7 +826,7 @@ export default function Propriedade() {
               </Field>
             </div>
             <div style={{ display:'flex', gap:8 }}>
-              <button className="btn btn-primary btn-sm" onClick={saveFazenda} disabled={saving}>{saving?'Salvando...':'Salvar alterações'}</button>
+              {podeEditarProp && <button className="btn btn-primary btn-sm" onClick={saveFazenda} disabled={saving}>{saving?'Salvando...':'Salvar alterações'}</button>}
               <button className="btn btn-secondary btn-sm" onClick={voltar}>Cancelar</button>
             </div>
           </div>
@@ -833,9 +844,11 @@ export default function Propriedade() {
           <div className="card">
             <div className="card-title" style={{ display:'flex', justifyContent:'space-between' }}>
               <span><i className="ti ti-home-2" style={{ color:'#1E4D35' }} /> Todas as fazendas</span>
-              <button className="btn btn-primary btn-xs" onClick={() => openModal('nova-faz')}>
-                <i className="ti ti-plus" /> Nova fazenda
-              </button>
+              {podeEditarProp && (
+                <button className="btn btn-primary btn-xs" onClick={() => openModal('nova-faz')}>
+                  <i className="ti ti-plus" /> Nova fazenda
+                </button>
+              )}
             </div>
             {fazendas.map(f => (
               <div key={f.id} style={{ display:'flex', alignItems:'center', gap:12, padding:'10px 0', borderBottom:'.5px solid #F3F4F6' }}>
@@ -843,12 +856,12 @@ export default function Propriedade() {
                   <div style={{ fontWeight:f.id===fazendaAtual?.id?600:400, fontSize:'.9rem' }}>{f.nome} {f.id===fazendaAtual?.id && <Badge color="green">Atual</Badge>}</div>
                   {f.localizacao && <div style={{ fontSize:'.75rem', color:'#9CA3AF' }}>{f.localizacao}</div>}
                 </div>
-                {f.id !== fazendaAtual?.id && (
+                {f.id !== fazendaAtual?.id && podeEditarProp && (
                   <button className="btn btn-secondary btn-xs" style={{ color:'#E24B4A' }} onClick={() => setConfirmFaz({ acao:'desativar', item:f })}>
                     <i className="ti ti-archive" /> Desativar
                   </button>
                 )}
-                {f.id === fazendaAtual?.id && fazendas.length > 1 && (
+                {f.id === fazendaAtual?.id && fazendas.length > 1 && podeEditarProp && (
                   <button className="btn btn-secondary btn-xs" style={{ color:'#E24B4A' }} onClick={() => { setNomeDeletar(''); setConfirmFaz({ acao:'excluir', item:f }) }}>
                     <i className="ti ti-trash" /> Excluir
                   </button>
@@ -1014,7 +1027,7 @@ export default function Propriedade() {
           </Field>
         </div>
         <div style={{ display:'flex', gap:8 }}>
-          <button className="btn btn-primary" onClick={saveAcao} disabled={saving}>{saving?'Salvando...':<><i className="ti ti-check" /> Salvar</>}</button>
+          {podeEditarProp && <button className="btn btn-primary" onClick={saveAcao} disabled={saving}>{saving?'Salvando...':<><i className="ti ti-check" /> Salvar</>}</button>}
           <button className="btn btn-secondary" onClick={closeModal}>Cancelar</button>
         </div>
       </Modal>
@@ -1097,7 +1110,7 @@ export default function Propriedade() {
 }
 
 // ── Sub-componentes do planejamento ───────────────────────────────
-function PlanProposito({ plan, onSave }) {
+function PlanProposito({ plan, onSave, podeEditar }) {
   const [proposito,  setProposito]  = useState(plan?.proposito||'')
   const [objetivos,  setObjetivos]  = useState(plan?.objetivos_longo_prazo||'')
   const [saving,     setSaving]     = useState(false)
@@ -1119,12 +1132,12 @@ function PlanProposito({ plan, onSave }) {
       <Field label="Objetivos de longo prazo">
         <textarea rows={4} value={objetivos} onChange={e=>setObjetivos(e.target.value)} placeholder="O que você quer alcançar em 5, 10, 20 anos?" />
       </Field>
-      <button className="btn btn-primary btn-sm" onClick={salvar} disabled={saving}>{saving?'Salvando...':'Salvar propósito'}</button>
+      {podeEditar && <button className="btn btn-primary btn-sm" onClick={salvar} disabled={saving}>{saving?'Salvando...':'Salvar propósito'}</button>}
     </div>
   )
 }
 
-function PlanNumeros({ plan, form, setForm, totalHa, resultadoLiquido, cicloAtual, rentTerra, rentRebanho, rentTotal, vTerraEfetivo, vRebanho, vTotal, benchmarks, onSaveValores, saving }) {
+function PlanNumeros({ plan, form, setForm, totalHa, resultadoLiquido, cicloAtual, rentTerra, rentRebanho, rentTotal, vTerraEfetivo, vRebanho, vTotal, benchmarks, onSaveValores, saving, podeEditar }) {
   useEffect(() => {
     setForm({
       valor_terra:        plan?.valor_terra||'',
@@ -1154,7 +1167,7 @@ function PlanNumeros({ plan, form, setForm, totalHa, resultadoLiquido, cicloAtua
           </Field>
         </div>
         <div style={{ display:'flex', gap:8 }}>
-          <button className="btn btn-primary btn-sm" onClick={onSaveValores} disabled={saving}>{saving?'Salvando...':'Salvar valores'}</button>
+          {podeEditar && <button className="btn btn-primary btn-sm" onClick={onSaveValores} disabled={saving}>{saving?'Salvando...':'Salvar valores'}</button>}
         </div>
       </div>
 
@@ -1211,13 +1224,13 @@ function PlanNumeros({ plan, form, setForm, totalHa, resultadoLiquido, cicloAtua
   )
 }
 
-function PlanPratica({ acoesPend, acoesConcl, acoesCiclo, cicloAno, onToggle, onDelete, onAdd, onEdit }) {
+function PlanPratica({ acoesPend, acoesConcl, acoesCiclo, cicloAno, onToggle, onDelete, onAdd, onEdit, podeEditar }) {
   const [mostrarConcl, setMostrarConcl] = useState(false)
   const [mostrarTodas, setMostrarTodas] = useState(false)
 
   const AcaoRow = ({ a }) => (
     <div style={{ display:'flex', alignItems:'flex-start', gap:10, padding:'10px 0', borderBottom:'.5px solid #F3F4F6' }}>
-      <input type="checkbox" checked={a.status==='concluida'} onChange={() => onToggle(a)} style={{ cursor:'pointer', marginTop:3, flexShrink:0 }} />
+      <input type="checkbox" checked={a.status==='concluida'} onChange={podeEditar ? () => onToggle(a) : undefined} disabled={!podeEditar} style={{ cursor: podeEditar ? 'pointer' : 'default', marginTop:3, flexShrink:0 }} />
       <div style={{ flex:1 }}>
         <div style={{ fontSize:'.86rem', color:'#111827', textDecoration:a.status==='concluida'?'line-through':'none' }}>{a.descricao}</div>
         <div style={{ display:'flex', gap:8, marginTop:3, flexWrap:'wrap' }}>
@@ -1226,10 +1239,12 @@ function PlanPratica({ acoesPend, acoesConcl, acoesCiclo, cicloAno, onToggle, on
           {a.concluida_em && <span style={{ fontSize:'.72rem', color:'#9CA3AF' }}>Concluída em {new Date(a.concluida_em).toLocaleDateString('pt-BR')}</span>}
         </div>
       </div>
-      <div style={{ display:'flex', gap:4, flexShrink:0 }}>
-        <button className="btn btn-secondary btn-xs" onClick={() => onEdit(a)}><i className="ti ti-edit" /></button>
-        <button className="btn btn-secondary btn-xs" style={{ color:'#E24B4A' }} onClick={() => onDelete(a.id)}><i className="ti ti-trash" /></button>
-      </div>
+      {podeEditar && (
+        <div style={{ display:'flex', gap:4, flexShrink:0 }}>
+          <button className="btn btn-secondary btn-xs" onClick={() => onEdit(a)}><i className="ti ti-edit" /></button>
+          <button className="btn btn-secondary btn-xs" style={{ color:'#E24B4A' }} onClick={() => onDelete(a.id)}><i className="ti ti-trash" /></button>
+        </div>
+      )}
     </div>
   )
 
@@ -1238,7 +1253,7 @@ function PlanPratica({ acoesPend, acoesConcl, acoesCiclo, cicloAno, onToggle, on
       <div className="card" style={{ marginBottom:16 }}>
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12 }}>
           <div className="card-title" style={{ margin:0 }}><i className="ti ti-list-check" style={{ color:'#0C447C' }} /> Como? — Ações futuras</div>
-          <button className="btn btn-primary btn-sm" onClick={onAdd}><i className="ti ti-plus" /> Adicionar ação</button>
+          {podeEditar && <button className="btn btn-primary btn-sm" onClick={onAdd}><i className="ti ti-plus" /> Adicionar ação</button>}
         </div>
 
         {/* Ações do ciclo atual */}

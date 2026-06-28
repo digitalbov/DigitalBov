@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { db } from '../lib/supabase'
+import { usePermissoes } from '../lib/PermissoesContext'
 import { fmtData, fmtMoeda } from '../lib/helpers'
 import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, AlertBox, BotaoPDF, Confirm, ErroCarregamento } from '../components/UI'
 
@@ -18,6 +19,9 @@ export default function Estoque() {
   const refInv     = useRef(null)
   const refMov     = useRef(null)
   const refAlertas = useRef(null)
+
+  const { podeEditar } = usePermissoes()
+  const podeEditarEstoque = podeEditar('estoque')
 
   const [tab,     setTab]    = useState(0)
   const [itens,   setItens]  = useState([])
@@ -157,9 +161,11 @@ export default function Estoque() {
               {alertasValidade.length > 0 && <span style={{ color: '#633806', fontWeight: 500 }}> · {alertasValidade.length} vencendo</span>}
             </span>
             <div style={{ display: 'flex', gap: 8 }}>
-              <button className="btn btn-primary btn-sm" onClick={() => { setForm({ categoria: 'Medicamento' }); setModal('item') }}>
-                <i className="ti ti-plus" /> Novo item
-              </button>
+              {podeEditarEstoque && (
+                <button className="btn btn-primary btn-sm" onClick={() => { setForm({ categoria: 'Medicamento' }); setModal('item') }}>
+                  <i className="ti ti-plus" /> Novo item
+                </button>
+              )}
               <BotaoPDF contentRef={refInv} filename="estoque-inventario" />
             </div>
           </div>
@@ -167,7 +173,7 @@ export default function Estoque() {
           <div ref={refInv}>
             {itens.length === 0
               ? <EmptyState icon="📦" title="Estoque vazio" sub="Cadastre os itens do estoque."
-                  action={<button className="btn btn-primary btn-sm" onClick={() => { setForm({ categoria: 'Medicamento' }); setModal('item') }}><i className="ti ti-plus" />Novo item</button>} />
+                  action={podeEditarEstoque ? <button className="btn btn-primary btn-sm" onClick={() => { setForm({ categoria: 'Medicamento' }); setModal('item') }}><i className="ti ti-plus" />Novo item</button> : undefined} />
               : catList.map(cat => (
                 <div key={cat} className="card" style={{ marginBottom: 10 }}>
                   <div className="card-title"><i className="ti ti-tag" /> {cat}</div>
@@ -202,15 +208,19 @@ export default function Estoque() {
                           )}
                         </div>
                         <Badge color={ok ? 'green' : 'red'}>{ok ? 'OK' : '⚠ Baixo'}</Badge>
-                        <button className="btn btn-secondary btn-xs"
-                          onClick={() => { setForm({ ...item, _edit: true }); setModal('item') }}>
-                          <i className="ti ti-edit" />
-                        </button>
-                        <button className="btn-icon" title="Excluir item"
-                          onClick={() => setConfirmDel(item)}
-                          style={{ color: '#E24B4A', padding: '4px 6px' }}>
-                          <i className="ti ti-trash" style={{ fontSize: 15 }} />
-                        </button>
+                        {podeEditarEstoque && (
+                          <button className="btn btn-secondary btn-xs"
+                            onClick={() => { setForm({ ...item, _edit: true }); setModal('item') }}>
+                            <i className="ti ti-edit" />
+                          </button>
+                        )}
+                        {podeEditarEstoque && (
+                          <button className="btn-icon" title="Excluir item"
+                            onClick={() => setConfirmDel(item)}
+                            style={{ color: '#E24B4A', padding: '4px 6px' }}>
+                            <i className="ti ti-trash" style={{ fontSize: 15 }} />
+                          </button>
+                        )}
                       </div>
                     )
                   })}
@@ -227,9 +237,11 @@ export default function Estoque() {
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
             <span style={{ fontSize: '.85rem', color: '#6B7280' }}>{movs.length} movimentações</span>
             <div style={{ display: 'flex', gap: 8 }}>
-              <button className="btn btn-primary btn-sm" onClick={() => { setForm({ tipo: 'S', data: new Date().toISOString().split('T')[0] }); setModal('mov') }}>
-                <i className="ti ti-plus" /> Movimentar
-              </button>
+              {podeEditarEstoque && (
+                <button className="btn btn-primary btn-sm" onClick={() => { setForm({ tipo: 'S', data: new Date().toISOString().split('T')[0] }); setModal('mov') }}>
+                  <i className="ti ti-plus" /> Movimentar
+                </button>
+              )}
               <BotaoPDF contentRef={refMov} filename="estoque-movimentacoes" />
             </div>
           </div>
