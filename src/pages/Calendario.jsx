@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+﻿import { useState, useEffect, useRef } from 'react'
 import { db } from '../lib/supabase'
 import { fmtData } from '../lib/helpers'
 import { Loading, BotaoPDF, EmptyState, ErroCarregamento } from '../components/UI'
@@ -10,12 +10,12 @@ function getUrg(dias) {
   if (dias < 0)     return { label: `${Math.abs(dias)}d atraso`,    color: '#791F1F', bg: '#FCEBEB', borda: '#F5B5B5' }
   if (dias === 0)   return { label: 'Hoje!',                         color: '#92400E', bg: '#FEF3C7', borda: '#FBBF24' }
   if (dias <= 7)    return { label: `Em ${dias} dia${dias===1?'':'s'}`, color: '#633806', bg: '#FAEEDA', borda: '#F3D5A3' }
-  if (dias <= 30)   return { label: `Em ${dias} dias`,              color: '#27500A', bg: '#EAF3DE', borda: '#C0DD97' }
+  if (dias <= 30)   return { label: `Em ${dias} dias`,              color: '#1E55B0', bg: '#E8F0FC', borda: '#A5C8F5' }
   return              { label: `Em ${dias} dias`,                   color: '#4B5563', bg: '#F9FAFB', borda: '#E5E7EB' }
 }
 
 const TIPO_BADGE = {
-  parto:    { label: 'Parto',    bg: '#EAF3DE', cor: '#27500A' },
+  parto:    { label: 'Parto',    bg: '#E8F0FC', cor: '#1E55B0' },
   sanidade: { label: 'Sanidade', bg: '#E6F1FB', cor: '#0C447C' },
   estoque:  { label: 'Estoque',  bg: '#FAEEDA', cor: '#633806' },
 }
@@ -224,8 +224,8 @@ export default function Calendario() {
         {[
           { v: kpiAtrasados, label: 'Atrasados / Vencidos', icon: '⚠️', color: '#791F1F', bg: '#FCEBEB' },
           { v: kpiSemana,    label: 'Esta semana (7d)',      icon: '📅', color: '#633806', bg: '#FAEEDA' },
-          { v: kpiMes,       label: 'Este mês (30d)',        icon: '📆', color: '#27500A', bg: '#EAF3DE' },
-          { v: kpiTotal,     label: 'Total de eventos',      icon: '📋', color: '#1E4D35', bg: 'white'  },
+          { v: kpiMes,       label: 'Este mês (30d)',        icon: '📆', color: '#1E55B0', bg: '#E8F0FC' },
+          { v: kpiTotal,     label: 'Total de eventos',      icon: '📋', color: '#2B6CD9', bg: 'white'  },
         ].map(k => (
           <div key={k.label} className="kpi-card" style={{ background: k.v > 0 ? k.bg : 'white' }}>
             <div className="kpi-icon" style={{ background: k.bg, fontSize: 15 }}>{k.icon}</div>

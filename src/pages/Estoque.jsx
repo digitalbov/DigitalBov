@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+﻿import { useState, useEffect, useRef } from 'react'
 import { db } from '../lib/supabase'
 import { usePermissoes } from '../lib/PermissoesContext'
 import { fmtData, fmtMoeda } from '../lib/helpers'
@@ -188,7 +188,7 @@ export default function Estoque() {
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
                             <div style={{ flex: 1, maxWidth: 120 }}>
                               <div className="progress-bg">
-                                <div className="progress-fill" style={{ width: `${pct}%`, background: ok ? '#3B6D11' : '#E24B4A' }} />
+                                <div className="progress-fill" style={{ width: `${pct}%`, background: ok ? '#7B2FBE' : '#E24B4A' }} />
                               </div>
                             </div>
                             <span style={{ fontSize: '.75rem', color: '#9CA3AF' }}>
@@ -258,7 +258,7 @@ export default function Estoque() {
                           <td>{fmtData(m.data)}</td>
                           <td><Badge color={m.tipo === 'E' ? 'green' : 'amber'}>{m.tipo === 'E' ? 'Entrada' : 'Saída'}</Badge></td>
                           <td style={{ fontWeight: 500 }}>{m.item?.item || '—'}</td>
-                          <td style={{ textAlign: 'right', fontWeight: 500, color: m.tipo === 'E' ? '#27500A' : '#791F1F' }}>
+                          <td style={{ textAlign: 'right', fontWeight: 500, color: m.tipo === 'E' ? '#1E55B0' : '#791F1F' }}>
                             {m.tipo === 'E' ? '+' : '-'}{parseFloat(m.quantidade).toFixed(1)} {m.item?.unidade}
                           </td>
                           <td style={{ color: '#9CA3AF', fontSize: '.78rem' }}>{m.motivo}</td>
@@ -327,12 +327,12 @@ export default function Estoque() {
                   <div key={item.id} style={{ marginBottom: 8 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '.8rem', marginBottom: 3 }}>
                       <span style={{ fontWeight: 500 }}>{item.item}</span>
-                      <span style={{ color: ok ? '#27500A' : '#791F1F', fontWeight: 500 }}>
+                      <span style={{ color: ok ? '#1E55B0' : '#791F1F', fontWeight: 500 }}>
                         {parseFloat(item.quantidade).toFixed(1)} / {parseFloat(item.minimo).toFixed(1)} {item.unidade}
                       </span>
                     </div>
                     <div className="progress-bg">
-                      <div className="progress-fill" style={{ width: `${pct}%`, background: ok ? '#3B6D11' : '#E24B4A' }} />
+                      <div className="progress-fill" style={{ width: `${pct}%`, background: ok ? '#7B2FBE' : '#E24B4A' }} />
                     </div>
                   </div>
                 )

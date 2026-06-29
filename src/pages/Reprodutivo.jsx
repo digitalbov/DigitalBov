@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+﻿import { useState, useEffect, useRef } from 'react'
 import { db } from '../lib/supabase'
 import { usePermissoes } from '../lib/PermissoesContext'
 import { fmtData, pct } from '../lib/helpers'
@@ -312,7 +312,7 @@ export default function Reprodutivo() {
   })
 
   const pieData = [
-    { name:'Prenha',   value: lotesCicloAtual.reduce((s,l) => s + (l.inseminacoes?.filter(i => i.diagnostico==='P').length||0), 0), color:'#3B6D11' },
+    { name:'Prenha',   value: lotesCicloAtual.reduce((s,l) => s + (l.inseminacoes?.filter(i => i.diagnostico==='P').length||0), 0), color:'#7B2FBE' },
     { name:'Vazia',    value: lotesCicloAtual.reduce((s,l) => s + (l.inseminacoes?.filter(i => i.diagnostico==='V').length||0), 0), color:'#DC2626' },
     { name:'Pendente', value: lotesCicloAtual.reduce((s,l) => s + (l.inseminacoes?.filter(i => !i.diagnostico).length||0), 0),      color:'#D97706' },
   ].filter(d => d.value > 0)
@@ -386,7 +386,7 @@ export default function Reprodutivo() {
               return (
                 <div key={l.id} className="card" style={{
                   marginBottom:10, cursor:'pointer',
-                  borderLeft:`3px solid ${l.encerrado?'#3B6D11':'#D97706'}`
+                  borderLeft:`3px solid ${l.encerrado?'#7B2FBE':'#D97706'}`
                 }} onClick={() => setSelLote(l)}>
                   <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:8 }}>
                     <div>
@@ -397,7 +397,7 @@ export default function Reprodutivo() {
                   </div>
                   <div style={{ display:'flex', gap:12, flexWrap:'wrap', fontSize:'.82rem' }}>
                     <span><strong>{ins.length}</strong> <span style={{color:'#6B7280'}}>inseminadas</span></span>
-                    {prn > 0 && <span><strong style={{color:'#27500A'}}>{prn}</strong> <span style={{color:'#6B7280'}}>prenhas ({pct(prn,ins.length)})</span></span>}
+                    {prn > 0 && <span><strong style={{color:'#1E55B0'}}>{prn}</strong> <span style={{color:'#6B7280'}}>prenhas ({pct(prn,ins.length)})</span></span>}
                     {vaz > 0 && <span><strong style={{color:'#791F1F'}}>{vaz}</strong> <span style={{color:'#6B7280'}}>vazias</span></span>}
                     {pend > 0 && <Badge color="amber">{pend} aguardando diagnóstico</Badge>}
                   </div>
@@ -423,7 +423,7 @@ export default function Reprodutivo() {
           <div className="grid-4" style={{ marginBottom:14 }}>
             {[
               ['Inseminadas', selLote.inseminacoes?.length||0,'#111'],
-              ['Prenhas',     selLote.inseminacoes?.filter(i=>i.diagnostico==='P').length||0,'#27500A'],
+              ['Prenhas',     selLote.inseminacoes?.filter(i=>i.diagnostico==='P').length||0,'#1E55B0'],
               ['Vazias',      selLote.inseminacoes?.filter(i=>i.diagnostico==='V').length||0,'#791F1F'],
               ['Pendentes',   selLote.inseminacoes?.filter(i=>!i.diagnostico).length||0,'#9CA3AF'],
             ].map(([l,v,c]) => (
@@ -457,8 +457,8 @@ export default function Reprodutivo() {
                         style={{
                           padding:'4px 12px', borderRadius:8, fontSize:'.8rem', cursor:'pointer',
                           fontFamily:'inherit', fontWeight:d==='P'?600:400,
-                          background:d==='P'?'#EAF3DE':'white', color:d==='P'?'#27500A':'#6B7280',
-                          border:`.5px solid ${d==='P'?'#97C459':'#E5E7EB'}`
+                          background:d==='P'?'#E8F0FC':'white', color:d==='P'?'#1E55B0':'#6B7280',
+                          border:`.5px solid ${d==='P'?'#1BA89C':'#E5E7EB'}`
                         }}
                         onClick={() => salvarDiag(selLote.id, ins.animal_id, 'P')}
                       >Prenha</button>
@@ -528,9 +528,9 @@ export default function Reprodutivo() {
                     <button key={prop.id} onClick={() => setFiltroNasc(prop.id)} style={{
                       padding:'4px 14px', borderRadius:20, fontSize:'.82rem', cursor:'pointer',
                       fontFamily:'inherit', fontWeight: active ? 600 : 400,
-                      background: active ? '#3B6D11' : 'white',
+                      background: active ? '#7B2FBE' : 'white',
                       color: active ? 'white' : '#374151',
-                      border: active ? '.5px solid #3B6D11' : '.5px solid #D1D5DB',
+                      border: active ? '.5px solid #7B2FBE' : '.5px solid #D1D5DB',
                       transition: 'all .15s'
                     }}>
                       {prop.id === 'todos' ? 'Todos' : prop.nome.split(' ')[0]}
@@ -542,7 +542,7 @@ export default function Reprodutivo() {
               {/* Linha 3 — KPI cards */}
               <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(128px, 1fr))', gap:10, marginBottom:14 }}>
                 <div style={{ background:'white', border:'.5px solid #E5E7EB', borderRadius:12, padding:'12px 14px', textAlign:'center' }}>
-                  <div style={{ fontSize:'1.6rem', fontWeight:700, color:'#1E4D35' }}>{pFilt.length}</div>
+                  <div style={{ fontSize:'1.6rem', fontWeight:700, color:'#2B6CD9' }}>{pFilt.length}</div>
                   <div style={{ fontSize:'.72rem', color:'#6B7280', marginTop:2 }}>Nascimentos</div>
                 </div>
                 <div style={{ background:'#EFF6FF', border:'.5px solid #BFDBFE', borderRadius:12, padding:'12px 14px', textAlign:'center' }}>
@@ -559,7 +559,7 @@ export default function Reprodutivo() {
                   return (
                     <div key={prop.id} style={{ background:'#F0F9EC', border:'.5px solid #BBF7D0', borderRadius:12, padding:'12px 14px' }}>
                       <div style={{ fontSize:'.73rem', fontWeight:600, color:'#166534', marginBottom:3 }}>{prop.nome.split(' ')[0]}</div>
-                      <div style={{ fontSize:'1.3rem', fontWeight:700, color:'#1E4D35' }}>{pProp.length} nasc.</div>
+                      <div style={{ fontSize:'1.3rem', fontWeight:700, color:'#2B6CD9' }}>{pProp.length} nasc.</div>
                       <div style={{ fontSize:'.72rem', color:'#6B7280', marginTop:2 }}>
                         ♂{pProp.filter(p => p.bezerro?.sexo==='M').length} ♀{pProp.filter(p => p.bezerro?.sexo==='F').length}
                       </div>
@@ -615,16 +615,16 @@ export default function Reprodutivo() {
 
             {/* Seção 1 — KPIs */}
             <div style={{ marginBottom:16 }}>
-              <div style={{ fontSize:'.9rem', fontWeight:600, color:'#1E4D35', marginBottom:10 }}>
+              <div style={{ fontSize:'.9rem', fontWeight:600, color:'#2B6CD9', marginBottom:10 }}>
                 <i className="ti ti-chart-bar" /> Ciclo atual — {ciclo?.nome}
               </div>
               <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(130px, 1fr))', gap:10 }}>
                 {[
-                  { icon:'ti-stack',         l:'Lotes no ciclo',  v: lotesCicloAtual.length,                                        c:'#1E4D35' },
+                  { icon:'ti-stack',         l:'Lotes no ciclo',  v: lotesCicloAtual.length,                                        c:'#2B6CD9' },
                   { icon:'ti-needle',        l:'Inseminadas',     v: kpiIns,                                                         c:'#111'    },
-                  { icon:'ti-rosette',       l:'Taxa de prenhez', v: kpiIns > 0 ? `${Math.round(kpiPrn/kpiIns*100)}%` : '—',        c:'#1E4D35', meta:'meta ≥85%' },
+                  { icon:'ti-rosette',       l:'Taxa de prenhez', v: kpiIns > 0 ? `${Math.round(kpiPrn/kpiIns*100)}%` : '—',        c:'#2B6CD9', meta:'meta ≥85%' },
                   { icon:'ti-baby-carriage', l:'Nascimentos',     v: kpiNasc,                                                        c:'#0C447C' },
-                  { icon:'ti-trending-up',   l:'Taxa de parição', v: kpiPrn > 0 ? `${Math.round(kpiNasc/kpiPrn*100)}%` : '—',       c:'#1E4D35', meta:'meta ≥80%' },
+                  { icon:'ti-trending-up',   l:'Taxa de parição', v: kpiPrn > 0 ? `${Math.round(kpiNasc/kpiPrn*100)}%` : '—',       c:'#2B6CD9', meta:'meta ≥80%' },
                   { icon:'ti-clock',         l:'Intervalo médio', v: kpiIntervalo,                                                   c:'#633806' },
                 ].map(k => (
                   <div key={k.l} style={{ background:'white', border:'.5px solid #E5E7EB', borderRadius:12, padding:'12px 14px' }}>
@@ -655,7 +655,7 @@ export default function Reprodutivo() {
                       <YAxis tick={{ fontSize:10 }} domain={[0,100]} unit="%" />
                       <Tooltip formatter={v => `${v}%`} />
                       <Legend wrapperStyle={{ fontSize:11 }} />
-                      <Bar dataKey="prenhez" name="Prenhez %" fill="#3B6D11" radius={[4,4,0,0]} />
+                      <Bar dataKey="prenhez" name="Prenhez %" fill="#7B2FBE" radius={[4,4,0,0]} />
                       <Bar dataKey="paricao" name="Parição %"  fill="#0C447C" radius={[4,4,0,0]} />
                     </BarChart>
                   </ResponsiveContainer>
@@ -675,7 +675,7 @@ export default function Reprodutivo() {
                         <YAxis tick={{ fontSize:10 }} domain={[0,100]} unit="%" />
                         <Tooltip formatter={v => `${v}%`} />
                         <Legend wrapperStyle={{ fontSize:11 }} />
-                        <Line type="monotone" dataKey="prenhez" name="Prenhez %" stroke="#3B6D11" strokeWidth={2} dot={{ r:4 }} />
+                        <Line type="monotone" dataKey="prenhez" name="Prenhez %" stroke="#7B2FBE" strokeWidth={2} dot={{ r:4 }} />
                         <Line type="monotone" dataKey="paricao" name="Parição %"  stroke="#0C447C" strokeWidth={2} dot={{ r:4 }} />
                       </LineChart>
                     </ResponsiveContainer>
@@ -735,20 +735,20 @@ export default function Reprodutivo() {
                         <td>
                           {row.ciclo?.nome || '—'}
                           {row.ciclo_id === ciclo?.id && (
-                            <span style={{ marginLeft:5, padding:'1px 5px', borderRadius:8, fontSize:'.63rem', background:'#EAF3DE', color:'#27500A' }}>atual</span>
+                            <span style={{ marginLeft:5, padding:'1px 5px', borderRadius:8, fontSize:'.63rem', background:'#E8F0FC', color:'#1E55B0' }}>atual</span>
                           )}
                         </td>
                         <td>{row.numero}</td>
                         <td>{row.touro}</td>
                         <td style={{ fontSize:'.78rem', whiteSpace:'nowrap' }}>{fmtData(row.data)}</td>
                         <td>{row._m.total}</td>
-                        <td style={{ color:'#27500A' }}>{row._m.prenhas}</td>
+                        <td style={{ color:'#1E55B0' }}>{row._m.prenhas}</td>
                         <td style={{ color:'#791F1F' }}>{row._m.vazias}</td>
-                        <td style={{ fontWeight:500, color: row._m.txPrenhez >= 85 ? '#27500A' : row._m.txPrenhez > 0 ? '#D97706' : '#9CA3AF' }}>
+                        <td style={{ fontWeight:500, color: row._m.txPrenhez >= 85 ? '#1E55B0' : row._m.txPrenhez > 0 ? '#D97706' : '#9CA3AF' }}>
                           {row._m.total > 0 ? `${row._m.txPrenhez}%` : '—'}
                         </td>
                         <td>{row._m.nascimentos || '—'}</td>
-                        <td style={{ color: row._m.txParicao >= 80 ? '#27500A' : row._m.txParicao > 0 ? '#D97706' : '#9CA3AF' }}>
+                        <td style={{ color: row._m.txParicao >= 80 ? '#1E55B0' : row._m.txParicao > 0 ? '#D97706' : '#9CA3AF' }}>
                           {row._m.prenhas > 0 ? `${row._m.txParicao}%` : '—'}
                         </td>
                         <td style={{ fontSize:'.78rem', color:'#9CA3AF', whiteSpace:'nowrap' }}>{row._m.partoPrev}</td>
@@ -774,12 +774,12 @@ export default function Reprodutivo() {
                           <span style={{ fontWeight:500 }}>{t.touro}</span>
                         </div>
                         <div>
-                          <span style={{ fontWeight:700, color:'#1E4D35' }}>{t.txPrenhez}%</span>
+                          <span style={{ fontWeight:700, color:'#2B6CD9' }}>{t.txPrenhez}%</span>
                           <span style={{ fontSize:'.75rem', color:'#9CA3AF', marginLeft:6 }}>{t.totalIns} insem.</span>
                         </div>
                       </div>
                       <div className="progress-bg">
-                        <div className="progress-fill" style={{ width:`${t.txPrenhez}%`, background: i === 0 ? '#D97706' : '#3B6D11' }} />
+                        <div className="progress-fill" style={{ width:`${t.txPrenhez}%`, background: i === 0 ? '#D97706' : '#7B2FBE' }} />
                       </div>
                     </div>
                   ))
@@ -816,11 +816,11 @@ export default function Reprodutivo() {
             <div style={{ display:'flex', flexWrap:'wrap', gap:5, marginBottom:8 }}>
               {selBrs.map(br => (
                 <span key={br} style={{
-                  background:'#EAF3DE', color:'#27500A', border:'.5px solid #97C459',
+                  background:'#E8F0FC', color:'#1E55B0', border:'.5px solid #1BA89C',
                   borderRadius:10, padding:'2px 8px', fontSize:'.8rem', display:'inline-flex', alignItems:'center', gap:4
                 }}>
                   {br}
-                  <button onClick={() => togSel(br)} style={{ background:'none',border:'none',color:'#3B6D11',cursor:'pointer',fontSize:14,padding:0 }}>×</button>
+                  <button onClick={() => togSel(br)} style={{ background:'none',border:'none',color:'#7B2FBE',cursor:'pointer',fontSize:14,padding:0 }}>×</button>
                 </span>
               ))}
             </div>
@@ -903,7 +903,7 @@ export default function Reprodutivo() {
 
         {/* Resumo do que foi entendido */}
         {form.voz_resumo && (
-          <div style={{ background:'#EAF3DE', border:'.5px solid #97C459', borderRadius:8, padding:'8px 12px', marginBottom:14, fontSize:'.85rem', color:'#27500A', fontWeight:500 }}>
+          <div style={{ background:'#E8F0FC', border:'.5px solid #1BA89C', borderRadius:8, padding:'8px 12px', marginBottom:14, fontSize:'.85rem', color:'#1E55B0', fontWeight:500 }}>
             <i className="ti ti-check" style={{ marginRight:6 }} />{form.voz_resumo}
           </div>
         )}

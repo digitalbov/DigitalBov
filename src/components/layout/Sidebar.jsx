@@ -1,4 +1,4 @@
-import { useState } from 'react'
+﻿import { useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { auth, db, supabase } from '../../lib/supabase'
 import { useFazenda } from '../../lib/FazendaContext'
@@ -86,9 +86,9 @@ export default function Sidebar({ user, perfil, mobileOpen, onClose }) {
       <aside className={`sidebar ${mobileOpen ? 'mobile-open' : ''}`}>
         {/* Logo */}
         <div className="sidebar-logo">
-          <img src="/logo-circular.png" style={{width:32,height:32,objectFit:'contain',borderRadius:4}} alt="Logo"/>
+          <img src="/circular-DIGITALBOV.png" style={{width:32,height:32,objectFit:'contain',borderRadius:4}} alt="Logo"/>
           <div className="sidebar-logo-text">
-            <div className="sidebar-logo-title">Ventos da Várzea</div>
+            <div className="sidebar-logo-title">DigitalBov</div>
             <div className="sidebar-logo-sub">Gestão Pecuária</div>
           </div>
         </div>
@@ -127,17 +127,17 @@ export default function Sidebar({ user, perfil, mobileOpen, onClose }) {
                     key={f.id}
                     onClick={() => handleSelectFazenda(f)}
                     style={{
-                      width:'100%', padding:'10px 14px', background: f.id===fazendaAtual.id ? '#EAF3DE' : 'white',
+                      width:'100%', padding:'10px 14px', background: f.id===fazendaAtual.id ? '#E8F0FC' : 'white',
                       border:'none', cursor:'pointer', textAlign:'left', fontFamily:'inherit',
                       borderBottom:'1px solid #F3F4F6', display:'flex', alignItems:'center', gap:8
                     }}
                   >
-                    <i className="ti ti-home-2" style={{ color:'#1E4D35', fontSize:14 }} />
+                    <i className="ti ti-home-2" style={{ color:'#2B6CD9', fontSize:14 }} />
                     <div>
                       <div style={{ fontSize:'.83rem', fontWeight:f.id===fazendaAtual.id?600:400, color:'#111827' }}>{f.nome}</div>
                       {f.localizacao && <div style={{ fontSize:'.72rem', color:'#9CA3AF' }}>{f.localizacao}</div>}
                     </div>
-                    {f.id===fazendaAtual.id && <i className="ti ti-check" style={{ marginLeft:'auto', color:'#1E4D35', fontSize:14 }} />}
+                    {f.id===fazendaAtual.id && <i className="ti ti-check" style={{ marginLeft:'auto', color:'#2B6CD9', fontSize:14 }} />}
                   </button>
                 ))}
                 {ehAdmin && (
@@ -146,7 +146,7 @@ export default function Sidebar({ user, perfil, mobileOpen, onClose }) {
                     style={{
                       width:'100%', padding:'10px 14px', background:'white', border:'none',
                       cursor:'pointer', textAlign:'left', fontFamily:'inherit',
-                      display:'flex', alignItems:'center', gap:8, color:'#1E4D35', fontWeight:600
+                      display:'flex', alignItems:'center', gap:8, color:'#2B6CD9', fontWeight:600
                     }}
                   >
                     <i className="ti ti-plus" style={{ fontSize:14 }} />
@@ -169,7 +169,7 @@ export default function Sidebar({ user, perfil, mobileOpen, onClose }) {
                 className={`nav-item ${active ? 'active' : ''}`}
                 onClick={() => handleNav(item.path)}
                 style={item.destaque && !active ? {
-                  background:'rgba(151,196,89,.18)', color:'#C0DD97', fontWeight:500
+                  background:'rgba(151,196,89,.18)', color:'#A5C8F5', fontWeight:500
                 } : undefined}
               >
                 <i className={`ti ${item.icon} nav-item-icon`} aria-hidden="true" />
@@ -177,7 +177,7 @@ export default function Sidebar({ user, perfil, mobileOpen, onClose }) {
                 {item.destaque && (
                   <span style={{
                     marginLeft:'auto', fontSize:'.64rem', fontWeight:700,
-                    background:'rgba(151,196,89,.3)', color:'#C0DD97',
+                    background:'rgba(151,196,89,.3)', color:'#A5C8F5',
                     borderRadius:6, padding:'1px 6px'
                   }}>IA</span>
                 )}
@@ -246,7 +246,7 @@ export default function Sidebar({ user, perfil, mobileOpen, onClose }) {
             <div onClick={e => e.stopPropagation()} style={{
               background:'white', borderRadius:14, padding:'28px 26px', maxWidth:380, width:'100%'
             }}>
-              <h3 style={{ fontSize:'1.1rem', fontWeight:700, color:'#1E4D35', marginBottom:16 }}>Nova fazenda</h3>
+              <h3 style={{ fontSize:'1.1rem', fontWeight:700, color:'#2B6CD9', marginBottom:16 }}>Nova fazenda</h3>
               <div style={{ marginBottom:14 }}>
                 <label style={{ fontSize:'.8rem', fontWeight:600, color:'#374151', display:'block', marginBottom:6 }}>Nome da fazenda *</label>
                 <input className="input" style={{ width:'100%' }} placeholder="ex: Fazenda Nova"

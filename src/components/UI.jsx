@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+﻿import { useState, useCallback } from 'react'
 
 // ── Toast notification system ─────────────────────────────────────
 let toastFn = null
@@ -223,12 +223,12 @@ export function IndexCard({ value, label, meta, ok, color }) {
       background:'#F9FAFB', border:'.5px solid #E5E7EB',
       borderRadius:10, padding:'12px 8px', textAlign:'center'
     }}>
-      <div style={{ fontSize:'1.25rem', fontWeight:600, color: color || (ok ? '#1E4D35' : '#BA7517') }}>
+      <div style={{ fontSize:'1.25rem', fontWeight:600, color: color || (ok ? '#2B6CD9' : '#BA7517') }}>
         {value}
       </div>
       <div style={{ fontSize:'.72rem', color:'#6B7280', marginTop:3, lineHeight:1.3 }}>{label}</div>
       {meta && (
-        <div style={{ fontSize:'.65rem', marginTop:3, color: ok ? '#27500A' : '#BA7517' }}>
+        <div style={{ fontSize:'.65rem', marginTop:3, color: ok ? '#1E55B0' : '#BA7517' }}>
           meta: {meta} {ok ? '✓' : '↑'}
         </div>
       )}
@@ -237,7 +237,7 @@ export function IndexCard({ value, label, meta, ok, color }) {
 }
 
 // ── Progress bar ──────────────────────────────────────────────────
-export function ProgressBar({ value, max, color = '#1E4D35', height = 6 }) {
+export function ProgressBar({ value, max, color = '#2B6CD9', height = 6 }) {
   const pct = max > 0 ? Math.min(100, Math.round((value / max) * 100)) : 0
   return (
     <div className="progress-bg" style={{ height }}>

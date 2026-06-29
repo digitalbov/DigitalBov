@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+﻿import { useState, useEffect, useRef, useCallback } from 'react'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import '@geoman-io/leaflet-geoman-free'
@@ -103,7 +103,7 @@ function MapaPiquetes({ piqs }) {
 
   return (
     <div style={{ marginBottom: 16 }}>
-      <div style={{ background:'#1E4D35', color:'white', padding:'10px 14px', borderRadius:'12px 12px 0 0', fontSize:'.85rem' }}>
+      <div style={{ background:'#2B6CD9', color:'white', padding:'10px 14px', borderRadius:'12px 12px 0 0', fontSize:'.85rem' }}>
         Mapa de satélite — piquetes
       </div>
       <div id="mapa-piquetes" style={{ width:'100%', height:'380px', borderRadius:'0 0 12px 12px', overflow:'hidden', border:'.5px solid #E5E7EB' }} />
@@ -137,7 +137,7 @@ function MapaDesenho({ initialGeometry, onConfirm, onClose }) {
 
       if (initialGeometry) {
         try {
-          const glayer = L.geoJSON(initialGeometry, { style:{ color:'#1E4D35', fillOpacity:.3 } }).addTo(map)
+          const glayer = L.geoJSON(initialGeometry, { style:{ color:'#2B6CD9', fillOpacity:.3 } }).addTo(map)
           layerRef.current = glayer.getLayers()[0]
           map.fitBounds(glayer.getBounds(), { padding:[30,30] })
         } catch {}
@@ -166,7 +166,7 @@ function MapaDesenho({ initialGeometry, onConfirm, onClose }) {
 
   return (
     <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.85)', zIndex:9999, display:'flex', flexDirection:'column' }}>
-      <div style={{ padding:'12px 16px', background:'#1E4D35', color:'white', display:'flex', justifyContent:'space-between', alignItems:'center', flexShrink:0 }}>
+      <div style={{ padding:'12px 16px', background:'#2B6CD9', color:'white', display:'flex', justifyContent:'space-between', alignItems:'center', flexShrink:0 }}>
         <div>
           <div style={{ fontWeight:600 }}>Desenhar área do piquete</div>
           <div style={{ fontSize:'.75rem', opacity:.7 }}>Clique no ícone de polígono (canto superior esquerdo) para começar a desenhar</div>
@@ -199,7 +199,7 @@ function GraficoBenchmark({ titulo, valorFazenda, benchmarks, tipo }) {
       <div style={{ fontSize:'.78rem', fontWeight:600, color:'#374151', marginBottom:6 }}>{titulo}</div>
       {valorFazenda !== null && (
         <div style={{ marginBottom:8 }}>
-          <span style={{ fontSize:'1.4rem', fontWeight:700, color: valorFazenda >= 0 ? '#1E4D35' : '#E24B4A' }}>
+          <span style={{ fontSize:'1.4rem', fontWeight:700, color: valorFazenda >= 0 ? '#2B6CD9' : '#E24B4A' }}>
             {valorFazenda !== null ? `${valorFazenda.toFixed(2)}%` : '—'}
           </span>
           <span style={{ fontSize:'.75rem', color:'#9CA3AF', marginLeft:6 }}>rentabilidade da fazenda</span>
@@ -213,8 +213,8 @@ function GraficoBenchmark({ titulo, valorFazenda, benchmarks, tipo }) {
           <Tooltip formatter={v=>`${v}%`} />
           <Bar dataKey="referência" fill="#93C5FD" radius={[3,3,0,0]} />
           {valorFazenda !== null && (
-            <ReferenceLine y={valorFazenda} stroke={valorFazenda>=0?'#1E4D35':'#E24B4A'} strokeWidth={2} strokeDasharray="4 2"
-              label={{ value:`Fazenda: ${valorFazenda.toFixed(1)}%`, position:'insideTopRight', fontSize:10, fill: valorFazenda>=0?'#1E4D35':'#E24B4A' }} />
+            <ReferenceLine y={valorFazenda} stroke={valorFazenda>=0?'#2B6CD9':'#E24B4A'} strokeWidth={2} strokeDasharray="4 2"
+              label={{ value:`Fazenda: ${valorFazenda.toFixed(1)}%`, position:'insideTopRight', fontSize:10, fill: valorFazenda>=0?'#2B6CD9':'#E24B4A' }} />
           )}
         </BarChart>
       </ResponsiveContainer>
@@ -544,7 +544,7 @@ export default function Propriedade() {
       <div style={{ display:'flex', alignItems:'center', gap:10 }}>
         <button className="btn btn-secondary btn-sm" onClick={voltar}><i className="ti ti-arrow-left" /> Voltar</button>
         <span style={{ fontWeight:600, fontSize:'1rem', color:'#374151' }}>
-          <i className={`ti ${icon}`} style={{ marginRight:6, color:'#1E4D35' }} />{title}
+          <i className={`ti ${icon}`} style={{ marginRight:6, color:'#2B6CD9' }} />{title}
         </span>
       </div>
       {onNew && (
@@ -587,8 +587,8 @@ export default function Propriedade() {
 
           <div className="grid-4" style={{ marginBottom:24 }}>
             {[
-              { key:'props',       icon:'👤', label:'Proprietários', count:props.filter(p=>p.ativo!==false).length, color:'#EAF3DE', textColor:'#1E4D35', desc:props.filter(p=>p.ativo!==false).slice(0,2).map(p=>p.nome.split(' ')[0]).join(', ')||'Nenhum' },
-              { key:'piqs',        icon:'🌿', label:'Piquetes',       count:piqs.length,  color:'#EAF3DE', textColor:'#1E4D35', desc:`${totalHa.toFixed(1)} ha total` },
+              { key:'props',       icon:'👤', label:'Proprietários', count:props.filter(p=>p.ativo!==false).length, color:'#E8F0FC', textColor:'#2B6CD9', desc:props.filter(p=>p.ativo!==false).slice(0,2).map(p=>p.nome.split(' ')[0]).join(', ')||'Nenhum' },
+              { key:'piqs',        icon:'🌿', label:'Piquetes',       count:piqs.length,  color:'#E8F0FC', textColor:'#2B6CD9', desc:`${totalHa.toFixed(1)} ha total` },
               { key:'lotes',       icon:'📦', label:'Lotes',           count:lotes.length, color:'#EEEDFE', textColor:'#3C3489', desc:lotes.slice(0,2).map(l=>l.nome).join(', ')||'Nenhum' },
               { key:'planejamento',icon:'🎯', label:'Planejamento',    count:acoesPend.length, color:'#E6F1FB', textColor:'#0C447C', desc:plan ? `${acoesConcl.length}/${acoes.length} ações concluídas` : 'Não criado' },
             ].map(k => (
@@ -610,9 +610,9 @@ export default function Propriedade() {
               <div className="card-title"><i className="ti ti-target" style={{ color:'#0C447C' }} /> Planejamento — {plan.ano_ciclo}/{String(plan.ano_ciclo+1).slice(-2)}</div>
               {plan.proposito && <p style={{ fontSize:'.82rem', color:'#374151', marginBottom:8 }}>{plan.proposito}</p>}
               <div style={{ display:'flex', gap:16, flexWrap:'wrap' }}>
-                {rentTerra   !== null && <div><span style={{ fontSize:'.72rem', color:'#9CA3AF' }}>RENT. TERRA</span><div style={{ fontWeight:700, color:rentTerra>=0?'#1E4D35':'#E24B4A' }}>{rentTerra.toFixed(2)}%</div></div>}
-                {rentRebanho !== null && <div><span style={{ fontSize:'.72rem', color:'#9CA3AF' }}>RENT. REBANHO</span><div style={{ fontWeight:700, color:rentRebanho>=0?'#1E4D35':'#E24B4A' }}>{rentRebanho.toFixed(2)}%</div></div>}
-                {resultadoLiquido !== null && <div><span style={{ fontSize:'.72rem', color:'#9CA3AF' }}>RESULTADO LÍQUIDO</span><div style={{ fontWeight:700, color:resultadoLiquido>=0?'#1E4D35':'#E24B4A' }}>{fmtMoeda(resultadoLiquido)}</div></div>}
+                {rentTerra   !== null && <div><span style={{ fontSize:'.72rem', color:'#9CA3AF' }}>RENT. TERRA</span><div style={{ fontWeight:700, color:rentTerra>=0?'#2B6CD9':'#E24B4A' }}>{rentTerra.toFixed(2)}%</div></div>}
+                {rentRebanho !== null && <div><span style={{ fontSize:'.72rem', color:'#9CA3AF' }}>RENT. REBANHO</span><div style={{ fontWeight:700, color:rentRebanho>=0?'#2B6CD9':'#E24B4A' }}>{rentRebanho.toFixed(2)}%</div></div>}
+                {resultadoLiquido !== null && <div><span style={{ fontSize:'.72rem', color:'#9CA3AF' }}>RESULTADO LÍQUIDO</span><div style={{ fontWeight:700, color:resultadoLiquido>=0?'#2B6CD9':'#E24B4A' }}>{fmtMoeda(resultadoLiquido)}</div></div>}
               </div>
               {acoesCiclo.length > 0 && (
                 <div style={{ marginTop:12 }}>
@@ -639,7 +639,7 @@ export default function Propriedade() {
             ? <EmptyState icon="👤" title="Nenhum proprietário" sub="Clique em Novo proprietário para começar" />
             : props.map(p => (
               <div key={p.id} className="card" style={{ marginBottom:10, display:'flex', alignItems:'center', gap:14, opacity:p.ativo===false?0.5:1 }}>
-                <div style={{ width:42,height:42,borderRadius:'50%',background:'#EAF3DE',color:'#27500A',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:700,fontSize:'.9rem',flexShrink:0 }}>
+                <div style={{ width:42,height:42,borderRadius:'50%',background:'#E8F0FC',color:'#1E55B0',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:700,fontSize:'.9rem',flexShrink:0 }}>
                   {p.nome.split(' ').filter((_,i,a)=>i===0||i===a.length-1).map(w=>w[0]).join('').toUpperCase()}
                 </div>
                 <div style={{ flex:1 }}>
@@ -674,7 +674,7 @@ export default function Propriedade() {
                   const emUso = p.status==='em_uso'
                   const dias  = p.status_desde ? diasDesde(p.status_desde) : null
                   return (
-                    <div key={p.id} style={{ background:'white', border:'.5px solid #E5E7EB', borderTop:`3px solid ${emUso?'#3B6D11':'#D97706'}`, borderRadius:12, padding:16, display:'flex', flexDirection:'column', gap:10 }}>
+                    <div key={p.id} style={{ background:'white', border:'.5px solid #E5E7EB', borderTop:`3px solid ${emUso?'#7B2FBE':'#D97706'}`, borderRadius:12, padding:16, display:'flex', flexDirection:'column', gap:10 }}>
                       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
                         <div style={{ fontWeight:600, fontSize:'.92rem', color:'#374151' }}>{p.nome}</div>
                         <div style={{ display:'flex', gap:4 }}>
@@ -683,7 +683,7 @@ export default function Propriedade() {
                         </div>
                       </div>
                       <div>
-                        <div style={{ fontSize:'1.6rem', fontWeight:700, color:'#1E4D35', lineHeight:1 }}>{parseFloat(p.area_ha||0).toFixed(1)}</div>
+                        <div style={{ fontSize:'1.6rem', fontWeight:700, color:'#2B6CD9', lineHeight:1 }}>{parseFloat(p.area_ha||0).toFixed(1)}</div>
                         <div style={{ fontSize:'.72rem', color:'#9CA3AF', marginTop:2 }}>hectares</div>
                       </div>
                       {p.geometria && <div style={{ fontSize:'.72rem', color:'#6B7280' }}><i className="ti ti-map-2" style={{ fontSize:11 }} /> Geometria salva</div>}
@@ -760,7 +760,7 @@ export default function Propriedade() {
                   <button key={t.id} onClick={() => setPlanTab(t.id)} style={{
                     flex:1, padding:'8px 12px', borderRadius:8, border:'none', cursor:'pointer',
                     background:planTab===t.id?'white':'transparent',
-                    fontWeight:planTab===t.id?600:400, color:planTab===t.id?'#1E4D35':'#6B7280',
+                    fontWeight:planTab===t.id?600:400, color:planTab===t.id?'#2B6CD9':'#6B7280',
                     fontSize:'.78rem', boxShadow:planTab===t.id?'0 1px 4px rgba(0,0,0,.1)':'none',
                     fontFamily:'inherit',
                   }}>
@@ -810,7 +810,7 @@ export default function Propriedade() {
 
           {/* Editar fazenda atual */}
           <div className="card" style={{ marginBottom:16 }}>
-            <div className="card-title"><i className="ti ti-edit" style={{ color:'#1E4D35' }} /> Editar fazenda atual</div>
+            <div className="card-title"><i className="ti ti-edit" style={{ color:'#2B6CD9' }} /> Editar fazenda atual</div>
             <div className="grid-form" style={{ marginBottom:12 }}>
               <Field label="Nome da fazenda" required>
                 <input value={fazendaForm.nome||''} onChange={e=>setFazendaForm(p=>({...p,nome:e.target.value}))} placeholder="Nome" />
@@ -843,7 +843,7 @@ export default function Propriedade() {
           {/* Todas as fazendas */}
           <div className="card">
             <div className="card-title" style={{ display:'flex', justifyContent:'space-between' }}>
-              <span><i className="ti ti-home-2" style={{ color:'#1E4D35' }} /> Todas as fazendas</span>
+              <span><i className="ti ti-home-2" style={{ color:'#2B6CD9' }} /> Todas as fazendas</span>
               {podeEditarProp && (
                 <button className="btn btn-primary btn-xs" onClick={() => openModal('nova-faz')}>
                   <i className="ti ti-plus" /> Nova fazenda
@@ -935,7 +935,7 @@ export default function Propriedade() {
                 <input type="file" accept=".kml" onChange={e => e.target.files?.[0] && importarKML(e.target.files[0])} />
               </Field>
               {form.area_ha && (
-                <div style={{ background:'#EAF3DE', borderRadius:8, padding:'8px 12px', fontSize:'.82rem', color:'#1E4D35', fontWeight:600, marginTop:6 }}>
+                <div style={{ background:'#E8F0FC', borderRadius:8, padding:'8px 12px', fontSize:'.82rem', color:'#2B6CD9', fontWeight:600, marginTop:6 }}>
                   Área calculada: {form.area_ha} ha
                 </div>
               )}
@@ -945,7 +945,7 @@ export default function Propriedade() {
           {modoArea === 'desenho' && (
             <div>
               {form.geometria ? (
-                <div style={{ background:'#EAF3DE', borderRadius:8, padding:'8px 12px', fontSize:'.82rem', color:'#1E4D35', marginBottom:8 }}>
+                <div style={{ background:'#E8F0FC', borderRadius:8, padding:'8px 12px', fontSize:'.82rem', color:'#2B6CD9', marginBottom:8 }}>
                   <i className="ti ti-map-2" /> Área desenhada: <strong>{form.area_ha} ha</strong>
                 </div>
               ) : (
@@ -1173,14 +1173,14 @@ function PlanNumeros({ plan, form, setForm, totalHa, resultadoLiquido, cicloAtua
 
       {/* Rentabilidade calculada */}
       <div className="card" style={{ marginBottom:16 }}>
-        <div className="card-title"><i className="ti ti-trending-up" style={{ color:'#27500A' }} /> Rentabilidade calculada — ciclo {cicloAtual?.nome||'atual'}</div>
+        <div className="card-title"><i className="ti ti-trending-up" style={{ color:'#1E55B0' }} /> Rentabilidade calculada — ciclo {cicloAtual?.nome||'atual'}</div>
         {resultadoLiquido === null ? (
           <div style={{ fontSize:'.82rem', color:'#9CA3AF' }}>Sem ciclo financeiro ativo. Acesse Gestão Financeira para criar um ciclo.</div>
         ) : (
           <div>
             <div style={{ marginBottom:12 }}>
               <div style={{ fontSize:'.72rem', color:'#9CA3AF', marginBottom:4 }}>RESULTADO LÍQUIDO DO CICLO</div>
-              <div style={{ fontSize:'1.6rem', fontWeight:700, color:resultadoLiquido>=0?'#1E4D35':'#E24B4A' }}>{fmtMoeda(resultadoLiquido)}</div>
+              <div style={{ fontSize:'1.6rem', fontWeight:700, color:resultadoLiquido>=0?'#2B6CD9':'#E24B4A' }}>{fmtMoeda(resultadoLiquido)}</div>
             </div>
             <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:12, marginBottom:16 }}>
               {[
@@ -1191,7 +1191,7 @@ function PlanNumeros({ plan, form, setForm, totalHa, resultadoLiquido, cicloAtua
                 <div key={r.label} style={{ background:'#F9FAFB', border:'.5px solid #E5E7EB', borderRadius:10, padding:'12px 14px' }}>
                   <div style={{ fontSize:'.68rem', color:'#9CA3AF', marginBottom:4 }}>{r.label}</div>
                   {r.valor !== null
-                    ? <div style={{ fontSize:'1.4rem', fontWeight:700, color:r.valor>=0?'#1E4D35':'#E24B4A' }}>{r.valor.toFixed(2)}%</div>
+                    ? <div style={{ fontSize:'1.4rem', fontWeight:700, color:r.valor>=0?'#2B6CD9':'#E24B4A' }}>{r.valor.toFixed(2)}%</div>
                     : <div style={{ fontSize:'.82rem', color:'#9CA3AF' }}>—<br/><span style={{ fontSize:'.7rem' }}>Informe o valor acima</span></div>
                   }
                 </div>
@@ -1213,10 +1213,10 @@ function PlanNumeros({ plan, form, setForm, totalHa, resultadoLiquido, cicloAtua
         <div className="card">
           <div className="card-title"><i className="ti ti-coins" /> Patrimônio estimado</div>
           <div style={{ display:'flex', gap:12, flexWrap:'wrap' }}>
-            {vTerraEfetivo > 0 && <div style={{ background:'#F9FAFB', border:'.5px solid #E5E7EB', borderRadius:8, padding:'8px 14px' }}><div style={{ fontSize:'.72rem', color:'#9CA3AF' }}>TERRA</div><div style={{ fontWeight:600, color:'#1E4D35' }}>{fmtMoeda(vTerraEfetivo)}</div></div>}
-            {vRebanho > 0 && <div style={{ background:'#F9FAFB', border:'.5px solid #E5E7EB', borderRadius:8, padding:'8px 14px' }}><div style={{ fontSize:'.72rem', color:'#9CA3AF' }}>REBANHO</div><div style={{ fontWeight:600, color:'#1E4D35' }}>{fmtMoeda(vRebanho)}</div></div>}
-            {(plan?.valor_benfeitorias > 0) && <div style={{ background:'#F9FAFB', border:'.5px solid #E5E7EB', borderRadius:8, padding:'8px 14px' }}><div style={{ fontSize:'.72rem', color:'#9CA3AF' }}>BENFEITORIAS</div><div style={{ fontWeight:600, color:'#1E4D35' }}>{fmtMoeda(plan.valor_benfeitorias)}</div></div>}
-            <div style={{ background:'#EAF3DE', border:'.5px solid #C0DD97', borderRadius:8, padding:'8px 14px' }}><div style={{ fontSize:'.72rem', color:'#27500A' }}>TOTAL</div><div style={{ fontWeight:700, color:'#1E4D35', fontSize:'1.05rem' }}>{fmtMoeda(vTotal)}</div></div>
+            {vTerraEfetivo > 0 && <div style={{ background:'#F9FAFB', border:'.5px solid #E5E7EB', borderRadius:8, padding:'8px 14px' }}><div style={{ fontSize:'.72rem', color:'#9CA3AF' }}>TERRA</div><div style={{ fontWeight:600, color:'#2B6CD9' }}>{fmtMoeda(vTerraEfetivo)}</div></div>}
+            {vRebanho > 0 && <div style={{ background:'#F9FAFB', border:'.5px solid #E5E7EB', borderRadius:8, padding:'8px 14px' }}><div style={{ fontSize:'.72rem', color:'#9CA3AF' }}>REBANHO</div><div style={{ fontWeight:600, color:'#2B6CD9' }}>{fmtMoeda(vRebanho)}</div></div>}
+            {(plan?.valor_benfeitorias > 0) && <div style={{ background:'#F9FAFB', border:'.5px solid #E5E7EB', borderRadius:8, padding:'8px 14px' }}><div style={{ fontSize:'.72rem', color:'#9CA3AF' }}>BENFEITORIAS</div><div style={{ fontWeight:600, color:'#2B6CD9' }}>{fmtMoeda(plan.valor_benfeitorias)}</div></div>}
+            <div style={{ background:'#E8F0FC', border:'.5px solid #A5C8F5', borderRadius:8, padding:'8px 14px' }}><div style={{ fontSize:'.72rem', color:'#1E55B0' }}>TOTAL</div><div style={{ fontWeight:700, color:'#2B6CD9', fontSize:'1.05rem' }}>{fmtMoeda(vTotal)}</div></div>
           </div>
         </div>
       )}

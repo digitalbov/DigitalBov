@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+﻿import { useState, useEffect, useRef } from 'react'
 import { db } from '../lib/supabase'
 import { calcCategoria, calcCategoriaRebanho, fmtData, fmtMoeda, pct } from '../lib/helpers'
 import { Loading, Badge, AlertBox, toast } from '../components/UI'
@@ -132,7 +132,7 @@ export default function Relatorios() {
 
   const PrintHeader = ({ titulo }) => (
     <div style={{ textAlign:'center', padding:'16px 0 12px', borderBottom:'.5px solid #E5E7EB', marginBottom:16 }}>
-      <div style={{ fontSize:'1.1rem', fontWeight:700, color:'#111' }}>Cabanha Ventos da Várzea</div>
+      <div style={{ fontSize:'1.1rem', fontWeight:700, color:'#111' }}>DigitalBov</div>
       <div style={{ fontSize:'.85rem', color:'#6B7280', marginTop:2 }}>{titulo} · Ciclo {ciclo?.nome||'—'} · Gerado em {hoje}</div>
     </div>
   )
@@ -152,7 +152,7 @@ export default function Relatorios() {
         <div>
           <PDFButton tabIdx={0} />
           <div ref={resumoRef}>
-            <div style={{ background:'#1E4D35', borderRadius:12, padding:'16px 20px', color:'white', marginBottom:16 }}>
+            <div style={{ background:'#2B6CD9', borderRadius:12, padding:'16px 20px', color:'white', marginBottom:16 }}>
               <PrintHeader titulo="Relatório Geral" />
               <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:10, marginTop:8 }}>
                 {[
@@ -178,7 +178,7 @@ export default function Relatorios() {
                     <div style={{ display:'flex', alignItems:'center', gap:8 }}>
                       <div style={{ width:60 }}>
                         <div className="progress-bg">
-                          <div className="progress-fill" style={{ width:`${Math.round(qt/ativos.length*100)}%`, background:'#3B6D11' }}/>
+                          <div className="progress-fill" style={{ width:`${Math.round(qt/ativos.length*100)}%`, background:'#7B2FBE' }}/>
                         </div>
                       </div>
                       <span className="row-value">{qt}</span>
@@ -197,7 +197,7 @@ export default function Relatorios() {
                 ].map(k => (
                   <div key={k.l} className="row">
                     <span className="row-label">{k.l}</span>
-                    <span className="row-value" style={{ color: k.ok?'#27500A':'#791F1F' }}>{k.v}</span>
+                    <span className="row-value" style={{ color: k.ok?'#1E55B0':'#791F1F' }}>{k.v}</span>
                   </div>
                 ))}
               </div>
@@ -224,7 +224,7 @@ export default function Relatorios() {
                             <td key={pp.propId} style={{ textAlign:'center' }}>{pp.count || '—'}</td>
                           ))}
                           <td style={{ fontWeight:600, textAlign:'center' }}>{row.total}</td>
-                          <td style={{ fontWeight:600, textAlign:'right', color:'#1E4D35' }}>
+                          <td style={{ fontWeight:600, textAlign:'right', color:'#2B6CD9' }}>
                             {row.valor > 0 ? fmtMoeda(row.valor) : '—'}
                           </td>
                         </tr>
@@ -241,7 +241,7 @@ export default function Relatorios() {
                         <td style={{ textAlign:'center' }}>
                           {valorRowsRel.reduce((s,r) => s + r.total, 0)}
                         </td>
-                        <td style={{ textAlign:'right', color:'#1E4D35' }}>{fmtMoeda(valorTotalRel)}</td>
+                        <td style={{ textAlign:'right', color:'#2B6CD9' }}>{fmtMoeda(valorTotalRel)}</td>
                       </tr>
                     </tfoot>
                   </table>
@@ -283,8 +283,8 @@ export default function Relatorios() {
                               <td>{l.touro}</td>
                               <td>{fmtData(l.data)}</td>
                               <td>{ins.length}</td>
-                              <td style={{ color:'#27500A', fontWeight:500 }}>{prn}</td>
-                              <td style={{ color: prn/Math.max(1,ins.length)>=0.85?'#27500A':'#791F1F' }}>{pct(prn,ins.length)}</td>
+                              <td style={{ color:'#1E55B0', fontWeight:500 }}>{prn}</td>
+                              <td style={{ color: prn/Math.max(1,ins.length)>=0.85?'#1E55B0':'#791F1F' }}>{pct(prn,ins.length)}</td>
                               <td style={{ color:'#6B7280', fontSize:'.78rem' }}>
                                 {l.data ? new Date(new Date(l.data+'T12:00:00').setMonth(new Date(l.data+'T12:00:00').getMonth()+9)).toLocaleDateString('pt-BR') : '—'}
                               </td>
@@ -294,7 +294,7 @@ export default function Relatorios() {
                         <tr className="tr-total">
                           <td colSpan={3}>Total ciclo {ciclo?.nome}</td>
                           <td>{totalIns}</td>
-                          <td style={{color:'#27500A'}}>{totalPrn}</td>
+                          <td style={{color:'#1E55B0'}}>{totalPrn}</td>
                           <td>{pct(totalPrn,totalIns)}</td>
                           <td></td>
                         </tr>
@@ -318,7 +318,7 @@ export default function Relatorios() {
                         { v:partos.filter(p=>p.bezerro?.sexo==='F').length, l:'Fêmeas ♀' },
                       ].map(k => (
                         <div key={k.l} style={{ background:'#F9FAFB', border:'.5px solid #E5E7EB', borderRadius:8, padding:'10px', textAlign:'center' }}>
-                          <div style={{ fontSize:'1.3rem', fontWeight:600, color:'#1E4D35' }}>{k.v}</div>
+                          <div style={{ fontSize:'1.3rem', fontWeight:600, color:'#2B6CD9' }}>{k.v}</div>
                           <div style={{ fontSize:'.75rem', color:'#6B7280', marginTop:2 }}>{k.l}</div>
                         </div>
                       ))}
@@ -354,7 +354,7 @@ export default function Relatorios() {
                 <div key={k.l} className="row">
                   <span className="row-label">{k.l}</span>
                   <span style={{ display:'flex', alignItems:'center', gap:8 }}>
-                    <span className="row-value" style={{ color: k.ok?'#27500A':'#791F1F' }}>{k.v}</span>
+                    <span className="row-value" style={{ color: k.ok?'#1E55B0':'#791F1F' }}>{k.v}</span>
                     <span style={{ fontSize:'.72rem', color:'#9CA3AF' }}>meta: {k.meta} {k.ok?'✓':'↑'}</span>
                   </span>
                 </div>
@@ -373,9 +373,9 @@ export default function Relatorios() {
               <PrintHeader titulo="Relatório Financeiro" />
               <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:10, marginBottom:14 }}>
                 {[
-                  { v:fmtMoeda(rec),  l:'Receitas',  c:'#27500A', bg:'#EAF3DE' },
+                  { v:fmtMoeda(rec),  l:'Receitas',  c:'#1E55B0', bg:'#E8F0FC' },
                   { v:fmtMoeda(desp), l:'Despesas',  c:'#791F1F', bg:'#FCEBEB' },
-                  { v:fmtMoeda(Math.abs(resu)), l:resu>=0?'Resultado positivo':'Resultado negativo', c:resu>=0?'#1E4D35':'#791F1F', bg:resu>=0?'#EAF3DE':'#FCEBEB' },
+                  { v:fmtMoeda(Math.abs(resu)), l:resu>=0?'Resultado positivo':'Resultado negativo', c:resu>=0?'#2B6CD9':'#791F1F', bg:resu>=0?'#E8F0FC':'#FCEBEB' },
                 ].map(k => (
                   <div key={k.l} style={{ background:k.bg, borderRadius:8, padding:'12px', textAlign:'center' }}>
                     <div style={{ fontSize:'1.1rem', fontWeight:700, color:k.c }}>{k.v}</div>
@@ -389,7 +389,7 @@ export default function Relatorios() {
                 return vl > 0 ? (
                   <div key={gr} className="row">
                     <span className="row-label">{gr}</span>
-                    <span className="row-value" style={{ color:'#27500A' }}>{fmtMoeda(vl)}</span>
+                    <span className="row-value" style={{ color:'#1E55B0' }}>{fmtMoeda(vl)}</span>
                   </div>
                 ) : null
               })}
@@ -415,7 +415,7 @@ export default function Relatorios() {
                 <div key={k.l} className="row">
                   <span className="row-label">{k.l}</span>
                   <span style={{ display:'flex', alignItems:'center', gap:8 }}>
-                    <span className="row-value" style={{ color: k.ok?'#27500A':'#BA7517' }}>{k.v}</span>
+                    <span className="row-value" style={{ color: k.ok?'#1E55B0':'#BA7517' }}>{k.v}</span>
                     <span style={{ fontSize:'.72rem', color:'#9CA3AF' }}>meta: {k.meta} {k.ok?'✓':'↑'}</span>
                   </span>
                 </div>

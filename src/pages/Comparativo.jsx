@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+﻿import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { useFazenda } from '../lib/FazendaContext'
 import { fmtMoeda, calcCategoria } from '../lib/helpers'
@@ -122,9 +122,9 @@ export default function Comparativo() {
       {/* Resumo consolidado */}
       <div className="grid-4" style={{ marginBottom:24 }}>
         {[
-          { icon:'💰', label:'Receitas totais',    value:fmtMoeda(totalRec),  color:'#27500A', bg:'#EAF3DE' },
+          { icon:'💰', label:'Receitas totais',    value:fmtMoeda(totalRec),  color:'#1E55B0', bg:'#E8F0FC' },
           { icon:'📉', label:'Despesas totais',    value:fmtMoeda(totalDesp), color:'#791F1F', bg:'#FEF2F2' },
-          { icon:'📊', label:'Resultado consolidado', value:fmtMoeda(totalResu), color:totalResu>=0?'#1E4D35':'#E24B4A', bg:totalResu>=0?'#EAF3DE':'#FEF2F2' },
+          { icon:'📊', label:'Resultado consolidado', value:fmtMoeda(totalResu), color:totalResu>=0?'#2B6CD9':'#E24B4A', bg:totalResu>=0?'#E8F0FC':'#FEF2F2' },
           { icon:'🐄', label:'Animais ativos',      value:totalAnim,           color:'#0C447C', bg:'#E6F1FB' },
         ].map(k => (
           <div key={k.label} className="card" style={{ borderTop:`3px solid ${k.color}` }}>
@@ -146,7 +146,7 @@ export default function Comparativo() {
           <button key={t.id} onClick={() => setTab(t.id)} style={{
             flex:1, padding:'8px 12px', borderRadius:8, border:'none', cursor:'pointer',
             background:tab===t.id?'white':'transparent',
-            fontWeight:tab===t.id?600:400, color:tab===t.id?'#1E4D35':'#6B7280',
+            fontWeight:tab===t.id?600:400, color:tab===t.id?'#2B6CD9':'#6B7280',
             fontSize:'.8rem', boxShadow:tab===t.id?'0 1px 4px rgba(0,0,0,.1)':'none',
             fontFamily:'inherit',
           }}>
@@ -159,7 +159,7 @@ export default function Comparativo() {
       {tab === 'financeiro' && (
         <div>
           <div className="card" style={{ marginBottom:16 }}>
-            <div className="card-title"><i className="ti ti-cash" style={{ color:'#27500A' }} /> Receitas × Despesas × Resultado</div>
+            <div className="card-title"><i className="ti ti-cash" style={{ color:'#1E55B0' }} /> Receitas × Despesas × Resultado</div>
             <ResponsiveContainer width="100%" height={280}>
               <BarChart data={dadosFinanceiros} margin={{ top:4, right:16, bottom:4, left:0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" />
@@ -192,17 +192,17 @@ export default function Comparativo() {
                   {dados.map((d,i) => (
                     <tr key={d.fazenda.id} style={{ borderTop:'.5px solid #F3F4F6', background:i%2?'#FAFAFA':'white' }}>
                       <td style={{ padding:'8px 12px', fontWeight:500 }}>{d.fazenda.nome}</td>
-                      <td style={{ padding:'8px 12px', textAlign:'right', color:'#27500A' }}>{fmtMoeda(d.receitas)}</td>
+                      <td style={{ padding:'8px 12px', textAlign:'right', color:'#1E55B0' }}>{fmtMoeda(d.receitas)}</td>
                       <td style={{ padding:'8px 12px', textAlign:'right', color:'#791F1F' }}>{fmtMoeda(d.despesas)}</td>
-                      <td style={{ padding:'8px 12px', textAlign:'right', fontWeight:600, color:d.resultado>=0?'#1E4D35':'#E24B4A' }}>{fmtMoeda(d.resultado)}</td>
+                      <td style={{ padding:'8px 12px', textAlign:'right', fontWeight:600, color:d.resultado>=0?'#2B6CD9':'#E24B4A' }}>{fmtMoeda(d.resultado)}</td>
                       <td style={{ padding:'8px 12px', textAlign:'right', color:'#9CA3AF' }}>{d.ciclo?.nome || '—'}</td>
                     </tr>
                   ))}
                   <tr style={{ borderTop:'2px solid #E5E7EB', fontWeight:700 }}>
                     <td style={{ padding:'8px 12px' }}>TOTAL</td>
-                    <td style={{ padding:'8px 12px', textAlign:'right', color:'#27500A' }}>{fmtMoeda(totalRec)}</td>
+                    <td style={{ padding:'8px 12px', textAlign:'right', color:'#1E55B0' }}>{fmtMoeda(totalRec)}</td>
                     <td style={{ padding:'8px 12px', textAlign:'right', color:'#791F1F' }}>{fmtMoeda(totalDesp)}</td>
-                    <td style={{ padding:'8px 12px', textAlign:'right', color:totalResu>=0?'#1E4D35':'#E24B4A' }}>{fmtMoeda(totalResu)}</td>
+                    <td style={{ padding:'8px 12px', textAlign:'right', color:totalResu>=0?'#2B6CD9':'#E24B4A' }}>{fmtMoeda(totalResu)}</td>
                     <td></td>
                   </tr>
                 </tbody>
@@ -252,7 +252,7 @@ export default function Comparativo() {
                       <td style={{ padding:'8px 12px', textAlign:'right' }}>{d.animais}</td>
                       <td style={{ padding:'8px 12px', textAlign:'right' }}>{d.matrizes}</td>
                       <td style={{ padding:'8px 12px', textAlign:'right' }}>{d.prenhas}</td>
-                      <td style={{ padding:'8px 12px', textAlign:'right', fontWeight:600, color:d.txPrenhez>=85?'#1E4D35':'#D97706' }}>{d.txPrenhez}%</td>
+                      <td style={{ padding:'8px 12px', textAlign:'right', fontWeight:600, color:d.txPrenhez>=85?'#2B6CD9':'#D97706' }}>{d.txPrenhez}%</td>
                       <td style={{ padding:'8px 12px', textAlign:'right' }}>{d.totalHa.toFixed(1)}</td>
                     </tr>
                   ))}
@@ -268,7 +268,7 @@ export default function Comparativo() {
         <div>
           <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(300px,1fr))', gap:16 }}>
             {dados.map(d => (
-              <div key={d.fazenda.id} className="card" style={{ borderTop:'3px solid #1E4D35' }}>
+              <div key={d.fazenda.id} className="card" style={{ borderTop:'3px solid #2B6CD9' }}>
                 <div style={{ marginBottom:12 }}>
                   <div style={{ fontWeight:600, fontSize:'1rem', color:'#111827' }}>{d.fazenda.nome}</div>
                   {d.fazenda.localizacao && <div style={{ fontSize:'.75rem', color:'#9CA3AF' }}>{d.fazenda.localizacao}</div>}
@@ -276,12 +276,12 @@ export default function Comparativo() {
 
                 <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:12 }}>
                   {[
-                    { l:'Receitas',   v:fmtMoeda(d.receitas),   c:'#27500A' },
+                    { l:'Receitas',   v:fmtMoeda(d.receitas),   c:'#1E55B0' },
                     { l:'Despesas',   v:fmtMoeda(d.despesas),   c:'#791F1F' },
-                    { l:'Resultado',  v:fmtMoeda(d.resultado),  c:d.resultado>=0?'#1E4D35':'#E24B4A' },
+                    { l:'Resultado',  v:fmtMoeda(d.resultado),  c:d.resultado>=0?'#2B6CD9':'#E24B4A' },
                     { l:'Animais',    v:d.animais,               c:'#0C447C' },
                     { l:'Matrizes',   v:d.matrizes,              c:'#374151' },
-                    { l:'Tx. Prenhez',v:`${d.txPrenhez}%`,       c:d.txPrenhez>=85?'#1E4D35':'#D97706' },
+                    { l:'Tx. Prenhez',v:`${d.txPrenhez}%`,       c:d.txPrenhez>=85?'#2B6CD9':'#D97706' },
                   ].map(k => (
                     <div key={k.l} style={{ background:'#F9FAFB', border:'.5px solid #E5E7EB', borderRadius:8, padding:'8px 10px' }}>
                       <div style={{ fontSize:'.68rem', color:'#9CA3AF' }}>{k.l.toUpperCase()}</div>

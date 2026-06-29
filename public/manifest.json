@@ -1,7 +1,7 @@
 {
-  "name": "Cabanha Ventos da Várzea",
-  "short_name": "Ventos da Várzea",
-  "description": "Sistema de Gestão Pecuária - Cabanha Ventos da Várzea",
+  "name": "DigitalBov",
+  "short_name": "DigitalBov",
+  "description": "Sistema de Gestão Pecuária - DigitalBov",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#1E4D35",

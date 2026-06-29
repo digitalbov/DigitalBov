@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+﻿import { useState, useEffect, useRef } from 'react'
 import { usePermissoes } from '../lib/PermissoesContext'
 import { db } from '../lib/supabase'
 import { calcCategoria, idadeFormatada, fmtData, catCor, sitCor, repCor, sortBrinco } from '../lib/helpers'
@@ -79,10 +79,10 @@ function NodoCard({ animal, nome, tipo, destaque, onSelect }) {
 
   const borderColor = isTouro   ? '#D1D5DB'
                     : isUnknown ? '#D1D5DB'
-                    : destaque  ? '#1E4D35'
+                    : destaque  ? '#2B6CD9'
                     : isMale    ? '#93C5FD'
-                    : '#97C459'
-  const bgColor     = destaque  ? '#1E4D35'
+                    : '#1BA89C'
+  const bgColor     = destaque  ? '#2B6CD9'
                     : isTouro   ? '#F9FAFB'
                     : isUnknown ? '#F9FAFB'
                     : isMale    ? '#EFF6FF'
@@ -238,7 +238,7 @@ function ArvoreGenealogica({ animal, animais, onSelect }) {
           )}
 
           {/* Animal central */}
-          <GenRowLabel color="#1E4D35">Animal selecionado</GenRowLabel>
+          <GenRowLabel color="#2B6CD9">Animal selecionado</GenRowLabel>
           <NodoCard tipo="animal" animal={animal} destaque />
 
           {/* Filhos */}
@@ -506,14 +506,14 @@ export default function Animais() {
         <div ref={detalheRef}>
           {/* Header card */}
           <div className="card" style={{
-            borderLeft: `3px solid ${a.situacao === 'morto' ? '#E24B4A' : a.situacao === 'vendido' ? '#D97706' : '#1E4D35'}`,
+            borderLeft: `3px solid ${a.situacao === 'morto' ? '#E24B4A' : a.situacao === 'vendido' ? '#D97706' : '#2B6CD9'}`,
             marginBottom: 14
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
               <div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap' }}>
                   <span style={{ fontSize: '1.4rem', fontWeight: 700 }}>Brinco {a.brinco}</span>
-                  <Badge color={cc.bg === '#EAF3DE' ? 'green' : cc.bg === '#E6F1FB' ? 'blue' : cc.bg === '#EEEDFE' ? 'purple' : 'amber'}
+                  <Badge color={cc.bg === '#E8F0FC' ? 'green' : cc.bg === '#E6F1FB' ? 'blue' : cc.bg === '#EEEDFE' ? 'purple' : 'amber'}
                     style={{ background: cc.bg, color: cc.text }}>{cat}</Badge>
                   <Badge style={{ background: sc.bg, color: sc.text }}>{a.situacao}</Badge>
                   {a.sexo === 'F' && (

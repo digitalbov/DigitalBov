@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+﻿import { useState, useEffect, useRef } from 'react'
 import { db } from '../lib/supabase'
 import { usePermissoes } from '../lib/PermissoesContext'
 import { fmtData, diasDesde } from '../lib/helpers'
@@ -221,7 +221,7 @@ export default function Sanidade() {
                     <span className="row-label"><strong>{d.procedimento}</strong> · {d.lote_descricao}</span>
                     <span style={{
                       fontSize:'.8rem', fontWeight:500,
-                      color: dias < 0 ? '#791F1F' : dias < 30 ? '#BA7517' : '#27500A'
+                      color: dias < 0 ? '#791F1F' : dias < 30 ? '#BA7517' : '#1E55B0'
                     }}>
                       {dias < 0 ? `${Math.abs(dias)}d atraso` : dias === 0 ? 'Hoje' : `${dias} dias`}
                     </span>
@@ -304,7 +304,7 @@ export default function Sanidade() {
           <Field label="Procedimento" required><input value={form.procedimento||''} onChange={e=>setForm(p=>({...p,procedimento:e.target.value}))} placeholder="ex: Ivermectina 1%"/></Field>
           <Field label={autoQtd !== null ? `Quantidade (auto: ${autoQtd} animais)` : 'Quantidade de animais'}>
             {autoQtd !== null
-              ? <input type="number" value={autoQtd} readOnly style={{ background:'#F0F9EC', color:'#27500A', fontWeight:600, cursor:'default' }} />
+              ? <input type="number" value={autoQtd} readOnly style={{ background:'#F0F9EC', color:'#1E55B0', fontWeight:600, cursor:'default' }} />
               : <input type="number" value={form.quantidade||''} onChange={e=>setForm(p=>({...p,quantidade:e.target.value}))} placeholder="0"/>
             }
           </Field>

@@ -26,7 +26,7 @@ export default function Login() {
       {/* Painel esquerdo — formulário */}
       <div className="login-panel">
         <div className="login-logo">
-          <img src="/logo-circular.png" style={{width:180, height:180, objectFit:'contain'}} alt="Cabanha Ventos da Várzea"/>
+          <img src="/circular-DIGITALBOV.png" style={{width:180, height:180, objectFit:'contain'}} alt="DigitalBov"/>
         </div>
 
         <form onSubmit={handleLogin}>
@@ -108,7 +108,7 @@ export default function Login() {
             ACESSO RESTRITO
           </div>
           <div style={{ fontSize: '.78rem', color: '#9CA3AF', lineHeight: 1.5 }}>
-            Este sistema é de uso exclusivo da Cabanha Ventos da Várzea.
+            Este sistema é de uso exclusivo do DigitalBov.
             Em caso de problemas, entre em contato com o administrador.
           </div>
         </div>
@@ -117,7 +117,7 @@ export default function Login() {
       {/* Painel direito — visual */}
       <div className="login-side">
         <div style={{ textAlign: 'center', color: 'white', maxWidth: 420 }}>
-          <img src="/logo-oficial.png" style={{width:'100%', maxWidth:420, objectFit:'contain', marginBottom:24}} alt="Cabanha Ventos da Várzea"/>
+          <img src="/horizontal-DIGITALBOV.png" style={{width:'100%', maxWidth:420, objectFit:'contain', marginBottom:24}} alt="DigitalBov"/>
           <p style={{ color: 'rgba(255,255,255,.7)', fontSize: '.95rem', lineHeight: 1.7, marginBottom: 32 }}>
             Sistema completo de gestão pecuária.
             Rebanho, reprodução, financeiro, sanidade e muito mais.
@@ -125,7 +125,7 @@ export default function Login() {
 
           {/* Feature list */}
           {[
-            ['🐮', 'Cadastro completo do rebanho Angus'],
+            ['🐄', 'Cadastro completo do rebanho Angus'],
             ['🧬', 'Painel reprodutivo com IA e voz'],
             ['💰', 'Gestão financeira por ciclo'],
             ['💉', 'Controle sanitário com alertas'],

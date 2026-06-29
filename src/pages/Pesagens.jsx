@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+﻿import { useState, useEffect, useRef } from 'react'
 import { db } from '../lib/supabase'
 import { usePermissoes } from '../lib/PermissoesContext'
 import { fmtData, calcGMD, fmtPeso } from '../lib/helpers'
@@ -202,7 +202,7 @@ export default function Pesagens() {
           {selBr && pesAnimal.length > 0 && (
             <div>
               <div className="grid-3" style={{ marginBottom:14 }}>
-                <IndexCard value={fmtPeso(ultimoPeso?.peso_kg)} label="Último peso" color="#1E4D35"/>
+                <IndexCard value={fmtPeso(ultimoPeso?.peso_kg)} label="Último peso" color="#2B6CD9"/>
                 <IndexCard value={gmd ? `${gmd} kg/dia` : '—'} label="GMD" meta="≥0,80 kg/dia" ok={parseFloat(gmd)>=0.8}/>
                 <IndexCard value={pesAnimal.length} label="Pesagens" color="#0C447C"/>
               </div>
@@ -214,7 +214,7 @@ export default function Pesagens() {
                     <XAxis dataKey="data" tick={{fontSize:10}}/>
                     <YAxis tick={{fontSize:10}}/>
                     <Tooltip formatter={v=>`${v} kg`}/>
-                    <Line type="monotone" dataKey="peso" name="Peso kg" stroke="#1E4D35" strokeWidth={2} dot={{r:4}}/>
+                    <Line type="monotone" dataKey="peso" name="Peso kg" stroke="#2B6CD9" strokeWidth={2} dot={{r:4}}/>
                   </LineChart>
                 </ResponsiveContainer>
               </div>
@@ -231,7 +231,7 @@ export default function Pesagens() {
                             <td>{fmtData(p.data)}</td>
                             <td><Badge color="gray">{p.tipo}</Badge></td>
                             <td style={{textAlign:'right',fontWeight:500}}>{fmtPeso(p.peso_kg)}</td>
-                            <td style={{textAlign:'right',color:v===null?'':v>=0?'#27500A':'#791F1F'}}>
+                            <td style={{textAlign:'right',color:v===null?'':v>=0?'#1E55B0':'#791F1F'}}>
                               {v===null?'—':(v>=0?'+':'')+v.toFixed(1)+' kg'}
                             </td>
                           </tr>
@@ -263,7 +263,7 @@ export default function Pesagens() {
           <div className="grid-3" style={{ marginBottom:14 }}>
             <IndexCard value={mediaGMD} label="GMD médio kg/dia" meta="≥0,80" ok={parseFloat(mediaGMD)>=0.8}/>
             <IndexCard value={gmds.length} label="Animais avaliados" color="#0C447C"/>
-            <IndexCard value={gmds.filter(x=>x.gmd>=0.8).length} label="Acima da meta" color="#1E4D35"/>
+            <IndexCard value={gmds.filter(x=>x.gmd>=0.8).length} label="Acima da meta" color="#2B6CD9"/>
           </div>
           <div className="card">
             <div className="card-title"><i className="ti ti-table"/> GMD por animal</div>
@@ -274,7 +274,7 @@ export default function Pesagens() {
                   {gmds.map(x => (
                     <tr key={x.brinco}>
                       <td><strong>{x.brinco}</strong></td>
-                      <td style={{textAlign:'right',fontWeight:500,color:x.gmd>=0.8?'#27500A':'#BA7517'}}>{x.gmd.toFixed(3)}</td>
+                      <td style={{textAlign:'right',fontWeight:500,color:x.gmd>=0.8?'#1E55B0':'#BA7517'}}>{x.gmd.toFixed(3)}</td>
                       <td style={{textAlign:'right',color:'#6B7280'}}>{fmtPeso(x.ultPeso)}</td>
                       <td>
                         <Badge color={x.gmd>=0.8?'green':'amber'}>
@@ -369,7 +369,7 @@ export default function Pesagens() {
                           <tr key={x.brinco}>
                             <td><strong>{x.brinco}</strong></td>
                             <td style={{ textAlign: 'right', fontWeight: 500 }}>{fmtPeso(x.ultP)}</td>
-                            <td style={{ textAlign: 'right', color: x.gmd >= 0.8 ? '#27500A' : x.gmd > 0 ? '#BA7517' : '#9CA3AF' }}>
+                            <td style={{ textAlign: 'right', color: x.gmd >= 0.8 ? '#1E55B0' : x.gmd > 0 ? '#BA7517' : '#9CA3AF' }}>
                               {x.gmd > 0 ? x.gmd.toFixed(3) : '—'}
                             </td>
                             <td style={{ textAlign: 'right', color: '#6B7280' }}>
@@ -377,14 +377,14 @@ export default function Pesagens() {
                             </td>
                             <td style={{ color: '#374151' }}>
                               {x.atingiu ? (
-                                <span style={{ color: '#27500A', fontWeight: 500 }}>✓ Atingiu</span>
+                                <span style={{ color: '#1E55B0', fontWeight: 500 }}>✓ Atingiu</span>
                               ) : x.dataEst ? x.dataEst : (
                                 <span style={{ color: '#9CA3AF' }}>GMD insuficiente</span>
                               )}
                             </td>
                             <td>
                               {x.atingiu ? (
-                                <span style={{ background: '#EAF3DE', color: '#27500A', borderRadius: 6, padding: '2px 8px', fontSize: '.76rem', fontWeight: 600 }}>✓ OK</span>
+                                <span style={{ background: '#E8F0FC', color: '#1E55B0', borderRadius: 6, padding: '2px 8px', fontSize: '.76rem', fontWeight: 600 }}>✓ OK</span>
                               ) : x.dias !== null && x.dias <= 30 ? (
                                 <span style={{ background: '#FEF3C7', color: '#633806', borderRadius: 6, padding: '2px 8px', fontSize: '.76rem', fontWeight: 600 }}>⚡ Próximo</span>
                               ) : x.dias !== null ? (

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+﻿import { useState, useEffect, useRef } from 'react'
 import { db } from '../lib/supabase'
 import { calcCategoria, calcGMD } from '../lib/helpers'
 import { Loading, Modal, Field, toast, BotaoPDF, EmptyState, ErroCarregamento } from '../components/UI'
@@ -22,7 +22,7 @@ function avaliar(atual, meta, inverted) {
 }
 
 function statusSty(s) {
-  if (s === 'verde')    return { dot: '#27A838', bg: '#EAF3DE', borda: '#C0DD97', cor: '#1A5C25', txt: 'Atingiu a meta'       }
+  if (s === 'verde')    return { dot: '#27A838', bg: '#E8F0FC', borda: '#A5C8F5', cor: '#1A5C25', txt: 'Atingiu a meta'       }
   if (s === 'amarelo')  return { dot: '#D97706', bg: '#FEF3C7', borda: '#F3D5A3', cor: '#633806', txt: 'Próximo da meta'      }
   if (s === 'vermelho') return { dot: '#E24B4A', bg: '#FCEBEB', borda: '#F5B5B5', cor: '#791F1F', txt: 'Abaixo da meta'      }
   return                        { dot: '#9CA3AF', bg: '#F9FAFB', borda: '#E5E7EB', cor: '#6B7280', txt: 'Sem dados suficientes' }

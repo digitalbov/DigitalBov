@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+﻿import { useState, useRef, useEffect, useCallback } from 'react'
 import { perguntarIA } from '../lib/gemini'
 import { coletarContexto } from '../lib/contextoIA'
 
@@ -43,7 +43,7 @@ function Bubble({ msg, onFalar }) {
       {!isUser && (
         <div style={{
           width: 32, height: 32, borderRadius: '50%', flexShrink: 0,
-          background: '#1E4D35', display: 'flex', alignItems: 'center',
+          background: '#2B6CD9', display: 'flex', alignItems: 'center',
           justifyContent: 'center', fontSize: 16, marginBottom: 2
         }}>
           🤖
@@ -51,7 +51,7 @@ function Bubble({ msg, onFalar }) {
       )}
       <div style={{ maxWidth: '75%' }}>
         <div style={{
-          background: isUser ? '#1E4D35' : 'white',
+          background: isUser ? '#2B6CD9' : 'white',
           color: isUser ? 'white' : '#111827',
           borderRadius: isUser ? '16px 16px 4px 16px' : '16px 16px 16px 4px',
           padding: '10px 14px',
@@ -89,7 +89,7 @@ function PensandoBubble() {
     <div style={{ display: 'flex', justifyContent: 'flex-start', marginBottom: 12, alignItems: 'flex-end', gap: 8 }}>
       <div style={{
         width: 32, height: 32, borderRadius: '50%', flexShrink: 0,
-        background: '#1E4D35', display: 'flex', alignItems: 'center',
+        background: '#2B6CD9', display: 'flex', alignItems: 'center',
         justifyContent: 'center', fontSize: 16
       }}>
         🤖
@@ -183,14 +183,14 @@ export default function Assistente() {
         marginBottom: 16, flexShrink: 0
       }}>
         <div style={{
-          width: 44, height: 44, borderRadius: '50%', background: '#EAF3DE',
+          width: 44, height: 44, borderRadius: '50%', background: '#E8F0FC',
           display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22
         }}>
           🤖
         </div>
         <div>
           <div style={{ fontWeight: 600, fontSize: '.95rem', color: '#111827' }}>
-            Assistente IA — Ventos da Várzea
+            Assistente IA — DigitalBov
           </div>
           <div style={{ fontSize: '.78rem', color: '#9CA3AF', marginTop: 2 }}>
             Faça perguntas sobre seu rebanho, estoque, reprodutivo e financeiro
@@ -230,7 +230,7 @@ export default function Assistente() {
                     fontSize: '.8rem', color: '#374151', cursor: 'pointer',
                     transition: 'all .15s'
                   }}
-                  onMouseEnter={e => { e.target.style.borderColor = '#1E4D35'; e.target.style.color = '#1E4D35' }}
+                  onMouseEnter={e => { e.target.style.borderColor = '#2B6CD9'; e.target.style.color = '#2B6CD9' }}
                   onMouseLeave={e => { e.target.style.borderColor = '#D1D5DB'; e.target.style.color = '#374151' }}
                 >
                   {s}
@@ -328,7 +328,7 @@ export default function Assistente() {
           disabled={!input.trim() || loading}
           style={{
             width: 36, height: 36, borderRadius: 8,
-            background: input.trim() && !loading ? '#1E4D35' : '#E5E7EB',
+            background: input.trim() && !loading ? '#2B6CD9' : '#E5E7EB',
             border: 'none', cursor: input.trim() && !loading ? 'pointer' : 'not-allowed',
             color: input.trim() && !loading ? 'white' : '#9CA3AF',
             display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,

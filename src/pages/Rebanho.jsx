@@ -1,4 +1,4 @@
-// ─────────────────────────────────────────────────────────────────
+﻿// ─────────────────────────────────────────────────────────────────
 // CONTROLE DE REBANHO
 // ─────────────────────────────────────────────────────────────────
 import { useState, useEffect, useRef } from 'react'
@@ -119,8 +119,8 @@ export function Rebanho() {
           <div ref={refVisao}>
           <div className="kpi-grid">
             {[
-              { v:ativos.length,       l:'Animais ativos',  s:`${animais.filter(a=>a.situacao!=='ativo').length} inativos`, c:'#1E4D35' },
-              { v:matrizes.length,     l:'Matrizes',        s:'Vacas em produção',      c:'#1E4D35' },
+              { v:ativos.length,       l:'Animais ativos',  s:`${animais.filter(a=>a.situacao!=='ativo').length} inativos`, c:'#2B6CD9' },
+              { v:matrizes.length,     l:'Matrizes',        s:'Vacas em produção',      c:'#2B6CD9' },
               { v:fem.length,          l:'Fêmeas',          s:`${ativos.filter(a=>a.sexo==='M').length} machos`,  c:'#0C447C' },
               { v:'92,6 ha',           l:'Área útil',       s:'3 piquetes',             c:'#633806' },
             ].map(k => (
@@ -140,7 +140,7 @@ export function Rebanho() {
                   <XAxis dataKey="name" tick={{fontSize:10}} />
                   <YAxis tick={{fontSize:10}}/>
                   <Tooltip/>
-                  <Bar dataKey="value" name="Animais" fill="#3B6D11" radius={[4,4,0,0]}/>
+                  <Bar dataKey="value" name="Animais" fill="#7B2FBE" radius={[4,4,0,0]}/>
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -152,10 +152,10 @@ export function Rebanho() {
                   <div key={p.id} style={{marginBottom:12}}>
                     <div style={{display:'flex',justifyContent:'space-between',marginBottom:4}}>
                       <span style={{fontSize:'.85rem',fontWeight:500}}>{p.nome.split(' ')[0]}</span>
-                      <span style={{fontSize:'.85rem',fontWeight:600,color:'#1E4D35'}}>{pa.length}</span>
+                      <span style={{fontSize:'.85rem',fontWeight:600,color:'#2B6CD9'}}>{pa.length}</span>
                     </div>
                     <div className="progress-bg">
-                      <div className="progress-fill" style={{width:`${pct(pa.length,ativos.length)}`,background:'#3B6D11'}}/>
+                      <div className="progress-fill" style={{width:`${pct(pa.length,ativos.length)}`,background:'#7B2FBE'}}/>
                     </div>
                     <div style={{fontSize:'.72rem',color:'#9CA3AF',marginTop:2}}>
                       {pa.filter(a=>a.sexo==='F').length}♀ · {pa.filter(a=>a.sexo==='M').length}♂
@@ -178,7 +178,7 @@ export function Rebanho() {
           <div className="sl">Índices reprodutivos — ciclo atual</div>
           <div className="grid-3" style={{marginBottom:16}}>
             <IndexCard value={txPren}  label="Taxa de prenhez"  meta="≥85%"  ok={prenhas/Math.max(1,matrizes.length)>=0.85}/>
-            <IndexCard value={pct(prenhas,fem.length)} label="% fêmeas prenhas" color="#1E4D35"/>
+            <IndexCard value={pct(prenhas,fem.length)} label="% fêmeas prenhas" color="#2B6CD9"/>
             <IndexCard value="0,82" label="GMD terneiros kg/dia" meta="≥0,80" ok={true}/>
           </div>
           <div className="card">
@@ -277,7 +277,7 @@ export function Rebanho() {
                     <td style={{ fontSize:'.78rem', color:'#6B7280' }}>
                       {row.precoRec ? `R$ ${Number(row.precoRec.preco_kg||0).toFixed(2).replace('.',',')}` : '—'}
                     </td>
-                    <td style={{ fontWeight:600, color:'#1E4D35' }}>
+                    <td style={{ fontWeight:600, color:'#2B6CD9' }}>
                       {row.valor > 0 ? fmtMoeda(row.valor) : '—'}
                     </td>
                   </tr>
@@ -294,7 +294,7 @@ export function Rebanho() {
                   <td style={{ textAlign:'center' }}>{totalGeral}</td>
                   <td></td>
                   <td></td>
-                  <td style={{ color:'#1E4D35' }}>{fmtMoeda(valorGeral)}</td>
+                  <td style={{ color:'#2B6CD9' }}>{fmtMoeda(valorGeral)}</td>
                 </tr>
               </tfoot>
             </table>

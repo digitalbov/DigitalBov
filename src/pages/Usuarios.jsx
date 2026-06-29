@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+﻿import { useEffect, useState, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import { useConta } from '../lib/ContaContext'
 import { useFazenda } from '../lib/FazendaContext'
@@ -126,7 +126,7 @@ export default function Usuarios() {
   return (
     <div>
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
-        <h2 style={{ fontSize:'1.1rem', fontWeight:700, color:'#1E4D35' }}>Usuários da conta</h2>
+        <h2 style={{ fontSize:'1.1rem', fontWeight:700, color:'#2B6CD9' }}>Usuários da conta</h2>
         <button className="btn btn-primary btn-sm" onClick={() => setModalNovo(true)}>
           <i className="ti ti-user-plus" /> Adicionar funcionário
         </button>

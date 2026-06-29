@@ -3,13 +3,24 @@
    ================================================================ */
 
 :root {
-  /* Brand */
-  --brand-green:        #1E4D35;
-  --brand-green-dark:   #27500A;
-  --brand-green-mid:    #3B6D11;
-  --brand-green-light:  #97C459;
-  --brand-green-pale:   #C0DD97;
-  --brand-green-bg:     #EAF3DE;
+  /* Brand DigitalBov */
+  --brand-green:        #2B6CD9;  /* cor principal (azul) - mantém o nome p/ compatibilidade */
+  --brand-green-dark:   #1E55B0;  /* azul escuro (hover) */
+  --brand-green-mid:    #7B2FBE;  /* roxo */
+  --brand-green-light:  #1BA89C;  /* ciano/verde */
+  --brand-green-pale:   #A5C8F5;  /* azul claro */
+  --brand-green-bg:     #E8F0FC;  /* fundo azul bem claro */
+
+  /* Marca - gradiente e tons */
+  --db-navy:      #0A1628;  /* azul-marinho da sidebar/escuro */
+  --db-navy-soft: #142440;  /* navy um pouco mais claro (hover na sidebar) */
+  --db-magenta:   #E91E8C;
+  --db-purple:    #7B2FBE;
+  --db-blue:      #2B6CD9;
+  --db-cyan:      #1BA89C;
+  --db-green:     #4CAF3F;
+  --db-copper:    #C75B2A;
+  --db-gradient:  linear-gradient(90deg, #E91E8C 0%, #7B2FBE 30%, #2B6CD9 55%, #1BA89C 78%, #4CAF3F 100%);
 
   /* Neutrals */
   --gray-50:  #F9FAFB;
@@ -23,7 +34,7 @@
   --gray-900: #111827;
 
   /* Semantic */
-  --success-bg:   #EAF3DE; --success-text: #27500A; --success-border: #97C459;
+  --success-bg:   #E6F7F4; --success-text: #0F7268; --success-border: #1BA89C;
   --warning-bg:   #FAEEDA; --warning-text: #633806; --warning-border: #D97706;
   --danger-bg:    #FCEBEB; --danger-text:  #791F1F; --danger-border:  #E24B4A;
   --info-bg:      #E6F1FB; --info-text:    #0C447C; --info-border:    #3B82F6;
@@ -94,7 +105,7 @@ input, select, textarea {
 }
 input:focus, select:focus, textarea:focus {
   border-color: var(--brand-green);
-  box-shadow: 0 0 0 3px rgba(30,77,53,.1);
+  box-shadow: 0 0 0 3px rgba(43,108,217,.12);
 }
 input::placeholder, textarea::placeholder { color: var(--gray-400); }
 input[type="checkbox"] { width: auto; cursor: pointer; }
@@ -153,7 +164,7 @@ button { cursor: pointer; font-family: var(--font-sans); border: none; }
   padding: 2px 8px; border-radius: 10px;
   font-size: .72rem; font-weight: 600; white-space: nowrap;
 }
-.badge-green  { background: var(--success-bg); color: var(--success-text); }
+.badge-green  { background: #E8F0FC; color: #1E55B0; }
 .badge-amber  { background: var(--warning-bg); color: var(--warning-text); }
 .badge-red    { background: var(--danger-bg);  color: var(--danger-text); }
 .badge-blue   { background: var(--info-bg);    color: var(--info-text); }
@@ -173,7 +184,7 @@ tbody td {
   color: var(--gray-800);
 }
 tbody tr:last-child td { border-bottom: none; }
-tbody tr:hover td { background: #DCEEDC; transition: background 0.15s; }
+tbody tr:hover td { background: #EAF0FB; transition: background 0.15s; }
 .tr-total td { font-weight: 600; background: var(--gray-50) !important; }
 
 /* ── KPI Cards ──────────────────────────────────────────────────── */
@@ -202,7 +213,7 @@ tbody tr:hover td { background: #DCEEDC; transition: background 0.15s; }
 .app-shell { display: flex; height: 100vh; overflow: hidden; }
 
 .sidebar {
-  width: var(--sidebar-w); background: var(--brand-green);
+  width: var(--sidebar-w); background: linear-gradient(160deg, #2B6CD9 0%, #5B3FBE 55%, #7B2FBE 100%);
   display: flex; flex-direction: column;
   flex-shrink: 0; overflow-y: auto;
 }
@@ -392,13 +403,13 @@ tbody tr:hover td { background: #DCEEDC; transition: background 0.15s; }
   box-shadow: var(--shadow-lg);
 }
 .login-side {
-  flex: 1; background: var(--brand-green);
+  flex: 1; background: linear-gradient(160deg, #2B6CD9 0%, #5B3FBE 55%, #7B2FBE 100%);
   display: flex; align-items: center; justify-content: center;
   padding: 40px;
 }
 .login-logo { text-align: center; margin-bottom: 40px; }
 .login-logo-icon {
-  width: 56px; height: 56px; background: var(--brand-green);
+  width: 56px; height: 56px; background: var(--db-blue);
   border-radius: var(--radius-lg); display: flex; align-items: center;
   justify-content: center; font-size: 26px; margin: 0 auto 12px;
 }
@@ -552,4 +563,11 @@ tbody tr:hover td { background: #DCEEDC; transition: background 0.15s; }
   body            { padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); }
   .app-shell      { padding-bottom: env(safe-area-inset-bottom); }
   .toast-container { bottom: calc(20px + env(safe-area-inset-bottom)); }
+}
+
+.db-gradient-bar { background: var(--db-gradient) !important; }
+.db-gradient-text {
+  background: var(--db-gradient);
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: transparent;
 }

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+﻿import { useState, useEffect } from 'react'
 import * as XLSX from 'xlsx'
 import { supabase } from '../lib/supabase'
 import { calcCategoria } from '../lib/helpers'
@@ -126,7 +126,7 @@ export default function Backup() {
       const payload = {
         data_backup: new Date().toISOString(),
         versao:      '1.0',
-        sistema:     'Ventos da Várzea',
+        sistema:     'DigitalBov',
         totais: {
           animais:            animais.length,
           lancamentos:        lancamentos_financeiros.length,
@@ -244,16 +244,16 @@ export default function Backup() {
     <div>
       {/* Banner de recomendação */}
       <div style={{
-        background: '#EAF3DE', border: '.5px solid #C0DD97',
+        background: '#E8F0FC', border: '.5px solid #A5C8F5',
         borderRadius: 12, padding: '14px 18px', marginBottom: 20,
         display: 'flex', gap: 12, alignItems: 'flex-start'
       }}>
         <span style={{ fontSize: 22, flexShrink: 0 }}>💡</span>
         <div>
-          <div style={{ fontWeight: 600, fontSize: '.88rem', color: '#1E4D35', marginBottom: 4 }}>
+          <div style={{ fontWeight: 600, fontSize: '.88rem', color: '#2B6CD9', marginBottom: 4 }}>
             Boas práticas de backup
           </div>
-          <div style={{ fontSize: '.80rem', color: '#27500A', lineHeight: 1.65 }}>
+          <div style={{ fontSize: '.80rem', color: '#1E55B0', lineHeight: 1.65 }}>
             Recomendamos baixar o <strong>Backup Completo</strong> pelo menos uma vez por mês e guardar em local seguro — Google Drive, e-mail ou pen drive.
             O arquivo <strong>.json</strong> contém <em>todos os dados do sistema</em> e pode ser usado para restauração em caso de necessidade.
           </div>
@@ -282,7 +282,7 @@ export default function Backup() {
           onClick={gerarJSON}
           loading={loadingJSON}
           lastTs={tsJSON}
-          accent="#1E4D35"
+          accent="#2B6CD9"
         />
 
         <BackupCard

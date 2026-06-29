@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+﻿import { useState, useEffect } from 'react'
 import { db, supabase } from '../lib/supabase'
 import { toast, Field } from './UI'
 
@@ -49,7 +49,7 @@ export default function OnboardingWizard({ fazendaId, onClose }) {
   return (
     <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.75)', zIndex:8888, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}>
       <div style={{ background:'white', borderRadius:20, width:'100%', maxWidth:520, maxHeight:'92vh', overflowY:'auto', boxShadow:'0 24px 80px rgba(0,0,0,.35)' }}>
-        <div style={{ background:'linear-gradient(135deg,#1E4D35 0%,#27500A 100%)', borderRadius:'20px 20px 0 0', padding:'24px 28px', color:'white' }}>
+        <div style={{ background:'linear-gradient(135deg,#2B6CD9 0%,#1E55B0 100%)', borderRadius:'20px 20px 0 0', padding:'24px 28px', color:'white' }}>
           <div style={{ marginBottom:16 }}>
             <div style={{ fontSize:'.72rem', color:'rgba(255,255,255,.55)', fontWeight:500 }}>PASSO {passo} DE {total}</div>
             <div style={{ fontSize:'1.35rem', fontWeight:700, marginTop:4 }}>{atual.icon} {atual.titulo}</div>
@@ -62,8 +62,8 @@ export default function OnboardingWizard({ fazendaId, onClose }) {
             {PASSOS.map(p => (
               <button key={p.id} onClick={() => { if (p.id <= passo || passo > 3 || qtdProprietarios > 0 || p.id <= 3) setPasso(p.id) }}
                 style={{ width:28, height:28, borderRadius:'50%', border:'none', cursor:'pointer',
-                  background: p.id < passo ? '#C0DD97' : p.id === passo ? 'white' : 'rgba(255,255,255,.2)',
-                  color: p.id <= passo ? '#1E4D35' : 'rgba(255,255,255,.5)', fontWeight: p.id === passo ? 700 : 400,
+                  background: p.id < passo ? '#A5C8F5' : p.id === passo ? 'white' : 'rgba(255,255,255,.2)',
+                  color: p.id <= passo ? '#2B6CD9' : 'rgba(255,255,255,.5)', fontWeight: p.id === passo ? 700 : 400,
                   fontSize:'.75rem', display:'flex', alignItems:'center', justifyContent:'center', fontFamily:'inherit' }}>
                 {p.id < passo ? '✓' : p.id}
               </button>
@@ -130,7 +130,7 @@ function PassoConteudo({ passo, form, setForm, fazendaId, contaId, setQtdProprie
     <div style={{ display:'flex', flexDirection:'column', gap:6, marginBottom:12 }}>
       {items.map(it => (
         <div key={it.id} style={{ display:'flex', alignItems:'center', gap:8, padding:'6px 10px', background:'#F9FAFB', border:'.5px solid #E5E7EB', borderRadius:8, fontSize:'.83rem' }}>
-          <span style={{ color:'#1E4D35' }}>✓</span> {it.nome}
+          <span style={{ color:'#2B6CD9' }}>✓</span> {it.nome}
         </div>
       ))}
     </div>

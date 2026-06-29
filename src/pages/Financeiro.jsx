@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+﻿import { useState, useEffect, useRef } from 'react'
 import { db } from '../lib/supabase'
 import { fmtMoeda, fmtData, getCicloNome, GRUPOS_REC, GRUPOS_DES } from '../lib/helpers'
 import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, AlertBox, BotaoPDF, ErroCarregamento } from '../components/UI'
@@ -245,9 +245,9 @@ export default function Financeiro() {
           <div ref={refResumo}>
           <div className="kpi-grid">
             {[
-              { v:fmtMoeda(rec),  l:'Receitas',  s:lancs.filter(l=>l.tipo==='R').length+' lançamentos', c:'#27500A' },
+              { v:fmtMoeda(rec),  l:'Receitas',  s:lancs.filter(l=>l.tipo==='R').length+' lançamentos', c:'#1E55B0' },
               { v:fmtMoeda(desp), l:'Despesas',  s:lancs.filter(l=>l.tipo==='D').length+' lançamentos', c:'#791F1F' },
-              { v:fmtMoeda(Math.abs(resu)), l:resu>=0?'Resultado positivo':'Resultado negativo', s:`Margem ${rec>0?Math.round(resu/rec*100):0}%`, c:resu>=0?'#1E4D35':'#791F1F' },
+              { v:fmtMoeda(Math.abs(resu)), l:resu>=0?'Resultado positivo':'Resultado negativo', s:`Margem ${rec>0?Math.round(resu/rec*100):0}%`, c:resu>=0?'#2B6CD9':'#791F1F' },
               { v:transacs.filter(t=>t.tipo==='V').length, l:'Vendas de animais', s:'no ciclo', c:'#633806' },
             ].map(k=>(
               <div key={k.l} className="kpi-card" style={{ borderLeft:`3px solid ${k.c}` }}>
@@ -268,7 +268,7 @@ export default function Financeiro() {
                       <XAxis type="number" tick={{fontSize:9}} tickFormatter={v=>`R$${(v/1000).toFixed(0)}k`}/>
                       <YAxis type="category" dataKey="name" tick={{fontSize:10}} width={70}/>
                       <Tooltip formatter={v=>fmtMoeda(v)}/>
-                      <Bar dataKey="value" name="Valor" fill="#1E4D35" radius={[0,4,4,0]}/>
+                      <Bar dataKey="value" name="Valor" fill="#2B6CD9" radius={[0,4,4,0]}/>
                     </BarChart>
                   </ResponsiveContainer>
                 )
@@ -282,7 +282,7 @@ export default function Financeiro() {
                   : transacs.filter(t=>t.tipo==='V').map(t=>(
                     <div key={t.id} className="row">
                       <span className="row-label">{fmtData(t.data)} · {t.quantidade}x {t.categoria}</span>
-                      <span className="row-value" style={{color:'#27500A'}}>{fmtMoeda(t.valor_total)}</span>
+                      <span className="row-value" style={{color:'#1E55B0'}}>{fmtMoeda(t.valor_total)}</span>
                     </div>
                   ))
                 }
@@ -331,7 +331,7 @@ export default function Financeiro() {
                         <td><Badge color={l.tipo==='R'?'green':'red'}>{l.tipo==='R'?'Rec':'Des'}</Badge></td>
                         <td style={{fontSize:'.78rem',color:'#6B7280'}}>{l.grupo}</td>
                         <td style={{color:'#6B7280'}}>{l.descricao}</td>
-                        <td style={{textAlign:'right',fontWeight:500,color:l.tipo==='R'?'#27500A':'#791F1F'}}>
+                        <td style={{textAlign:'right',fontWeight:500,color:l.tipo==='R'?'#1E55B0':'#791F1F'}}>
                           {l.tipo==='R'?'+':'-'}{fmtMoeda(l.valor)}
                         </td>
                         <td>
@@ -345,7 +345,7 @@ export default function Financeiro() {
                     ))}
                     <tr className="tr-total">
                       <td colSpan={4}>Resultado do ciclo</td>
-                      <td style={{textAlign:'right',color:resu>=0?'#27500A':'#791F1F'}}>
+                      <td style={{textAlign:'right',color:resu>=0?'#1E55B0':'#791F1F'}}>
                         {resu>=0?'+':''}{fmtMoeda(resu)}
                       </td>
                       <td></td>
@@ -394,7 +394,7 @@ export default function Financeiro() {
                         <td style={{fontSize:'.78rem',color:'#9CA3AF'}}>{t.contraparte||'—'}</td>
                         <td style={{color:'#9CA3AF'}}>{fmtMoeda(t.comissao)}</td>
                         <td style={{color:'#9CA3AF'}}>{fmtMoeda(t.imposto)}</td>
-                        <td style={{textAlign:'right',fontWeight:500,color:t.tipo==='V'?'#27500A':'#791F1F'}}>{fmtMoeda(t.valor_total)}</td>
+                        <td style={{textAlign:'right',fontWeight:500,color:t.tipo==='V'?'#1E55B0':'#791F1F'}}>{fmtMoeda(t.valor_total)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -422,9 +422,9 @@ export default function Financeiro() {
                   {ciclos.map(c=>(
                     <tr key={c.id} style={{fontWeight:c.atual?600:''}}>
                       <td>{c.nome}{c.atual&&<Badge color="purple" style={{marginLeft:6}}>atual</Badge>}</td>
-                      <td style={{textAlign:'right',color:'#27500A'}}>{c.id===cicloId?fmtMoeda(rec):'—'}</td>
+                      <td style={{textAlign:'right',color:'#1E55B0'}}>{c.id===cicloId?fmtMoeda(rec):'—'}</td>
                       <td style={{textAlign:'right',color:'#791F1F'}}>{c.id===cicloId?fmtMoeda(desp):'—'}</td>
-                      <td style={{textAlign:'right',color:resu>=0?'#27500A':'#791F1F'}}>{c.id===cicloId?fmtMoeda(resu):'—'}</td>
+                      <td style={{textAlign:'right',color:resu>=0?'#1E55B0':'#791F1F'}}>{c.id===cicloId?fmtMoeda(resu):'—'}</td>
                       <td style={{textAlign:'right',color:'#6B7280'}}>{c.id===cicloId&&rec>0?Math.round(resu/rec*100)+'%':'—'}</td>
                     </tr>
                   ))}
@@ -472,7 +472,7 @@ export default function Financeiro() {
                           toast('Atualizado!')
                         }}/>
                     </td>
-                    <td style={{textAlign:'right',fontWeight:500,color:'#27500A'}}>
+                    <td style={{textAlign:'right',fontWeight:500,color:'#1E55B0'}}>
                       {cp.peso_medio>0&&cp.preco_kg>0?fmtMoeda(cp.peso_medio*cp.preco_kg):'—'}
                     </td>
                     <td></td>
@@ -598,7 +598,7 @@ export default function Financeiro() {
           <Field label="Funrural / Imposto (R$)"><input type="number" step="0.01" value={form.imposto||0} onChange={e=>setForm(p=>({...p,imposto:e.target.value}))}/></Field>
         </div>
         {form.peso_medio&&form.preco_kg&&(
-          <div style={{background:'#EAF3DE',borderRadius:8,padding:'8px 12px',marginBottom:10,fontSize:'.85rem',color:'#27500A',fontWeight:500}}>
+          <div style={{background:'#E8F0FC',borderRadius:8,padding:'8px 12px',marginBottom:10,fontSize:'.85rem',color:'#1E55B0',fontWeight:500}}>
             Valor total estimado: {fmtMoeda(parseFloat(form.peso_medio)*parseFloat(form.preco_kg)*(parseInt(form.quantidade)||1))}
           </div>
         )}

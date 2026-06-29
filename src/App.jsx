@@ -1,4 +1,4 @@
-import { lazy, useEffect, useState, Suspense } from 'react'
+﻿import { lazy, useEffect, useState, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { auth, supabase, db } from './lib/supabase'
 import { FazendaProvider, useFazenda } from './lib/FazendaContext'
@@ -47,9 +47,9 @@ function FullLoading({ text = 'Carregando...' }) {
     <div style={{
       height:'100vh', display:'flex', alignItems:'center',
       justifyContent:'center', flexDirection:'column', gap:12,
-      background:'#1E4D35'
+      background:'#2B6CD9'
     }}>
-      <div style={{ fontSize:48, marginBottom:8 }}>🐮</div>
+      <img src="/circular-DIGITALBOV.png" style={{ width:64, height:64, objectFit:'contain', marginBottom:8 }} alt="DigitalBov" />
       <div style={{ color:'white', fontWeight:600, fontSize:'1.1rem' }}>DigitalBov</div>
       <div style={{ color:'rgba(255,255,255,.6)', fontSize:'.85rem' }}>{text}</div>
       <div style={{
@@ -95,8 +95,8 @@ function PrimeiroAcesso() {
         />
       )}
       <div style={{ background:'white', borderRadius:16, padding:'40px 36px', maxWidth:440, width:'100%', boxShadow:'0 8px 32px rgba(0,0,0,.1)', textAlign:'center' }}>
-        <div style={{ fontSize:56, marginBottom:16 }}>🐮</div>
-        <h2 style={{ fontSize:'1.35rem', fontWeight:700, color:'#1E4D35', marginBottom:8 }}>Bem-vindo ao DigitalBov</h2>
+        <img src="/circular-DIGITALBOV.png" style={{ width:72, height:72, objectFit:'contain', marginBottom:16 }} alt="DigitalBov" />
+        <h2 style={{ fontSize:'1.35rem', fontWeight:700, color:'#2B6CD9', marginBottom:8 }}>Bem-vindo ao DigitalBov</h2>
         <p style={{ fontSize:'.88rem', color:'#6B7280', marginBottom:28 }}>Vamos criar sua conta e sua primeira fazenda.</p>
         <div style={{ textAlign:'left', marginBottom:16 }}>
           <label style={{ fontSize:'.82rem', fontWeight:600, color:'#374151', display:'block', marginBottom:6 }}>Nome da sua conta / empresa *</label>
@@ -123,7 +123,7 @@ function SemAcessoFazenda() {
     <div style={{ height:'100vh', display:'flex', alignItems:'center', justifyContent:'center', background:'#F9FAFB', padding:24 }}>
       <div style={{ background:'white', borderRadius:16, padding:'40px 36px', maxWidth:420, width:'100%', boxShadow:'0 8px 32px rgba(0,0,0,.1)', textAlign:'center' }}>
         <div style={{ fontSize:56, marginBottom:16 }}>🔒</div>
-        <h2 style={{ fontSize:'1.25rem', fontWeight:700, color:'#1E4D35', marginBottom:8 }}>Sem acesso a fazendas</h2>
+        <h2 style={{ fontSize:'1.25rem', fontWeight:700, color:'#2B6CD9', marginBottom:8 }}>Sem acesso a fazendas</h2>
         <p style={{ fontSize:'.9rem', color:'#6B7280', marginBottom:24 }}>
           Você ainda não tem acesso a nenhuma fazenda. Fale com o administrador da sua conta para liberar o acesso.
         </p>
@@ -193,7 +193,7 @@ export default function App() {
       id: uid,
       nome: user?.email ? user.email.split('@')[0] : 'Usuário',
       email: user?.email || '',
-      avatar_cor: '#1E4D35'
+      avatar_cor: '#2B6CD9'
     })
     setLoading(false)
   }

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+﻿import { useState, useEffect } from 'react'
 
 export default function InstallPrompt() {
   const [deferredPrompt, setDeferredPrompt] = useState(null)
@@ -26,16 +26,16 @@ export default function InstallPrompt() {
   return (
     <div style={{
       position:'fixed', bottom:16, left:16, right:16, zIndex:9999,
-      background:'#1E4D35', color:'white', borderRadius:12, padding:'14px 16px',
+      background:'#2B6CD9', color:'white', borderRadius:12, padding:'14px 16px',
       display:'flex', alignItems:'center', gap:12, boxShadow:'0 8px 24px rgba(0,0,0,.25)'
     }}>
       <img src="/icon-72.png" style={{width:40,height:40,borderRadius:8}} alt=""/>
       <div style={{flex:1}}>
-        <div style={{fontSize:'.85rem',fontWeight:600}}>Instalar Ventos da Várzea</div>
+        <div style={{fontSize:'.85rem',fontWeight:600}}>Instalar DigitalBov</div>
         <div style={{fontSize:'.75rem',opacity:.8}}>Acesso rápido direto da tela inicial</div>
       </div>
       <button onClick={install} style={{
-        background:'white', color:'#1E4D35', border:'none', borderRadius:8,
+        background:'white', color:'#2B6CD9', border:'none', borderRadius:8,
         padding:'8px 14px', fontWeight:600, fontSize:'.8rem', cursor:'pointer'
       }}>Instalar</button>
       <button onClick={()=>setShow(false)} style={{
