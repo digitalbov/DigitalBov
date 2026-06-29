@@ -20,6 +20,9 @@ export default function Usuarios() {
   const [fazVinc, setFazVinc] = useState(new Set())
   const [perms, setPerms] = useState({}) // modulo -> bool
   const [salvando, setSalvando] = useState(false)
+  const [modalNovo, setModalNovo] = useState(false)
+  const [novo, setNovo] = useState({ email:'', senha:'' })
+  const [criando, setCriando] = useState(false)
 
   const carregar = useCallback(async () => {
     if (!contaAtual) return
@@ -75,10 +78,59 @@ export default function Usuarios() {
     setSalvando(false)
   }
 
+  const mudarPapel = async (usuario_id, novoPapel) => {
+    const { error } = await supabase.rpc('definir_papel', {
+      p_conta_id: contaAtual.id, p_usuario_id: usuario_id, p_novo_papel: novoPapel
+    })
+    if (error) { toast('Erro: ' + error.message, 'error'); return }
+    toast(novoPapel === 'admin' ? 'Promovido a administrador' : 'Alterado para operador')
+    await carregar()
+  }
+
+  const criarFuncionario = async () => {
+    if (!novo.email || !novo.senha) { toast('Preencha email e senha', 'error'); return }
+    if (novo.senha.length < 6) { toast('Senha mínima de 6 caracteres', 'error'); return }
+    setCriando(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) { toast('Sessão expirada, faça login de novo', 'error'); setCriando(false); return }
+
+      const resp = await fetch(
+        'https://wagwtkzztbftshstrnfh.supabase.co/functions/v1/dynamic-responder',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + session.access_token,
+          },
+          body: JSON.stringify({ email: novo.email, senha: novo.senha, conta_id: contaAtual.id, papel: 'operador' }),
+        }
+      )
+      const data = await resp.json()
+      if (!resp.ok || data?.error) {
+        toast('Erro: ' + (data?.error || resp.status), 'error')
+      } else {
+        toast('Usuário criado')
+        setModalNovo(false)
+        setNovo({ email:'', senha:'' })
+        await carregar()
+      }
+    } catch (e) {
+      toast('Erro ao criar usuário: ' + String(e), 'error')
+    }
+    setCriando(false)
+  }
+
   if (loading) return <Loading text="Carregando usuários..." />
 
   return (
     <div>
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
+        <h2 style={{ fontSize:'1.1rem', fontWeight:700, color:'#1E4D35' }}>Usuários da conta</h2>
+        <button className="btn btn-primary btn-sm" onClick={() => setModalNovo(true)}>
+          <i className="ti ti-user-plus" /> Adicionar funcionário
+        </button>
+      </div>
       <div className="card">
         {membros.length === 0 ? (
           <EmptyState icon="👥" title="Nenhum usuário" sub="Os membros da sua conta aparecerão aqui." />
@@ -93,18 +145,48 @@ export default function Usuarios() {
                   <div style={{ fontWeight:600, fontSize:'.9rem' }}>{m.email}</div>
                   <Badge color={m.papel === 'dono' ? 'green' : 'gray'}>{m.papel}</Badge>
                 </div>
-                {m.papel === 'dono' || m.papel === 'admin' ? (
-                  <span style={{ fontSize:'.78rem', color:'#9CA3AF' }}>Acesso total</span>
-                ) : (
-                  <button className="btn btn-secondary btn-sm" onClick={() => abrirGestao(m)}>
-                    Gerenciar
+                {m.papel === 'dono' ? (
+                  <span style={{ fontSize:'.78rem', color:'#9CA3AF' }}>Dono</span>
+                ) : m.papel === 'admin' ? (
+                  <button className="btn btn-secondary btn-sm" onClick={() => mudarPapel(m.usuario_id, 'operador')}>
+                    Tornar operador
                   </button>
+                ) : (
+                  <div style={{ display:'flex', gap:6 }}>
+                    <button className="btn btn-secondary btn-sm" onClick={() => abrirGestao(m)}>
+                      Gerenciar
+                    </button>
+                    <button className="btn btn-secondary btn-sm" onClick={() => mudarPapel(m.usuario_id, 'admin')}>
+                      Tornar admin
+                    </button>
+                  </div>
                 )}
               </div>
             ))}
           </div>
         )}
       </div>
+
+      <Modal open={modalNovo} onClose={() => setModalNovo(false)} title="Adicionar funcionário" width={420}>
+        <Field label="E-mail *">
+          <input className="input" style={{ width:'100%' }} type="email"
+            value={novo.email} onChange={e => setNovo(p => ({...p, email:e.target.value}))} />
+        </Field>
+        <Field label="Senha provisória *">
+          <input className="input" style={{ width:'100%' }}
+            value={novo.senha} onChange={e => setNovo(p => ({...p, senha:e.target.value}))} />
+        </Field>
+        <p style={{ fontSize:'.78rem', color:'#6B7280', marginTop:4 }}>
+          O funcionário entra com este e-mail e senha. Você define as fazendas e
+          permissões dele depois, no botão Gerenciar.
+        </p>
+        <div className="modal-actions" style={{ marginTop:16 }}>
+          <button className="btn btn-secondary btn-sm" onClick={() => setModalNovo(false)}>Cancelar</button>
+          <button className="btn btn-primary btn-sm" onClick={criarFuncionario} disabled={criando}>
+            {criando ? 'Criando...' : 'Criar usuário'}
+          </button>
+        </div>
+      </Modal>
 
       <Modal open={!!editando} onClose={() => setEditando(null)} title="Permissões do usuário" width={560}>
         <div style={{ marginBottom:20 }}>
