@@ -134,17 +134,19 @@ export default function Sidebar({ user, perfil, mobileOpen, onClose }) {
                     {f.id===fazendaAtual.id && <i className="ti ti-check" style={{ marginLeft:'auto', color:'#1E4D35', fontSize:14 }} />}
                   </button>
                 ))}
-                <button
-                  onClick={() => { setModalNova(true); setSeletorAberto(false) }}
-                  style={{
-                    width:'100%', padding:'10px 14px', background:'white', border:'none',
-                    cursor:'pointer', textAlign:'left', fontFamily:'inherit',
-                    display:'flex', alignItems:'center', gap:8, color:'#1E4D35', fontWeight:600
-                  }}
-                >
-                  <i className="ti ti-plus" style={{ fontSize:14 }} />
-                  <span style={{ fontSize:'.83rem' }}>Nova fazenda</span>
-                </button>
+                {ehAdmin && (
+                  <button
+                    onClick={() => { setModalNova(true); setSeletorAberto(false) }}
+                    style={{
+                      width:'100%', padding:'10px 14px', background:'white', border:'none',
+                      cursor:'pointer', textAlign:'left', fontFamily:'inherit',
+                      display:'flex', alignItems:'center', gap:8, color:'#1E4D35', fontWeight:600
+                    }}
+                  >
+                    <i className="ti ti-plus" style={{ fontSize:14 }} />
+                    <span style={{ fontSize:'.83rem' }}>Nova fazenda</span>
+                  </button>
+                )}
               </div>
             )}
           </div>
