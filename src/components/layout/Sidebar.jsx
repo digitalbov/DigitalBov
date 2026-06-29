@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import { auth, db } from '../../lib/supabase'
 import { useFazenda } from '../../lib/FazendaContext'
 import { useConta } from '../../lib/ContaContext'
+import OnboardingWizard from '../OnboardingWizard'
 
 const NAV = [
   { section: 'PRINCIPAL' },
@@ -40,6 +41,7 @@ export default function Sidebar({ user, perfil, mobileOpen, onClose }) {
   const [modalNova, setModalNova] = useState(false)
   const [novaForm, setNovaForm] = useState({ nome:'', localizacao:'' })
   const [salvandoNova, setSalvandoNova] = useState(false)
+  const [wizardFazendaId, setWizardFazendaId] = useState(null)
 
   const initials = (nome) => nome
     ? nome.split(' ').filter((_,i,a) => i===0||i===a.length-1).map(w=>w[0]).join('').toUpperCase()
@@ -69,7 +71,7 @@ export default function Sidebar({ user, perfil, mobileOpen, onClose }) {
     setModalNova(false)
     setNovaForm({ nome:'', localizacao:'' })
     setSeletorAberto(false)
-    window.location.reload()
+    setWizardFazendaId(data.id)
   }
 
   const mostrarComparativo = fazendas.length >= 2
@@ -261,6 +263,12 @@ export default function Sidebar({ user, perfil, mobileOpen, onClose }) {
           </div>
         )}
       </aside>
+      {wizardFazendaId && (
+        <OnboardingWizard
+          fazendaId={wizardFazendaId}
+          onClose={() => { setWizardFazendaId(null); window.location.reload() }}
+        />
+      )}
     </>
   )
 }

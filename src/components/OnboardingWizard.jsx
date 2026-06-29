@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { db } from '../lib/supabase'
 import { toast, Field } from './UI'
 
@@ -16,12 +16,27 @@ export default function OnboardingWizard({ fazendaId, onClose }) {
   const [passo,   setPasso]   = useState(1)
   const [form,    setForm]    = useState({})
   const [saving,  setSaving]  = useState(false)
+  const [qtdProprietarios, setQtdProprietarios] = useState(0)
+
+  useEffect(() => {
+    let ativo = true
+    db.proprietarios.list().then(({ data }) => {
+      if (ativo) setQtdProprietarios((data || []).length)
+    })
+    return () => { ativo = false }
+  }, [])
 
   const total   = PASSOS.length
   const atual   = PASSOS[passo - 1]
   const progPct = Math.round((passo / total) * 100)
 
-  const proxPasso = () => { if (passo < total) setPasso(p => p+1) }
+  const proxPasso = () => {
+    if (passo === 3 && qtdProprietarios === 0) {
+      toast('Cadastre ao menos um proprietário para continuar', 'error')
+      return
+    }
+    if (passo < total) setPasso(p => p+1)
+  }
   const voltarPasso = () => { if (passo > 1) setPasso(p => p-1) }
 
   const concluir = async () => {
@@ -33,6 +48,7 @@ export default function OnboardingWizard({ fazendaId, onClose }) {
   }
 
   const pularTudo = async () => {
+    if (qtdProprietarios === 0) { toast('Cadastre ao menos um proprietário antes de pular', 'error'); return }
     await db.fazendas.update(fazendaId, { onboarding_concluido: true })
     toast('Tutorial pulado. Você pode reabri-lo em Propriedade → Configurações.')
     onClose()
@@ -103,7 +119,8 @@ export default function OnboardingWizard({ fazendaId, onClose }) {
 
         {/* Corpo do passo */}
         <div style={{ padding:'28px 28px' }}>
-          <PassoConteudo passo={passo} form={form} setForm={setForm} fazendaId={fazendaId} />
+          <PassoConteudo passo={passo} form={form} setForm={setForm} fazendaId={fazendaId}
+            qtdProprietarios={qtdProprietarios} setQtdProprietarios={setQtdProprietarios} />
         </div>
 
         {/* Footer */}
@@ -126,7 +143,7 @@ export default function OnboardingWizard({ fazendaId, onClose }) {
           <div style={{ display:'flex', gap:8 }}>
             <button
               onClick={proxPasso}
-              disabled={passo === total}
+              disabled={passo === total || (passo === 3 && qtdProprietarios === 0)}
               style={{
                 background:passo===total?'#E5E7EB':'#F3F4F6',
                 border:'none', borderRadius:8, padding:'8px 18px',
@@ -161,10 +178,19 @@ export default function OnboardingWizard({ fazendaId, onClose }) {
 }
 
 // ── Conteúdo por passo ────────────────────────────────────────────
-function PassoConteudo({ passo, form, setForm, fazendaId }) {
+function PassoConteudo({ passo, form, setForm, fazendaId, qtdProprietarios, setQtdProprietarios }) {
   const [saving, setSaving] = useState(false)
   const [items,  setItems]  = useState([])
   const [novoNome, setNovoNome] = useState('')
+
+  useEffect(() => {
+    const map = { 3:'proprietarios', 4:'piquetes', 5:'lotes' }
+    const tabela = map[passo]
+    if (!tabela) { setItems([]); return }
+    let ativo = true
+    db[tabela].list().then(({ data }) => { if (ativo) setItems(data || []) })
+    return () => { ativo = false }
+  }, [passo])
 
   const addItem = async (tabela, payload) => {
     setSaving(true)
@@ -173,6 +199,9 @@ function PassoConteudo({ passo, form, setForm, fazendaId }) {
     if (error) { toast('Erro: '+error.message, 'error'); return }
     toast('Adicionado!')
     setNovoNome('')
+    const { data } = await db[tabela].list()
+    setItems(data || [])
+    if (tabela === 'proprietarios' && setQtdProprietarios) setQtdProprietarios((data || []).length)
   }
 
   if (passo === 1) return (
@@ -238,8 +267,17 @@ function PassoConteudo({ passo, form, setForm, fazendaId }) {
           <i className="ti ti-plus" />
         </button>
       </div>
-      <p style={{ fontSize:'.75rem', color:'#9CA3AF' }}>
-        Pressione Enter para adicionar. Você pode adicionar mais depois em Propriedade → Proprietários.
+      {items.length > 0 && (
+        <div style={{ display:'flex', flexDirection:'column', gap:6, marginBottom:12 }}>
+          {items.map(it => (
+            <div key={it.id} style={{ display:'flex', alignItems:'center', gap:8, padding:'6px 10px', background:'#F9FAFB', border:'.5px solid #E5E7EB', borderRadius:8, fontSize:'.83rem' }}>
+              <span style={{ color:'#1E4D35' }}>✓</span> {it.nome}
+            </div>
+          ))}
+        </div>
+      )}
+      <p style={{ fontSize:'.75rem', color: qtdProprietarios === 0 ? '#DC2626' : '#9CA3AF' }}>
+        {qtdProprietarios === 0 ? 'Obrigatório: cadastre ao menos um proprietário para continuar.' : 'Você pode adicionar mais depois em Propriedade → Proprietários.'}
       </p>
     </div>
   )
@@ -262,6 +300,15 @@ function PassoConteudo({ passo, form, setForm, fazendaId }) {
           <i className="ti ti-plus" />
         </button>
       </div>
+      {items.length > 0 && (
+        <div style={{ display:'flex', flexDirection:'column', gap:6, marginBottom:12 }}>
+          {items.map(it => (
+            <div key={it.id} style={{ display:'flex', alignItems:'center', gap:8, padding:'6px 10px', background:'#F9FAFB', border:'.5px solid #E5E7EB', borderRadius:8, fontSize:'.83rem' }}>
+              <span style={{ color:'#1E4D35' }}>✓</span> {it.nome}
+            </div>
+          ))}
+        </div>
+      )}
       <div style={{ background:'#EAF3DE', borderRadius:8, padding:'8px 12px', fontSize:'.78rem', color:'#1E4D35' }}>
         <i className="ti ti-info-circle" style={{ marginRight:4 }} />
         Geometria e área podem ser definidas depois em <strong>Propriedade → Piquetes</strong> usando o mapa ou importando um arquivo KML.
@@ -287,6 +334,15 @@ function PassoConteudo({ passo, form, setForm, fazendaId }) {
           <i className="ti ti-plus" />
         </button>
       </div>
+      {items.length > 0 && (
+        <div style={{ display:'flex', flexDirection:'column', gap:6, marginBottom:12 }}>
+          {items.map(it => (
+            <div key={it.id} style={{ display:'flex', alignItems:'center', gap:8, padding:'6px 10px', background:'#F9FAFB', border:'.5px solid #E5E7EB', borderRadius:8, fontSize:'.83rem' }}>
+              <span style={{ color:'#1E4D35' }}>✓</span> {it.nome}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 
