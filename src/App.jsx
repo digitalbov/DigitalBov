@@ -176,8 +176,13 @@ export default function App() {
   }, [])
 
   const loadPerfil = async (uid) => {
-    const { data } = await supabase.from('usuarios').select('*').eq('id', uid).single()
-    setPerfil(data)
+    const { data: { user } } = await supabase.auth.getUser()
+    setPerfil({
+      id: uid,
+      nome: user?.email ? user.email.split('@')[0] : 'Usuário',
+      email: user?.email || '',
+      avatar_cor: '#1E4D35'
+    })
     setLoading(false)
   }
 

@@ -38,8 +38,8 @@ const T = (tabela, opts = {}) => {
       return q
     },
     insertOne: (data) => {
-      const base = { ...data, conta_id: cid() }
-      if (!semFazenda) base.fazenda_id = fid()
+      const base = { ...data, conta_id: data.conta_id ?? cid() }
+      if (!semFazenda) base.fazenda_id = data.fazenda_id ?? fid()
       return supabase.from(tabela).insert(base)
     },
     raw: () => supabase.from(tabela)

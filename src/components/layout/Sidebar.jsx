@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { auth, db } from '../../lib/supabase'
+import { auth, db, supabase } from '../../lib/supabase'
 import { useFazenda } from '../../lib/FazendaContext'
 import { useConta } from '../../lib/ContaContext'
 import OnboardingWizard from '../OnboardingWizard'
@@ -58,16 +58,20 @@ export default function Sidebar({ user, perfil, mobileOpen, onClose }) {
 
   const criarFazenda = async () => {
     if (!novaForm.nome) return
+    if (!contaAtual) { alert('Conta não carregada. Recarregue a página.'); return }
     setSalvandoNova(true)
-    const { data, error } = await db.fazendas.insert({
-      nome: novaForm.nome,
-      localizacao: novaForm.localizacao || null,
-      ativo: true
+    const { data, error } = await supabase.rpc('criar_fazenda', {
+      p_conta_id: contaAtual.id,
+      p_nome: novaForm.nome,
+      p_localizacao: novaForm.localizacao || null
     })
     setSalvandoNova(false)
-    if (error) { alert('Não foi possível criar a fazenda.'); return }
+    if (error || !data) {
+      alert('Não foi possível criar a fazenda: ' + (error?.message || 'erro desconhecido'))
+      return
+    }
     await carregarFazendas()
-    if (data) setFazendaAtual(data)
+    setFazendaAtual(data)
     setModalNova(false)
     setNovaForm({ nome:'', localizacao:'' })
     setSeletorAberto(false)
