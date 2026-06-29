@@ -6,8 +6,9 @@ import { ContaProvider, useConta } from './lib/ContaContext'
 import { PermissoesProvider } from './lib/PermissoesContext'
 import { ToastContainer } from './components/UI'
 import InstallPrompt from './components/InstallPrompt'
-import Layout   from './components/layout/Layout'
-import Login    from './components/auth/Login'
+import Layout          from './components/layout/Layout'
+import Login           from './components/auth/Login'
+import OnboardingWizard from './components/OnboardingWizard'
 
 const Dashboard   = lazy(() => import('./pages/Dashboard'))
 const Propriedade = lazy(() => import('./pages/Propriedade'))
@@ -67,21 +68,32 @@ function PrimeiroAcesso() {
   const [form, setForm] = useState({ conta: '', fazenda: '', localizacao: '' })
   const [saving, setSaving] = useState(false)
   const [erro, setErro] = useState('')
+  const [wizardFazendaId, setWizardFazendaId] = useState(null)
 
   const criar = async () => {
     if (!form.conta || !form.fazenda) return
     setSaving(true); setErro('')
-    const { error } = await supabase.rpc('criar_conta_com_fazenda', {
+    const { data: fazendaId, error } = await supabase.rpc('criar_conta_com_fazenda', {
       p_nome_conta: form.conta,
       p_nome_fazenda: form.fazenda
     })
-    if (error) { setErro('Não foi possível criar. Tente novamente.'); setSaving(false); return }
-    await carregarContas()
+    if (error || !fazendaId) {
+      setErro('Não foi possível criar. Tente novamente.')
+      setSaving(false)
+      return
+    }
     setSaving(false)
+    setWizardFazendaId(fazendaId)
   }
 
   return (
     <div style={{ height:'100vh', display:'flex', alignItems:'center', justifyContent:'center', background:'#F9FAFB', padding:24 }}>
+      {wizardFazendaId && (
+        <OnboardingWizard
+          fazendaId={wizardFazendaId}
+          onClose={() => window.location.reload()}
+        />
+      )}
       <div style={{ background:'white', borderRadius:16, padding:'40px 36px', maxWidth:440, width:'100%', boxShadow:'0 8px 32px rgba(0,0,0,.1)', textAlign:'center' }}>
         <div style={{ fontSize:56, marginBottom:16 }}>🐮</div>
         <h2 style={{ fontSize:'1.35rem', fontWeight:700, color:'#1E4D35', marginBottom:8 }}>Bem-vindo ao DigitalBov</h2>

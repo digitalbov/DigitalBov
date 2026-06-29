@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { db } from '../lib/supabase'
+import { supabase, db } from '../lib/supabase'
 import { toast, Field } from './UI'
 
 const PASSOS = [
@@ -17,6 +17,12 @@ export default function OnboardingWizard({ fazendaId, onClose }) {
   const [form,    setForm]    = useState({})
   const [saving,  setSaving]  = useState(false)
   const [qtdProprietarios, setQtdProprietarios] = useState(0)
+  const [contaId, setContaId] = useState(null)
+
+  useEffect(() => {
+    supabase.from('fazendas').select('conta_id').eq('id', fazendaId).maybeSingle()
+      .then(({ data }) => { if (data) setContaId(data.conta_id) })
+  }, [fazendaId])
 
   useEffect(() => {
     let ativo = true
@@ -120,6 +126,7 @@ export default function OnboardingWizard({ fazendaId, onClose }) {
         {/* Corpo do passo */}
         <div style={{ padding:'28px 28px' }}>
           <PassoConteudo passo={passo} form={form} setForm={setForm} fazendaId={fazendaId}
+            contaId={contaId}
             qtdProprietarios={qtdProprietarios} setQtdProprietarios={setQtdProprietarios} />
         </div>
 
@@ -178,7 +185,7 @@ export default function OnboardingWizard({ fazendaId, onClose }) {
 }
 
 // ── Conteúdo por passo ────────────────────────────────────────────
-function PassoConteudo({ passo, form, setForm, fazendaId, qtdProprietarios, setQtdProprietarios }) {
+function PassoConteudo({ passo, form, setForm, fazendaId, contaId, qtdProprietarios, setQtdProprietarios }) {
   const [saving, setSaving] = useState(false)
   const [items,  setItems]  = useState([])
   const [novoNome, setNovoNome] = useState('')
@@ -188,18 +195,21 @@ function PassoConteudo({ passo, form, setForm, fazendaId, qtdProprietarios, setQ
     const tabela = map[passo]
     if (!tabela) { setItems([]); return }
     let ativo = true
-    db[tabela].list().then(({ data }) => { if (ativo) setItems(data || []) })
+    supabase.from(tabela).select('*').eq('fazenda_id', fazendaId)
+      .then(({ data }) => { if (ativo) setItems(data || []) })
     return () => { ativo = false }
   }, [passo])
 
   const addItem = async (tabela, payload) => {
     setSaving(true)
-    const { error } = await db[tabela].insert({ ...payload, fazenda_id: fazendaId })
+    const insertData = { ...payload, fazenda_id: fazendaId }
+    if (contaId) insertData.conta_id = contaId
+    const { error } = await db[tabela].insert(insertData)
     setSaving(false)
     if (error) { toast('Erro: '+error.message, 'error'); return }
     toast('Adicionado!')
     setNovoNome('')
-    const { data } = await db[tabela].list()
+    const { data } = await supabase.from(tabela).select('*').eq('fazenda_id', fazendaId)
     setItems(data || [])
     if (tabela === 'proprietarios' && setQtdProprietarios) setQtdProprietarios((data || []).length)
   }
