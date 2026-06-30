@@ -11,7 +11,7 @@ import {
 } from 'recharts'
 
 const TABS_R = ['Visão Geral','Índices','Comparativo','Histórico','Valor do Rebanho']
-const CATEGORIAS_VALOR = ['Terneira','Terneiro','Novilha 13-24m','Novilha 25-36m','Novilho','Vaca','Boi','Vaca Velha']
+const CATEGORIAS_VALOR = ['Terneira','Terneiro','Novilha 13-24m','Novilha 25-36m','Novilho','Vaca','Boi','Vaca Madura']
 
 export function Rebanho() {
   const refVisao   = useRef(null)
@@ -61,7 +61,7 @@ export function Rebanho() {
     a.situacao === 'ativo' && (!filtProp || a.proprietario_id === filtProp)
   )
   const fem    = ativos.filter(a => a.sexo === 'F')
-  const matrizes = ativos.filter(a => ['Vaca','Vaca Velha'].includes(calcCategoria(a.data_nascimento, a.sexo)))
+  const matrizes = ativos.filter(a => ['Vaca','Vaca Madura'].includes(calcCategoria(a.data_nascimento, a.sexo)))
   const prenhas  = ativos.filter(a => a.sit_reprodutiva === 'prenha').length
   const txPren   = pct(prenhas, matrizes.length)
 

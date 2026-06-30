@@ -6,7 +6,7 @@ import jsPDF from 'jspdf'
 import html2canvas from 'html2canvas'
 
 const TABS = ['Resumo Geral','Reprodução','Financeiro']
-const CATS_REL = ['Terneira','Terneiro','Novilha 13-24m','Novilha 25-36m','Novilho','Vaca','Boi','Vaca Velha']
+const CATS_REL = ['Terneira','Terneiro','Novilha 13-24m','Novilha 25-36m','Novilho','Vaca','Boi','Vaca Madura']
 const NOMES_PDF = ['relatorio-geral','relatorio-reprodutivo','relatorio-financeiro']
 
 export default function Relatorios() {
@@ -99,7 +99,7 @@ export default function Relatorios() {
   // Cálculos
   const ativos   = animais.filter(a => a.situacao === 'ativo')
   const inativos = animais.filter(a => a.situacao !== 'ativo')
-  const matrizes = ativos.filter(a => ['Vaca','Vaca Velha'].includes(calcCategoria(a.data_nascimento, a.sexo)))
+  const matrizes = ativos.filter(a => ['Vaca','Vaca Madura'].includes(calcCategoria(a.data_nascimento, a.sexo)))
   const prenhas  = ativos.filter(a => a.sit_reprodutiva === 'prenha').length
   const rec      = lancs.filter(l=>l.tipo==='R').reduce((s,l)=>s+Number(l.valor),0)
   const desp     = lancs.filter(l=>l.tipo==='D').reduce((s,l)=>s+Number(l.valor),0)

@@ -69,7 +69,6 @@ export default function Estoque() {
       quantidade: parseFloat(form.quantidade) || 0,
       minimo:     parseFloat(form.minimo) || 0,
       preco_unit: parseFloat(form.preco_unit) || 0,
-      validade:   form.validade || null
     }
     const { error } = form._edit && form.id
       ? await db.estoque.update(form.id, payload)

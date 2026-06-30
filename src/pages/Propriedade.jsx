@@ -280,8 +280,9 @@ export default function Propriedade() {
       ])
       const todasReceitas = [...(lancs||[]).filter(l=>l.tipo==='R'), ...(transacs||[]).filter(t=>t.tipo==='V')]
       const todasDespesas = [...(lancs||[]).filter(l=>l.tipo==='D'), ...(transacs||[]).filter(t=>t.tipo==='C')]
-      const rec  = todasReceitas.reduce((s,l)=>s+Number(l.valor),0)
-      const desp = todasDespesas.reduce((s,l)=>s+Number(l.valor),0)
+      const valorDe = (x) => parseFloat(x.valor ?? x.valor_total ?? 0) || 0
+      const rec  = todasReceitas.reduce((s, l) => s + valorDe(l), 0)
+      const desp = todasDespesas.reduce((s, l) => s + valorDe(l), 0)
       setResultadoLiquido(rec - desp)
     }
     setLoading(false)
@@ -339,13 +340,13 @@ export default function Propriedade() {
     if (!form.nome) { toast('Informe o nome.','error'); return }
     setSaving(true)
     const payload = {
-      nome:          form.nome,
-      area_ha:       parseFloat(form.area_ha) || 0,
-      status:        form.status || 'em_uso',
+      nome:           form.nome,
+      area_ha:        parseFloat(form.area_ha) || 0,
+      status:         form.status || 'em_uso',
       qualidade_past: form.qualidade_past || '',
       tipo_pastagem:  form.tipo_pastagem  || '',
       finalidade:     form.finalidade     || '',
-      geometria:      form.geometria      || null,
+      geojson:        form.geojson        || null,
     }
     const { error } = form.id
       ? await db.piquetes.update(form.id, payload)
@@ -459,7 +460,7 @@ export default function Propriedade() {
   const criarPlanejamento = async () => {
     setSaving(true)
     const ano = getCicloAtualAno()
-    const { data, error } = await db.planejamentos.insert({ ano_ciclo:ano })
+    const { data, error } = await db.planejamentos.insert({ dados: { ano_ciclo: ano }, ativo: true })
     setSaving(false)
     if (error) { toast('Erro: '+error.message,'error'); return }
     setPlan(data); setAcoes([])
@@ -468,7 +469,8 @@ export default function Propriedade() {
 
   const savePlanejamento = async (campo, valor) => {
     if (!plan) return
-    const { data, error } = await db.planejamentos.update(plan.id, { [campo]:valor })
+    const novoDados = { ...(plan.dados || {}), [campo]: valor }
+    const { data, error } = await db.planejamentos.update(plan.id, { dados: novoDados })
     if (error) { toast('Erro ao salvar.','error'); return }
     setPlan(data)
     toast('Salvo!')
@@ -478,9 +480,9 @@ export default function Propriedade() {
     if (!form.descricao) { toast('Informe a descrição.','error'); return }
     if (!plan) { toast('Crie o planejamento primeiro.','error'); return }
     setSaving(true)
-    const payload = { planejamento_id:plan.id, descricao:form.descricao, ciclo_alvo:form.ciclo_alvo||null, prazo:form.prazo||null, status:'pendente' }
+    const payload = { planejamento_id:plan.id, descricao:form.descricao, ciclo_alvo:form.ciclo_alvo||null, status:'pendente' }
     const { error } = form.id
-      ? await db.planejamentoAcoes.update(form.id, { descricao:form.descricao, ciclo_alvo:form.ciclo_alvo||null, prazo:form.prazo||null })
+      ? await db.planejamentoAcoes.update(form.id, { descricao:form.descricao, ciclo_alvo:form.ciclo_alvo||null })
       : await db.planejamentoAcoes.insert(payload)
     setSaving(false)
     if (error) { toast('Erro: '+error.message,'error'); return }
@@ -509,26 +511,31 @@ export default function Propriedade() {
   const saveValoresPlan = async () => {
     if (!plan) return
     setSaving(true)
-    const { data, error } = await db.planejamentos.update(plan.id, {
-      valor_terra:        parseFloat(form.valor_terra)||null,
-      valor_ha:           parseFloat(form.valor_ha)||null,
-      valor_rebanho:      parseFloat(form.valor_rebanho)||null,
-      valor_benfeitorias: parseFloat(form.valor_benfeitorias)||null,
-    })
+    const novoDados = {
+      ...(plan.dados || {}),
+      valor_terra:        parseFloat(form.valor_terra)        || null,
+      valor_ha:           parseFloat(form.valor_ha)           || null,
+      valor_rebanho:      parseFloat(form.valor_rebanho)      || null,
+      valor_benfeitorias: parseFloat(form.valor_benfeitorias) || null,
+    }
+    const { data, error } = await db.planejamentos.update(plan.id, { dados: novoDados })
     setSaving(false)
     if (error) { toast('Erro: '+error.message,'error'); return }
     setPlan(data); toast('Valores salvos!')
   }
 
   // ── Calculos de rentabilidade ─────────────────────────────────
-  const totalHa = piqs.reduce((s,p)=>s+parseFloat(p.area_ha||0),0)
-  const vTerraEfetivo = plan?.valor_terra || (plan?.valor_ha && totalHa ? plan.valor_ha * totalHa : null)
-  const vRebanho      = plan?.valor_rebanho || null
-  const vBenf         = plan?.valor_benfeitorias || null
+  const totalHa       = piqs.reduce((s,p) => s + parseFloat(p.area_ha||0), 0)
+  const vTerraEfetivo = (plan?.dados?.valor_terra > 0)
+    ? plan.dados.valor_terra
+    : (plan?.dados?.valor_ha > 0 && totalHa > 0 ? plan.dados.valor_ha * totalHa : null)
+  const vRebanho      = plan?.dados?.valor_rebanho      > 0 ? plan.dados.valor_rebanho      : null
+  const vBenf         = plan?.dados?.valor_benfeitorias > 0 ? plan.dados.valor_benfeitorias : null
   const vTotal        = (vTerraEfetivo||0) + (vRebanho||0) + (vBenf||0) || null
-  const rentTerra     = vTerraEfetivo && resultadoLiquido !== null ? (resultadoLiquido/vTerraEfetivo*100) : null
-  const rentRebanho   = vRebanho      && resultadoLiquido !== null ? (resultadoLiquido/vRebanho*100)      : null
-  const rentTotal     = vTotal        && resultadoLiquido !== null ? (resultadoLiquido/vTotal*100)        : null
+  const rl            = typeof resultadoLiquido === 'number' && !isNaN(resultadoLiquido) ? resultadoLiquido : null
+  const rentTerra     = vTerraEfetivo > 0 && rl !== null ? (rl / vTerraEfetivo * 100) : null
+  const rentRebanho   = vRebanho      > 0 && rl !== null ? (rl / vRebanho      * 100) : null
+  const rentTotal     = vTotal        > 0 && rl !== null ? (rl / vTotal        * 100) : null
 
   // ── Ações do ciclo atual ──────────────────────────────────────
   const cicloAno = getCicloAtualAno()
@@ -607,8 +614,8 @@ export default function Propriedade() {
           {/* Resumo planejamento no resumo */}
           {plan && (
             <div className="card" style={{ marginBottom:16, borderTop:'3px solid #0C447C' }}>
-              <div className="card-title"><i className="ti ti-target" style={{ color:'#0C447C' }} /> Planejamento — {plan.ano_ciclo}/{String(plan.ano_ciclo+1).slice(-2)}</div>
-              {plan.proposito && <p style={{ fontSize:'.82rem', color:'#374151', marginBottom:8 }}>{plan.proposito}</p>}
+              <div className="card-title"><i className="ti ti-target" style={{ color:'#0C447C' }} /> Planejamento — {plan.dados?.ano_ciclo}/{String((plan.dados?.ano_ciclo||0)+1).slice(-2)}</div>
+              {plan.dados?.proposito && <p style={{ fontSize:'.82rem', color:'#374151', marginBottom:8 }}>{plan.dados.proposito}</p>}
               <div style={{ display:'flex', gap:16, flexWrap:'wrap' }}>
                 {rentTerra   !== null && <div><span style={{ fontSize:'.72rem', color:'#9CA3AF' }}>RENT. TERRA</span><div style={{ fontWeight:700, color:rentTerra>=0?'#2B6CD9':'#E24B4A' }}>{rentTerra.toFixed(2)}%</div></div>}
                 {rentRebanho !== null && <div><span style={{ fontSize:'.72rem', color:'#9CA3AF' }}>RENT. REBANHO</span><div style={{ fontWeight:700, color:rentRebanho>=0?'#2B6CD9':'#E24B4A' }}>{rentRebanho.toFixed(2)}%</div></div>}
@@ -1111,8 +1118,8 @@ export default function Propriedade() {
 
 // ── Sub-componentes do planejamento ───────────────────────────────
 function PlanProposito({ plan, onSave, podeEditar }) {
-  const [proposito,  setProposito]  = useState(plan?.proposito||'')
-  const [objetivos,  setObjetivos]  = useState(plan?.objetivos_longo_prazo||'')
+  const [proposito,  setProposito]  = useState(plan?.dados?.proposito||'')
+  const [objetivos,  setObjetivos]  = useState(plan?.dados?.objetivos_longo_prazo||'')
   const [saving,     setSaving]     = useState(false)
 
   const salvar = async () => {
@@ -1140,10 +1147,10 @@ function PlanProposito({ plan, onSave, podeEditar }) {
 function PlanNumeros({ plan, form, setForm, totalHa, resultadoLiquido, cicloAtual, rentTerra, rentRebanho, rentTotal, vTerraEfetivo, vRebanho, vTotal, benchmarks, onSaveValores, saving, podeEditar }) {
   useEffect(() => {
     setForm({
-      valor_terra:        plan?.valor_terra||'',
-      valor_ha:           plan?.valor_ha||'',
-      valor_rebanho:      plan?.valor_rebanho||'',
-      valor_benfeitorias: plan?.valor_benfeitorias||'',
+      valor_terra:        plan?.dados?.valor_terra||'',
+      valor_ha:           plan?.dados?.valor_ha||'',
+      valor_rebanho:      plan?.dados?.valor_rebanho||'',
+      valor_benfeitorias: plan?.dados?.valor_benfeitorias||'',
     })
   }, [plan?.id]) // eslint-disable-line
 
@@ -1215,7 +1222,7 @@ function PlanNumeros({ plan, form, setForm, totalHa, resultadoLiquido, cicloAtua
           <div style={{ display:'flex', gap:12, flexWrap:'wrap' }}>
             {vTerraEfetivo > 0 && <div style={{ background:'#F9FAFB', border:'.5px solid #E5E7EB', borderRadius:8, padding:'8px 14px' }}><div style={{ fontSize:'.72rem', color:'#9CA3AF' }}>TERRA</div><div style={{ fontWeight:600, color:'#2B6CD9' }}>{fmtMoeda(vTerraEfetivo)}</div></div>}
             {vRebanho > 0 && <div style={{ background:'#F9FAFB', border:'.5px solid #E5E7EB', borderRadius:8, padding:'8px 14px' }}><div style={{ fontSize:'.72rem', color:'#9CA3AF' }}>REBANHO</div><div style={{ fontWeight:600, color:'#2B6CD9' }}>{fmtMoeda(vRebanho)}</div></div>}
-            {(plan?.valor_benfeitorias > 0) && <div style={{ background:'#F9FAFB', border:'.5px solid #E5E7EB', borderRadius:8, padding:'8px 14px' }}><div style={{ fontSize:'.72rem', color:'#9CA3AF' }}>BENFEITORIAS</div><div style={{ fontWeight:600, color:'#2B6CD9' }}>{fmtMoeda(plan.valor_benfeitorias)}</div></div>}
+            {(plan?.dados?.valor_benfeitorias > 0) && <div style={{ background:'#F9FAFB', border:'.5px solid #E5E7EB', borderRadius:8, padding:'8px 14px' }}><div style={{ fontSize:'.72rem', color:'#9CA3AF' }}>BENFEITORIAS</div><div style={{ fontWeight:600, color:'#2B6CD9' }}>{fmtMoeda(plan.dados.valor_benfeitorias)}</div></div>}
             <div style={{ background:'#E8F0FC', border:'.5px solid #A5C8F5', borderRadius:8, padding:'8px 14px' }}><div style={{ fontSize:'.72rem', color:'#1E55B0' }}>TOTAL</div><div style={{ fontWeight:700, color:'#2B6CD9', fontSize:'1.05rem' }}>{fmtMoeda(vTotal)}</div></div>
           </div>
         </div>

@@ -43,7 +43,7 @@ export const calcCategoria = (dataNasc, sexo) => {
     if (m <= 12) return 'Terneira'
     if (m <= 36) return 'Novilha'
     if (m <= 84) return 'Vaca'
-    return 'Vaca Velha'
+    return 'Vaca Madura'
   } else {
     if (m <= 12) return 'Terneiro'
     if (m <= 36) return 'Novilho'
@@ -58,7 +58,7 @@ export const calcCategoriaRebanho = (dataNasc, sexo) => {
     if (m <= 24) return 'Novilha 13-24m'
     if (m <= 36) return 'Novilha 25-36m'
     if (m <= 84) return 'Vaca'
-    return 'Vaca Velha'
+    return 'Vaca Madura'
   } else {
     if (m <= 12) return 'Terneiro'
     if (m <= 36) return 'Novilho'
@@ -94,7 +94,7 @@ export const catCor = {
   Novilho:  { bg: '#E6F1FB', text: '#0C447C' },
   Vaca:     { bg: '#EAF3DE', text: '#27500A' },
   Boi:      { bg: '#EAF3DE', text: '#27500A' },
-  'Vaca Velha': { bg: '#FAEEDA', text: '#633806' }
+  'Vaca Madura': { bg: '#FAEEDA', text: '#633806' }
 }
 
 export const sitCor = {

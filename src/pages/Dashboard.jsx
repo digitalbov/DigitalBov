@@ -118,7 +118,7 @@ export default function Dashboard({ perfil }) {
 
   const matrizes = filtAnimais.filter(a => {
     const c = calcCategoria(a.data_nascimento, a.sexo)
-    return c === 'Vaca' || c === 'Vaca Velha'
+    return c === 'Vaca' || c === 'Vaca Madura'
   }).length
 
   const prenhas = filtAnimais.filter(a => a.sit_reprodutiva === 'prenha').length

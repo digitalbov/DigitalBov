@@ -21,7 +21,7 @@ export async function coletarContexto() {
 
   // Resumo do rebanho
   const totalAnimais = animais.length
-  const matrizes = animais.filter(a => a.sexo === 'Fêmea' && ['Vaca', 'Vaca Velha'].includes(a.categoria))
+  const matrizes = animais.filter(a => a.sexo === 'Fêmea' && ['Vaca', 'Vaca Madura'].includes(a.categoria))
   const prenhas  = matrizes.filter(a => a.sit_reprodutiva === 'prenha')
   const vazias   = matrizes.filter(a => a.sit_reprodutiva === 'vazia')
 
