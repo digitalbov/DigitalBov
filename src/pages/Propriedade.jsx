@@ -7,6 +7,7 @@ import area from '@turf/area'
 import { kml as toGeoJson } from '@tmcw/togeojson'
 import { db, supabase } from '../lib/supabase'
 import { useFazenda } from '../lib/FazendaContext'
+import { useConta } from '../lib/ContaContext'
 import { usePermissoes } from '../lib/PermissoesContext'
 import { diasDesde, fmtMoeda } from '../lib/helpers'
 import { Loading, Modal, Field, Badge, toast, EmptyState, Confirm } from '../components/UI'
@@ -225,8 +226,10 @@ function GraficoBenchmark({ titulo, valorFazenda, benchmarks, tipo }) {
 // ── COMPONENTE PRINCIPAL ──────────────────────────────────────────
 export default function Propriedade() {
   const { fazendaAtual, fazendas, carregarFazendas, atualizarFazendaAtual, setFazendaAtual } = useFazenda()
+  const { contaAtual } = useConta()
   const { podeEditar } = usePermissoes()
   const podeEditarProp = podeEditar('propriedade')
+  const ehAdmin = contaAtual?.papel === 'dono' || contaAtual?.papel === 'admin'
 
   const [section,    setSection]    = useState('resumo')
   const [planTab,    setPlanTab]    = useState('proposito')
@@ -423,16 +426,19 @@ export default function Propriedade() {
 
   const criarFazenda = async () => {
     if (!form.nome) { toast('Informe o nome.','error'); return }
+    if (!contaAtual?.id) { toast('Conta não identificada.','error'); return }
     setSaving(true)
-    const { data, error } = await db.fazendas.insert({ nome:form.nome, localizacao:form.localizacao||'', area_total:parseFloat(form.area_total)||0, area_util:parseFloat(form.area_util)||0, ativo:true, onboarding_concluido:false })
+    const { data, error } = await supabase.rpc('criar_fazenda', {
+      p_conta_id:   contaAtual.id,
+      p_nome:       form.nome,
+      p_localizacao: form.localizacao || null,
+    })
     setSaving(false)
-    if (error) { toast('Erro: '+error.message,'error'); return }
+    if (error || !data) { toast('Erro: '+(error?.message||'sem retorno'),'error'); return }
     toast('Fazenda criada!')
     await carregarFazendas()
-    if (data) {
-      setFazendaAtual(data)
-      setShowOnboarding(true)
-    }
+    setFazendaAtual(data)
+    setShowOnboarding(true)
     closeModal()
   }
 
@@ -575,6 +581,15 @@ export default function Propriedade() {
           onConfirm={onGeometryDesenhada}
           onClose={() => setMapDesenho(false)}
         />
+      )}
+
+      {/* ── Botão Nova fazenda (admin) ───────────────────────── */}
+      {ehAdmin && (
+        <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:16 }}>
+          <button className="btn btn-primary btn-sm" onClick={() => openModal('nova-faz')}>
+            <i className="ti ti-plus" /> Nova fazenda
+          </button>
+        </div>
       )}
 
       {/* ══ RESUMO ═══════════════════════════════════════════════ */}
