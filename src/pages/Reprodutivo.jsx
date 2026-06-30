@@ -1,6 +1,8 @@
 ﻿import { useState, useEffect, useRef } from 'react'
-import { db } from '../lib/supabase'
+import { supabase, db } from '../lib/supabase'
 import { usePermissoes } from '../lib/PermissoesContext'
+import { useFazenda } from '../lib/FazendaContext'
+import { useConta } from '../lib/ContaContext'
 import { fmtData, pct } from '../lib/helpers'
 import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, AlertBox, BotaoPDF, ErroCarregamento } from '../components/UI'
 import {
@@ -13,6 +15,8 @@ const TABS = ['Lotes de Inseminação','Nascimentos','Índices']
 export default function Reprodutivo() {
   const { podeEditar } = usePermissoes()
   const podeEditarReprod = podeEditar('reprodutivo')
+  const { fazendaAtual } = useFazenda()
+  const { contaAtual } = useConta()
 
   const refLotes   = useRef(null)
   const refDiag    = useRef(null)
@@ -151,6 +155,7 @@ export default function Reprodutivo() {
     if (!form.data || !form.touro || selBrs.length === 0) {
       toast('Preencha data, touro e selecione animais.', 'error'); return
     }
+    if (!ciclo) { toast('Crie um ciclo financeiro antes (em Financeiro).', 'error'); return }
     setSaving(true)
     const { data: loteData, error } = await db.lotesInseminacao.insert({
       ciclo_id: ciclo.id,
@@ -159,14 +164,19 @@ export default function Reprodutivo() {
       touro: form.touro,
       protocolo: form.protocolo || ''
     })
-    if (error) { toast('Erro: ' + error.message, 'error'); setSaving(false); return }
+    if (error || !loteData) { toast('Erro ao criar lote.', 'error'); setSaving(false); return }
 
     // Inserir inseminações
     const ins = selBrs.map(br => {
       const a = animais.find(x => x.brinco === br)
-      return { lote_inseminacao_id: loteData.id, animal_id: a?.id }
+      return {
+        lote_inseminacao_id: loteData.id,
+        animal_id:           a?.id,
+        conta_id:            loteData.conta_id   ?? contaAtual?.id,
+        fazenda_id:          loteData.fazenda_id ?? fazendaAtual?.id,
+      }
     }).filter(x => x.animal_id)
-    const insRes = await db.inseminacoes.insert(ins)
+    const insRes = await supabase.from('inseminacoes').insert(ins)
     if (insRes.error) { toast('Erro ao registrar inseminações: ' + insRes.error.message, 'error'); setSaving(false); return }
 
     toast(`Lote ${lotes.length + 1} registrado com ${selBrs.length} animais!`)
@@ -177,11 +187,15 @@ export default function Reprodutivo() {
   const salvarDiag = async (loteId, animalId, diag) => {
     const payload = [{
       lote_inseminacao_id: loteId,
-      animal_id: animalId,
-      diagnostico: diag,
-      data_diagnostico: new Date().toISOString().split('T')[0]
+      animal_id:           animalId,
+      diagnostico:         diag,
+      data_diagnostico:    new Date().toISOString().split('T')[0],
+      conta_id:            contaAtual?.id,
+      fazenda_id:          fazendaAtual?.id,
     }]
-    const { error } = await db.inseminacoes.upsert(payload)
+    const { error } = await supabase
+      .from('inseminacoes')
+      .upsert(payload, { onConflict: 'lote_inseminacao_id,animal_id' })
     if (error) { toast('Erro ao salvar diagnóstico: ' + error.message, 'error'); return false }
     const a = animais.find(x => x.id === animalId)
     if (a) await db.animais.update(animalId, { sit_reprodutiva: diag === 'P' ? 'prenha' : 'vazia' })
