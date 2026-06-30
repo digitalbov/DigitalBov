@@ -152,16 +152,29 @@ export default function Dashboard({ perfil }) {
     <div>
       {/* Saudação */}
       <div style={{
-        backgroundImage: fazendaAtual?.foto_url
-          ? `linear-gradient(160deg, rgba(43,108,217,.82) 0%, rgba(123,47,190,.82) 100%), url(${fazendaAtual.foto_url})`
-          : 'linear-gradient(160deg, #2B6CD9 0%, #5B3FBE 55%, #7B2FBE 100%)',
-        backgroundSize:'cover', backgroundPosition:'center',
+        background:'linear-gradient(160deg, #2B6CD9 0%, #5B3FBE 55%, #7B2FBE 100%)',
         borderRadius:12, padding:'20px 24px', marginBottom:20,
         display:'flex', alignItems:'center', justifyContent:'space-between',
         color:'white', position:'relative'
       }}>
         <div style={{ display:'flex', alignItems:'center', gap:16 }}>
-          <img src="/circular-DIGITALBOV.png" style={{width:90, height:90, objectFit:'contain', borderRadius:'50%', background:'white', padding:3, flexShrink:0}} alt="DigitalBov"/>
+          {fazendaAtual?.foto_url ? (
+            <img src={fazendaAtual.foto_url}
+              onClick={() => podeEditar('dashboard') && fileInputRef.current?.click()}
+              style={{ width:90, height:90, borderRadius:'50%', objectFit:'cover',
+                cursor: podeEditar('dashboard') ? 'pointer' : 'default', flexShrink:0,
+                border:'2px solid rgba(255,255,255,.4)' }} alt="Foto da fazenda" />
+          ) : (
+            <div onClick={() => podeEditar('dashboard') && fileInputRef.current?.click()}
+              style={{ width:90, height:90, borderRadius:'50%', flexShrink:0,
+                background:'rgba(255,255,255,.12)', border:'2px dashed rgba(255,255,255,.5)',
+                display:'flex', alignItems:'center', justifyContent:'center', textAlign:'center',
+                cursor: podeEditar('dashboard') ? 'pointer' : 'default', padding:8 }}>
+              <span style={{ fontSize:'.62rem', color:'rgba(255,255,255,.85)', lineHeight:1.2 }}>
+                {enviandoFoto ? 'Enviando...' : (podeEditar('dashboard') ? 'Coloque seu logo aqui' : 'Sem foto')}
+              </span>
+            </div>
+          )}
           <div>
             <div style={{ fontSize:'.75rem', color:'rgba(255,255,255,.55)', marginBottom:5, letterSpacing:'.02em' }}>
               {dataHoje}
@@ -182,18 +195,8 @@ export default function Dashboard({ perfil }) {
           <div style={{ fontSize:'2rem', fontWeight:700 }}>{filtAnimais.length}</div>
           <div style={{ fontSize:'.72rem', color:'rgba(255,255,255,.5)' }}>animais cadastrados</div>
         </div>
-        {podeEditar('dashboard') && (
-          <>
-            <input ref={fileInputRef} type="file" accept="image/*"
-              style={{ display:'none' }} onChange={enviarFoto} />
-            <button onClick={() => fileInputRef.current?.click()} disabled={enviandoFoto}
-              style={{ position:'absolute', top:10, right:10, background:'rgba(255,255,255,.2)',
-                border:'1px solid rgba(255,255,255,.35)', borderRadius:8, padding:'6px 10px',
-                color:'white', cursor:'pointer', fontSize:'.75rem', display:'flex', alignItems:'center', gap:5 }}>
-              <i className="ti ti-camera" /> {enviandoFoto ? 'Enviando...' : 'Foto da fazenda'}
-            </button>
-          </>
-        )}
+        <input ref={fileInputRef} type="file" accept="image/*"
+          style={{ display:'none' }} onChange={enviarFoto} />
       </div>
 
       {/* Filtro proprietário */}
