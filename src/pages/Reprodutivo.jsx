@@ -50,6 +50,7 @@ export default function Reprodutivo() {
   const [loadingNasc,   setLoadingNasc]   = useState(false)
   const [filtroNasc,    setFiltroNasc]    = useState('todos')
   const [proprietarios, setProprietarios] = useState([])
+  const [editParto,     setEditParto]     = useState(null)
 
   useEffect(() => { loadAll() }, [])
   useEffect(() => { if (tab === 2) loadIndices() }, [tab])
@@ -262,6 +263,65 @@ export default function Reprodutivo() {
     await db.animais.update(mae.id, { sit_reprodutiva: 'vazia' })
     toast(`Nascimento registrado! Brinco provisório: ${nBrinco}`)
     setSaving(false); setModal(null); setForm({}); loadAll()
+    if (cicloNascId) loadPartosNasc(cicloNascId)
+  }
+
+  // Checa se o bezerro já tem histórico (além da pesagem de nascimento)
+  const bezerroTemHistorico = async (bezerroId) => {
+    if (!bezerroId) return false
+    // conta pesagens: permite no máximo 1 (a de nascimento)
+    const { count: nPes } = await db.pesagens.countByAnimal(bezerroId)
+    if ((nPes || 0) > 1) return true
+    // é mãe de algum parto?
+    const { data: comoMae } = await db.partos.byMae(bezerroId)
+    if (comoMae && comoMae.length > 0) return true
+    return false
+  }
+
+  // Excluir nascimento (apaga parto + bezerro)
+  const excluirParto = async (p) => {
+    if (await bezerroTemHistorico(p.bezerro_id)) {
+      toast('Não é possível excluir: o bezerro já tem histórico (pesagens/partos).', 'error'); return
+    }
+    if (!confirm(`Excluir o nascimento do bezerro ${p.bezerro?.brinco||''}? O animal e o registro de parto serão removidos.`)) return
+    // apaga na ordem: pesagem de nascimento -> parto -> animal
+    await db.partos.delete(p.id)
+    if (p.bezerro_id) await db.animais.delete(p.bezerro_id)
+    toast('Nascimento excluído.')
+    loadAll()
+    if (cicloNascId) loadPartosNasc(cicloNascId)
+  }
+
+  // Abre modal de edição de nascimento
+  const abrirEditarParto = (p) => {
+    setEditParto({
+      id: p.id,
+      bezerro_id: p.bezerro_id,
+      data_parto: p.data_parto,
+      sexo_bezerro: p.bezerro?.sexo || 'F',
+      brinco_bezerro: p.bezerro?.brinco || '',
+      observacoes: p.observacoes || ''
+    })
+  }
+
+  // Salva edição de nascimento (atualiza parto + bezerro)
+  const salvarEdicaoParto = async () => {
+    const ep = editParto
+    // atualiza o parto
+    const { error: e1 } = await db.partos.update(ep.id, {
+      data_parto: ep.data_parto, observacoes: ep.observacoes
+    })
+    // atualiza o bezerro
+    if (ep.bezerro_id) {
+      await db.animais.update(ep.bezerro_id, {
+        sexo: ep.sexo_bezerro, brinco: ep.brinco_bezerro,
+        data_nascimento: ep.data_parto,
+        sit_reprodutiva: ep.sexo_bezerro === 'F' ? 'vazia' : 'nao_se_aplica'
+      })
+    }
+    if (e1) { toast('Erro ao salvar: '+e1.message, 'error'); return }
+    toast('Nascimento atualizado.')
+    setEditParto(null); loadAll()
     if (cicloNascId) loadPartosNasc(cicloNascId)
   }
 
@@ -610,7 +670,7 @@ export default function Reprodutivo() {
                   <div className="table-wrap">
                     <table>
                       <thead>
-                        <tr><th>Data nasc.</th><th>Mãe</th><th>Proprietário</th><th>Sexo</th><th>Brinco</th><th>Touro</th><th>Prev. parto</th></tr>
+                        <tr><th>Data nasc.</th><th>Mãe</th><th>Proprietário</th><th>Sexo</th><th>Brinco</th><th>Touro</th><th>Prev. parto</th><th>Ações</th></tr>
                       </thead>
                       <tbody>
                         {pFilt.map(p => (
@@ -626,6 +686,20 @@ export default function Reprodutivo() {
                             <td><Badge color="gray">{p.bezerro?.brinco||'—'}</Badge></td>
                             <td style={{ fontSize:'.82rem', color:'#6B7280' }}>{resolverTouroFromLotes(p.mae_id, lotesNasc)||'—'}</td>
                             <td style={{ fontSize:'.78rem', color:'#9CA3AF', whiteSpace:'nowrap' }}>{resolverPrevParto(p.mae_id, lotesNasc)}</td>
+                            <td style={{ whiteSpace:'nowrap' }}>
+                              {podeEditarReprod && (
+                                <>
+                                  <button onClick={() => abrirEditarParto(p)} title="Editar"
+                                    style={{ background:'none', border:'none', cursor:'pointer', color:'#2B6CD9', padding:4 }}>
+                                    <i className="ti ti-edit" />
+                                  </button>
+                                  <button onClick={() => excluirParto(p)} title="Excluir"
+                                    style={{ background:'none', border:'none', cursor:'pointer', color:'#DC2626', padding:4 }}>
+                                    <i className="ti ti-trash" />
+                                  </button>
+                                </>
+                              )}
+                            </td>
                           </tr>
                         ))}
                       </tbody>
@@ -996,6 +1070,39 @@ export default function Reprodutivo() {
           </button>
           <button className="btn btn-secondary" onClick={()=>setModal(null)}>Cancelar</button>
         </div>
+      </Modal>
+
+      {/* ── Modal editar nascimento ── */}
+      <Modal open={!!editParto} onClose={()=>setEditParto(null)} title="Editar nascimento" width={480}>
+        {editParto && (
+          <>
+            <div className="grid-form">
+              <Field label="Data do nascimento" required>
+                <input type="date" value={editParto.data_parto||''} onChange={e=>setEditParto(p=>({...p,data_parto:e.target.value}))} />
+              </Field>
+              <Field label="Sexo do bezerro" required>
+                <select value={editParto.sexo_bezerro||'F'} onChange={e=>setEditParto(p=>({...p,sexo_bezerro:e.target.value}))}>
+                  <option value="F">Fêmea</option>
+                  <option value="M">Macho</option>
+                </select>
+              </Field>
+            </div>
+            <div className="grid-form">
+              <Field label="Brinco do bezerro">
+                <input value={editParto.brinco_bezerro||''} onChange={e=>setEditParto(p=>({...p,brinco_bezerro:e.target.value}))} />
+              </Field>
+            </div>
+            <Field label="Observações">
+              <textarea value={editParto.observacoes||''} onChange={e=>setEditParto(p=>({...p,observacoes:e.target.value}))} placeholder="opcional" />
+            </Field>
+            <div style={{ display:'flex', gap:8, marginTop:14 }}>
+              <button className="btn btn-primary" onClick={salvarEdicaoParto}>
+                <i className="ti ti-check" /> Salvar
+              </button>
+              <button className="btn btn-secondary" onClick={()=>setEditParto(null)}>Cancelar</button>
+            </div>
+          </>
+        )}
       </Modal>
     </div>
   )

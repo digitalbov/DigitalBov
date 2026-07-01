@@ -144,13 +144,16 @@ export const db = {
     insert:    (data)       => T('partos').insertOne(data).select().single(),
     byMae:     (maeId)      => T('partos').select('*, bezerro:animais!bezerro_id(brinco,sexo)').eq('mae_id', maeId).order('data_parto', { ascending: true }),
     byBezerro: (bezerroId)  => T('partos').select('*, mae:animais!mae_id(brinco)').eq('bezerro_id', bezerroId).maybeSingle(),
+    update:    (id, d)      => escopo(T('partos').raw().update(d).eq('id', id)).select().single(),
+    delete:    (id)         => escopo(T('partos').raw().delete().eq('id', id)),
   },
 
   pesagens: {
-    list:    (animalId) => T('pesagens').select('*').eq('animal_id', animalId).order('data'),
-    listAll: ()         => T('pesagens').select('*, animal:animais(brinco,proprietario_id)').order('data', { ascending: false }).limit(100),
-    insert:  (data)     => T('pesagens').insertOne(data).select().single(),
-    delete:  (id)       => escopo(T('pesagens').raw().delete().eq('id', id)),
+    list:          (animalId) => T('pesagens').select('*').eq('animal_id', animalId).order('data'),
+    listAll:       ()         => T('pesagens').select('*, animal:animais(brinco,proprietario_id)').order('data', { ascending: false }).limit(100),
+    insert:        (data)     => T('pesagens').insertOne(data).select().single(),
+    delete:        (id)       => escopo(T('pesagens').raw().delete().eq('id', id)),
+    countByAnimal: (animalId) => supabase.from('pesagens').select('id', { count:'exact', head:true }).eq('animal_id', animalId),
   },
 
   sanidade: {
