@@ -91,12 +91,14 @@ export const db = {
   },
 
   fazendas: {
-    list:       ()        => T('fazendas', { semFazenda: true }).select('*').eq('ativo', true).order('nome'),
-    get:        (id)      => escopo(T('fazendas', { semFazenda: true }).raw().select('*').eq('id', id), { semFazenda: true }).single(),
-    insert:     (data)    => T('fazendas', { semFazenda: true }).insertOne(data).select().single(),
-    update:     (id, d)   => escopo(T('fazendas', { semFazenda: true }).raw().update({ ...d, atualizado_em: new Date().toISOString() }).eq('id', id), { semFazenda: true }).select().single(),
-    deactivate: (id)      => escopo(T('fazendas', { semFazenda: true }).raw().update({ ativo: false }).eq('id', id), { semFazenda: true }),
-    hardDelete: (id)      => escopo(T('fazendas', { semFazenda: true }).raw().delete().eq('id', id), { semFazenda: true }),
+    list:         ()        => T('fazendas', { semFazenda: true }).select('*').eq('ativo', true).order('nome'),
+    listInativas: ()        => T('fazendas', { semFazenda: true }).select('*').eq('ativo', false).order('nome'),
+    get:          (id)      => escopo(T('fazendas', { semFazenda: true }).raw().select('*').eq('id', id), { semFazenda: true }).single(),
+    insert:       (data)    => T('fazendas', { semFazenda: true }).insertOne(data).select().single(),
+    update:       (id, d)   => escopo(T('fazendas', { semFazenda: true }).raw().update({ ...d, atualizado_em: new Date().toISOString() }).eq('id', id), { semFazenda: true }).select().single(),
+    deactivate:   (id)      => escopo(T('fazendas', { semFazenda: true }).raw().update({ ativo: false }).eq('id', id), { semFazenda: true }),
+    reactivate:   (id)      => escopo(T('fazendas', { semFazenda: true }).raw().update({ ativo: true }).eq('id', id), { semFazenda: true }),
+    hardDelete:   (id)      => escopo(T('fazendas', { semFazenda: true }).raw().delete().eq('id', id), { semFazenda: true }),
   },
 
   lotes: {

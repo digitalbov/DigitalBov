@@ -252,10 +252,17 @@ export default function Propriedade() {
   const [fazendaForm,    setFazendaForm]    = useState({})
   const [confirmFaz,     setConfirmFaz]     = useState(null)
   const [nomeDeletar,    setNomeDeletar]    = useState('')
+  const [fazendasInativas, setFazendasInativas] = useState([])
+
+  const carregarInativas = async () => {
+    const { data } = await db.fazendas.listInativas()
+    setFazendasInativas(data || [])
+  }
 
   const loadAll = useCallback(async () => {
     if (!fazendaAtual) return
     setLoading(true)
+    carregarInativas()
     const [rp, rq, rl, rplan, rb] = await Promise.all([
       db.proprietarios.listAll(),
       db.piquetes.list(),
@@ -449,6 +456,14 @@ export default function Propriedade() {
     const lista = await carregarFazendas()
     if (lista?.length) setFazendaAtual(lista[0])
     setConfirmFaz(null)
+  }
+
+  const reativarFazenda = async (faz) => {
+    const { error } = await db.fazendas.reactivate(faz.id)
+    if (error) { toast('Erro ao reativar.','error'); return }
+    toast('Fazenda reativada!')
+    await carregarFazendas()   // recarrega as ativas (contexto)
+    await carregarInativas()   // atualiza a lista de inativas
   }
 
   const excluirFazendaPermanente = async (faz) => {
@@ -890,6 +905,19 @@ export default function Propriedade() {
                 )}
               </div>
             ))}
+            {podeEditarProp && fazendasInativas.length > 0 && (
+              <div style={{ marginTop:16, paddingTop:12, borderTop:'.5px solid #E5E7EB' }}>
+                <div style={{ fontSize:'.78rem', color:'#9CA3AF', marginBottom:8 }}>Fazendas desativadas</div>
+                {fazendasInativas.map(f => (
+                  <div key={f.id} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'8px 0' }}>
+                    <span style={{ color:'#6B7280' }}>{f.nome}</span>
+                    <button className="btn btn-secondary btn-xs" onClick={() => reativarFazenda(f)}>
+                      <i className="ti ti-refresh" /> Reativar
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}
