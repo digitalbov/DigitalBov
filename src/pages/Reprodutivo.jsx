@@ -183,6 +183,18 @@ export default function Reprodutivo() {
     setSaving(false); setModal(null); setSelBrs([]); setForm({}); loadAll()
   }
 
+  const excluirLote = async (l, e) => {
+    e.stopPropagation()   // não abrir o detalhe ao clicar no botão
+    if (l.inseminacoes?.some(i => i.diagnostico)) {
+      toast('Não é possível excluir: já há diagnóstico registrado.', 'error'); return
+    }
+    if (!confirm(`Excluir o Lote ${l.numero} (${l.touro})? As inseminações sem diagnóstico serão removidas.`)) return
+    const { error } = await db.lotesInseminacao.delete(l.id)
+    if (error) { toast('Erro ao excluir: '+error.message, 'error'); return }
+    toast('Lote excluído.')
+    loadAll()
+  }
+
   // Salvar diagnóstico
   const salvarDiag = async (loteId, animalId, diag) => {
     const payload = [{
@@ -407,7 +419,16 @@ export default function Reprodutivo() {
                       <div style={{ fontWeight:500 }}>Lote {l.numero} — {l.touro}</div>
                       <div style={{ fontSize:'.78rem', color:'#9CA3AF' }}>{fmtData(l.data)} · Parto prev: {l.data ? new Date(new Date(l.data).setMonth(new Date(l.data).getMonth()+9)).toLocaleDateString('pt-BR') : '—'}</div>
                     </div>
-                    <Badge color={l.encerrado?'green':'amber'}>{l.encerrado?'Encerrado':'Em andamento'}</Badge>
+                    <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                      <Badge color={l.encerrado?'green':'amber'}>{l.encerrado?'Encerrado':'Em andamento'}</Badge>
+                      {podeEditarReprod && pend === ins.length && (
+                        <button onClick={(e) => excluirLote(l, e)}
+                          style={{ background:'none', border:'none', cursor:'pointer', color:'#DC2626', padding:4 }}
+                          title="Excluir lote">
+                          <i className="ti ti-trash" />
+                        </button>
+                      )}
+                    </div>
                   </div>
                   <div style={{ display:'flex', gap:12, flexWrap:'wrap', fontSize:'.82rem' }}>
                     <span><strong>{ins.length}</strong> <span style={{color:'#6B7280'}}>inseminadas</span></span>

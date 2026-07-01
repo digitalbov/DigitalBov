@@ -125,6 +125,7 @@ export const db = {
     `).order('data', { ascending: true }),
     insert: (data)  => T('lotes_inseminacao').insertOne(data).select().single(),
     update: (id, d) => escopo(T('lotes_inseminacao').raw().update(d).eq('id', id)).select().single(),
+    delete: (id)    => escopo(T('lotes_inseminacao').raw().delete().eq('id', id)),
   },
 
   inseminacoes: {
