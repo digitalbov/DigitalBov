@@ -427,7 +427,7 @@ export default function Animais() {
   const openNew = () => {
     setEditData({
       brinco:'', sexo:'F', data_nascimento:'', raca:'Angus', pelagem:'Preto',
-      pai:'End Game', mae_brinco:'', proprietario_id:'', lote_id:'',
+      pai:'', mae_brinco:'', proprietario_id:'', lote_id:'',
       situacao:'ativo', sit_reprodutiva:'vazia'
     })
     setModal(true)
