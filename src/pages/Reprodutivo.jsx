@@ -33,6 +33,9 @@ export default function Reprodutivo() {
   const [modal,   setModal]  = useState(null)
   const [form,    setForm]   = useState({})
   const [selBrs,  setSelBrs] = useState([])
+  const [lotesSistema, setLotesSistema] = useState([])
+  const [filtroLoteInsem, setFiltroLoteInsem] = useState('')
+  const [selBrsAdd, setSelBrsAdd] = useState([])
   const [saving,  setSaving] = useState(false)
   const [selLote,     setSelLote]    = useState(null)
   const [todosLotes,  setTodosLotes] = useState([])
@@ -61,11 +64,12 @@ export default function Reprodutivo() {
   const loadAll = async (showLoading = true) => {
     if (showLoading) { setLoading(true); setLoadError(false) }
     try {
-      const [ra, rc, rciclos, rprops] = await Promise.all([
+      const [ra, rc, rciclos, rprops, ls] = await Promise.all([
         db.animais.list({ situacao:'ativo' }),
         db.ciclos.current(),
         db.ciclos.list(),
-        db.proprietarios.list()
+        db.proprietarios.list(),
+        db.lotes.list()
       ])
       const anList = ra.data || []
       const cicData = rc.data
@@ -73,6 +77,7 @@ export default function Reprodutivo() {
       setCiclo(cicData)
       setCiclosNasc(rciclos.data || [])
       setProprietarios(rprops.data || [])
+      setLotesSistema(ls.data || [])
       if (cicData) {
         const [rl, rp] = await Promise.all([
           db.lotesInseminacao.list(cicData.id),
@@ -118,6 +123,12 @@ export default function Reprodutivo() {
 
   const femsAtivas = animais.filter(a => a.sexo === 'F')
   const femsVazias = femsAtivas.filter(a => a.sit_reprodutiva === 'vazia')
+  const femsVaziasFiltradas = filtroLoteInsem
+    ? femsVazias.filter(a => a.lote_id === filtroLoteInsem)
+    : femsVazias
+  const femsForaDoLote = selLote
+    ? femsVaziasFiltradas.filter(a => !(selLote.inseminacoes||[]).some(i => i.animal_id === a.id))
+    : []
 
   // Apenas fêmeas com diagnóstico 'P' confirmado em algum lote de inseminação
   const maesElegiveis = femsAtivas.filter(a =>
@@ -194,6 +205,40 @@ export default function Reprodutivo() {
     if (error) { toast('Erro ao excluir: '+error.message, 'error'); return }
     toast('Lote excluído.')
     loadAll()
+  }
+
+  const togSelAdd = (br) => setSelBrsAdd(prev =>
+    prev.includes(br) ? prev.filter(b => b !== br) : [...prev, br]
+  )
+
+  // Adicionar animais a um lote já criado
+  const adicionarAnimaisLote = async () => {
+    if (selBrsAdd.length === 0) { toast('Selecione ao menos um animal.', 'error'); return }
+    setSaving(true)
+    const ins = selBrsAdd.map(br => {
+      const a = animais.find(x => x.brinco === br)
+      return {
+        lote_inseminacao_id: selLote.id,
+        animal_id:           a?.id,
+        conta_id:            contaAtual?.id,
+        fazenda_id:          fazendaAtual?.id,
+      }
+    }).filter(x => x.animal_id)
+    const { error } = await supabase.from('inseminacoes').insert(ins)
+    setSaving(false)
+    if (error) { toast('Erro ao adicionar animais: ' + error.message, 'error'); return }
+    toast(`${ins.length} animal(is) adicionado(s) ao lote!`)
+    setModal(null); setSelBrsAdd([]); setFiltroLoteInsem('')
+    await loadAll(false)
+  }
+
+  // Remover animal de um lote (só se ainda não houver diagnóstico)
+  const removerInsem = async (ins) => {
+    if (!confirm(`Remover o brinco ${ins.animal?.brinco || ''} deste lote?`)) return
+    const { error } = await supabase.from('inseminacoes').delete().eq('id', ins.id)
+    if (error) { toast('Erro ao remover: ' + error.message, 'error'); return }
+    toast('Animal removido do lote.')
+    await loadAll(false)
   }
 
   // Salvar diagnóstico
@@ -512,6 +557,11 @@ export default function Reprodutivo() {
               <i className="ti ti-arrow-left" /> Lotes
             </button>
             <span style={{ fontWeight:500 }}>Lote {selLote.numero} — {selLote.touro} · {fmtData(selLote.data)}</span>
+            {podeEditarReprod && (
+              <button className="btn btn-secondary btn-sm" onClick={() => { setSelBrsAdd([]); setFiltroLoteInsem(''); setModal('addAnimaisLote') }}>
+                <i className="ti ti-plus" /> Adicionar animais
+              </button>
+            )}
             <BotaoPDF contentRef={refDiag} filename="reprodutivo-diagnostico" />
           </div>
           <div ref={refDiag}>
@@ -570,6 +620,13 @@ export default function Reprodutivo() {
                       >Vazia</button>
                     )}
                     {!d && <Badge color="gray">Pendente</Badge>}
+                    {podeEditarReprod && !d && (
+                      <button onClick={() => removerInsem(ins)}
+                        style={{ background:'none', border:'none', cursor:'pointer', color:'#DC2626', padding:4 }}
+                        title="Remover do lote">
+                        <i className="ti ti-trash" />
+                      </button>
+                    )}
                   </div>
                 </div>
               )
@@ -937,12 +994,29 @@ export default function Reprodutivo() {
           <div style={{ fontSize:'.75rem', color:'#6B7280', marginBottom:6 }}>
             Apenas vacas vazias estão disponíveis para inseminação.
           </div>
+          <select value={filtroLoteInsem} onChange={e => setFiltroLoteInsem(e.target.value)}
+            className="input" style={{ width:'100%', marginBottom:8 }}>
+            <option value="">Todos os lotes</option>
+            {lotesSistema.map(l => <option key={l.id} value={l.id}>{l.nome}</option>)}
+          </select>
+          {femsVaziasFiltradas.length > 0 && podeEditarReprod && (
+            <button type="button" className="btn btn-secondary btn-xs" style={{ marginBottom:8 }}
+              onClick={() => {
+                const todos = femsVaziasFiltradas.map(a => a.brinco)
+                const todosSelecionados = todos.every(br => selBrs.includes(br))
+                setSelBrs(todosSelecionados
+                  ? selBrs.filter(br => !todos.includes(br))
+                  : [...new Set([...selBrs, ...todos])])
+              }}>
+              Selecionar todos do filtro
+            </button>
+          )}
           <div style={{ border:'.5px solid #E5E7EB', borderRadius:8, maxHeight:180, overflowY:'auto', background:'#F9FAFB' }}>
-            {femsVazias.length === 0
+            {femsVaziasFiltradas.length === 0
               ? <div style={{ padding:'16px 12px', textAlign:'center', color:'#9CA3AF', fontSize:'.82rem' }}>
                   Nenhuma vaca vazia disponível no momento.
                 </div>
-              : femsVazias.map(a => (
+              : femsVaziasFiltradas.map(a => (
                   <label key={a.id} style={{
                     display:'flex', alignItems:'center', gap:8,
                     padding:'7px 12px', cursor:'pointer', fontSize:'.82rem',
@@ -959,6 +1033,70 @@ export default function Reprodutivo() {
         <div style={{ display:'flex', gap:8 }}>
           <button className="btn btn-primary" onClick={salvarLote} disabled={saving}>
             {saving ? 'Registrando...' : <><i className="ti ti-check" /> Registrar lote</>}
+          </button>
+          <button className="btn btn-secondary" onClick={()=>setModal(null)}>Cancelar</button>
+        </div>
+      </Modal>
+
+      {/* ── Modal adicionar animais a um lote existente ── */}
+      <Modal open={modal==='addAnimaisLote'} onClose={()=>setModal(null)} title="Adicionar animais ao lote" width={600}>
+        <div style={{ marginBottom:10 }}>
+          <label>Animais a adicionar ({selBrsAdd.length} selecionados)</label>
+          {selBrsAdd.length > 0 && (
+            <div style={{ display:'flex', flexWrap:'wrap', gap:5, margin:'8px 0' }}>
+              {selBrsAdd.map(br => (
+                <span key={br} style={{
+                  background:'#E8F0FC', color:'#1E55B0', border:'.5px solid #1BA89C',
+                  borderRadius:10, padding:'2px 8px', fontSize:'.8rem', display:'inline-flex', alignItems:'center', gap:4
+                }}>
+                  {br}
+                  <button onClick={() => togSelAdd(br)} style={{ background:'none',border:'none',color:'#7B2FBE',cursor:'pointer',fontSize:14,padding:0 }}>×</button>
+                </span>
+              ))}
+            </div>
+          )}
+          <div style={{ fontSize:'.75rem', color:'#6B7280', marginBottom:6 }}>
+            Apenas vacas vazias que ainda não estão neste lote estão disponíveis.
+          </div>
+          <select value={filtroLoteInsem} onChange={e => setFiltroLoteInsem(e.target.value)}
+            className="input" style={{ width:'100%', marginBottom:8 }}>
+            <option value="">Todos os lotes</option>
+            {lotesSistema.map(l => <option key={l.id} value={l.id}>{l.nome}</option>)}
+          </select>
+          {femsForaDoLote.length > 0 && (
+            <button type="button" className="btn btn-secondary btn-xs" style={{ marginBottom:8 }}
+              onClick={() => {
+                const todos = femsForaDoLote.map(a => a.brinco)
+                const todosSelecionados = todos.every(br => selBrsAdd.includes(br))
+                setSelBrsAdd(todosSelecionados
+                  ? selBrsAdd.filter(br => !todos.includes(br))
+                  : [...new Set([...selBrsAdd, ...todos])])
+              }}>
+              Selecionar todos do filtro
+            </button>
+          )}
+          <div style={{ border:'.5px solid #E5E7EB', borderRadius:8, maxHeight:180, overflowY:'auto', background:'#F9FAFB' }}>
+            {femsForaDoLote.length === 0
+              ? <div style={{ padding:'16px 12px', textAlign:'center', color:'#9CA3AF', fontSize:'.82rem' }}>
+                  Nenhuma vaca vazia disponível para adicionar.
+                </div>
+              : femsForaDoLote.map(a => (
+                  <label key={a.id} style={{
+                    display:'flex', alignItems:'center', gap:8,
+                    padding:'7px 12px', cursor:'pointer', fontSize:'.82rem',
+                    borderBottom:'.5px solid #F3F4F6'
+                  }}>
+                    <input type="checkbox" checked={selBrsAdd.includes(a.brinco)} onChange={() => togSelAdd(a.brinco)} />
+                    <strong>{a.brinco}</strong>
+                    <span style={{ color:'#6B7280' }}>{a.proprietario?.nome?.split(' ')[0]}</span>
+                  </label>
+                ))
+            }
+          </div>
+        </div>
+        <div style={{ display:'flex', gap:8 }}>
+          <button className="btn btn-primary" onClick={adicionarAnimaisLote} disabled={saving}>
+            {saving ? 'Adicionando...' : <><i className="ti ti-check" /> Adicionar ao lote</>}
           </button>
           <button className="btn btn-secondary" onClick={()=>setModal(null)}>Cancelar</button>
         </div>
