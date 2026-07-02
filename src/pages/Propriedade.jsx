@@ -253,6 +253,8 @@ export default function Propriedade() {
   const [confirmFaz,     setConfirmFaz]     = useState(null)
   const [nomeDeletar,    setNomeDeletar]    = useState('')
   const [fazendasInativas, setFazendasInativas] = useState([])
+  const [animais,       setAnimais]       = useState([])
+  const [animaisDoLote, setAnimaisDoLote] = useState([])
 
   const carregarInativas = async () => {
     const { data } = await db.fazendas.listInativas()
@@ -263,17 +265,19 @@ export default function Propriedade() {
     if (!fazendaAtual) return
     setLoading(true)
     carregarInativas()
-    const [rp, rq, rl, rplan, rb] = await Promise.all([
+    const [rp, rq, rl, rplan, rb, ra] = await Promise.all([
       db.proprietarios.listAll(),
       db.piquetes.list(),
       db.lotes.list(),
       db.planejamentos.get(),
       db.benchmarks.list(),
+      db.animais.list({ situacao:'ativo' }),
     ])
     setProps(rp.data  || [])
     setPiqs(rq.data   || [])
     setLotes(rl.data  || [])
     setBenchmarks(rb.data || [])
+    setAnimais(ra.data || [])
     const planData = rplan.data
     setPlan(planData)
     if (planData) {
@@ -300,7 +304,12 @@ export default function Propriedade() {
 
   useEffect(() => { loadAll() }, [loadAll])
 
-  const openModal  = (type, data={}) => { setModal(type); setForm({...data}); setModoArea('manual') }
+  const openModal  = (type, data={}) => {
+    setModal(type); setForm({...data}); setModoArea('manual')
+    if (type === 'lote') {
+      setAnimaisDoLote(data.id ? animais.filter(a => a.lote_id === data.id).map(a => a.id) : [])
+    }
+  }
   const closeModal = () => { setModal(null); setForm({}); setModoArea('manual') }
 
   // ── Proprietários ─────────────────────────────────────────────
@@ -404,12 +413,27 @@ export default function Propriedade() {
   const saveLote = async () => {
     if (!form.nome) { toast('Informe o nome.','error'); return }
     setSaving(true)
-    const { error } = form.id
-      ? await db.lotes.update(form.id, { nome:form.nome, finalidade:form.finalidade, descricao:form.descricao })
-      : await db.lotes.insert({ nome:form.nome, finalidade:form.finalidade, descricao:form.descricao })
+    let loteId = form.id
+    let error
+    if (form.id) {
+      const r = await db.lotes.update(form.id, { nome:form.nome, finalidade:form.finalidade, descricao:form.descricao })
+      error = r.error
+    } else {
+      const r = await db.lotes.insert({ nome:form.nome, finalidade:form.finalidade, descricao:form.descricao })
+      error = r.error; loteId = r.data?.id
+    }
+    if (error || !loteId) { setSaving(false); toast('Erro: '+(error?.message||'falha'),'error'); return }
+
+    // sincroniza vínculos de animais
+    const antes = animais.filter(a => a.lote_id === form.id).map(a => a.id)  // quem estava no lote
+    const agora = animaisDoLote                                              // quem deve ficar
+    const adicionar = agora.filter(id => !antes.includes(id))
+    const remover   = antes.filter(id => !agora.includes(id))
+    for (const id of adicionar) await db.animais.update(id, { lote_id: loteId })
+    for (const id of remover)   await db.animais.update(id, { lote_id: null })
+
     setSaving(false)
-    if (error) { toast('Erro: '+error.message,'error'); return }
-    toast(form.id ? 'Lote atualizado!' : 'Lote cadastrado!')
+    toast(form.id ? 'Lote atualizado!' : 'Lote criado!')
     closeModal(); loadAll()
   }
 
@@ -1031,6 +1055,27 @@ export default function Propriedade() {
         </div>
         <Field label="Descrição">
           <textarea rows={3} value={form.descricao||''} onChange={e=>setForm(p=>({...p,descricao:e.target.value}))} placeholder="Descreva o lote..." />
+        </Field>
+        <Field label={`Animais do lote (${animaisDoLote.length})`}>
+          <div style={{ maxHeight:200, overflowY:'auto', border:'.5px solid #E5E7EB', borderRadius:8, padding:8 }}>
+            {animais.length === 0
+              ? <div style={{ fontSize:'.82rem', color:'#9CA3AF' }}>Nenhum animal ativo cadastrado.</div>
+              : animais.map(a => {
+                  const marcado = animaisDoLote.includes(a.id)
+                  // animal já pertence a OUTRO lote?
+                  const outroLote = a.lote_id && a.lote_id !== form.id
+                  return (
+                    <label key={a.id} style={{ display:'flex', alignItems:'center', gap:8, padding:'4px 0', cursor:'pointer' }}>
+                      <input type="checkbox" checked={marcado}
+                        onChange={() => setAnimaisDoLote(prev => marcado ? prev.filter(id => id !== a.id) : [...prev, a.id])} />
+                      <strong>{a.brinco}</strong>
+                      <span style={{ fontSize:'.8rem', color:'#6B7280' }}>{a.sexo==='F'?'♀':'♂'}</span>
+                      {outroLote && <span style={{ fontSize:'.72rem', color:'#D97706' }}>(em outro lote: {a.lote?.nome||'—'})</span>}
+                    </label>
+                  )
+                })
+            }
+          </div>
         </Field>
         <div style={{ display:'flex', gap:8, marginTop:12 }}>
           <button className="btn btn-primary" onClick={saveLote} disabled={saving}>{saving?'Salvando...':<><i className="ti ti-check" /> Salvar</>}</button>
