@@ -1,6 +1,6 @@
 ﻿import { lazy, useEffect, useState, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
-import { auth, supabase, db } from './lib/supabase'
+import { auth, supabase } from './lib/supabase'
 import { FazendaProvider, useFazenda } from './lib/FazendaContext'
 import { ContaProvider, useConta } from './lib/ContaContext'
 import { PermissoesProvider } from './lib/PermissoesContext'

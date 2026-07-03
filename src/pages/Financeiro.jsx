@@ -1,8 +1,8 @@
 ﻿import { useState, useEffect, useRef } from 'react'
 import { db } from '../lib/supabase'
-import { fmtMoeda, fmtData, getCicloNome, GRUPOS_REC, GRUPOS_DES } from '../lib/helpers'
+import { fmtMoeda, fmtData, GRUPOS_REC, GRUPOS_DES } from '../lib/helpers'
 import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, AlertBox, BotaoPDF, ErroCarregamento } from '../components/UI'
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import { usePermissoes } from '../lib/PermissoesContext'
 
 const TABS = ['Resumo','Lançamentos','Compra & Venda','Resultados','Parâmetros','Ciclos']

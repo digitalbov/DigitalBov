@@ -3,7 +3,7 @@
 // ─────────────────────────────────────────────────────────────────
 import { useState, useEffect, useRef } from 'react'
 import { db } from '../lib/supabase'
-import { calcCategoria, calcCategoriaRebanho, pct, fmtData, fmtMoeda } from '../lib/helpers'
+import { calcCategoria, calcCategoriaRebanho, pct, fmtMoeda } from '../lib/helpers'
 import { Loading, IndexCard, BotaoPDF, ErroCarregamento } from '../components/UI'
 import {
   BarChart, Bar, XAxis, YAxis,

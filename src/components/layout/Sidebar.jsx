@@ -1,6 +1,6 @@
 ﻿import { useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { auth, db, supabase } from '../../lib/supabase'
+import { auth, supabase } from '../../lib/supabase'
 import { useFazenda } from '../../lib/FazendaContext'
 import { useConta } from '../../lib/ContaContext'
 import OnboardingWizard from '../OnboardingWizard'

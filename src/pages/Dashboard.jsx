@@ -1,7 +1,7 @@
 ﻿import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase, db } from '../lib/supabase'
-import { calcCategoria, fmtMoeda, pct, idadeFormatada } from '../lib/helpers'
+import { calcCategoria, fmtMoeda } from '../lib/helpers'
 import { Loading, AlertBox, IndexCard, ErroCarregamento } from '../components/UI'
 import { useFazenda } from '../lib/FazendaContext'
 import { usePermissoes } from '../lib/PermissoesContext'

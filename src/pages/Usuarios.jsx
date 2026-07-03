@@ -4,6 +4,8 @@ import { useConta } from '../lib/ContaContext'
 import { useFazenda } from '../lib/FazendaContext'
 import { Loading, EmptyState, Modal, Field, toast, Badge } from '../components/UI'
 
+const FUNCTIONS_URL = import.meta.env.VITE_SUPABASE_URL + '/functions/v1/dynamic-responder'
+
 const MODULOS = [
   ['dashboard','Dashboard'], ['propriedade','Propriedade'], ['animais','Animais'],
   ['reprodutivo','Reprodutivo'], ['rebanho','Rebanho'], ['sanidade','Sanidade'],
@@ -96,7 +98,7 @@ export default function Usuarios() {
       if (!session) { toast('Sessão expirada, faça login de novo', 'error'); setCriando(false); return }
 
       const resp = await fetch(
-        'https://wagwtkzztbftshstrnfh.supabase.co/functions/v1/dynamic-responder',
+        FUNCTIONS_URL,
         {
           method: 'POST',
           headers: {

@@ -1,7 +1,7 @@
 ﻿import { useState, useEffect, useRef } from 'react'
 import { db } from '../lib/supabase'
 import { calcCategoria, calcGMD } from '../lib/helpers'
-import { Loading, Modal, Field, toast, BotaoPDF, EmptyState, ErroCarregamento } from '../components/UI'
+import { Loading, Modal, toast, BotaoPDF, EmptyState, ErroCarregamento } from '../components/UI'
 import { usePermissoes } from '../lib/PermissoesContext'
 
 // ── Metadata de cada indicador ────────────────────────────────────

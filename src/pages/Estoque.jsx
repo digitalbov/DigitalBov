@@ -1,7 +1,7 @@
 ﻿import { useState, useEffect, useRef } from 'react'
 import { db } from '../lib/supabase'
 import { usePermissoes } from '../lib/PermissoesContext'
-import { fmtData, fmtMoeda } from '../lib/helpers'
+import { fmtData } from '../lib/helpers'
 import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, AlertBox, BotaoPDF, Confirm, ErroCarregamento } from '../components/UI'
 
 const TABS = ['Inventário','Movimentar','Alertas']
