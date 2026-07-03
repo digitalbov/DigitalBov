@@ -125,20 +125,22 @@ export default function Usuarios() {
 
   if (loading) return <Loading text="Carregando usuários..." />
 
+  const operadores = membros.filter(m => m.papel !== 'dono')
+
   return (
     <div>
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
         <h2 style={{ fontSize:'1.1rem', fontWeight:700, color:'#2B6CD9' }}>Usuários da conta</h2>
         <button className="btn btn-primary btn-sm" onClick={() => setModalNovo(true)}>
-          <i className="ti ti-user-plus" /> Adicionar funcionário
+          <i className="ti ti-user-plus" /> Adicionar operador
         </button>
       </div>
       <div className="card">
-        {membros.length === 0 ? (
+        {operadores.length === 0 ? (
           <EmptyState icon="👥" title="Nenhum usuário" sub="Os membros da sua conta aparecerão aqui." />
         ) : (
           <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-            {membros.map(m => (
+            {operadores.map(m => (
               <div key={m.usuario_id} style={{
                 display:'flex', alignItems:'center', justifyContent:'space-between',
                 padding:'12px 14px', border:'.5px solid #E5E7EB', borderRadius:10
@@ -169,7 +171,7 @@ export default function Usuarios() {
         )}
       </div>
 
-      <Modal open={modalNovo} onClose={() => setModalNovo(false)} title="Adicionar funcionário" width={420}>
+      <Modal open={modalNovo} onClose={() => setModalNovo(false)} title="Adicionar operador" width={420}>
         <Field label="E-mail *">
           <input className="input" style={{ width:'100%' }} type="email"
             value={novo.email} onChange={e => setNovo(p => ({...p, email:e.target.value}))} />
@@ -179,7 +181,7 @@ export default function Usuarios() {
             value={novo.senha} onChange={e => setNovo(p => ({...p, senha:e.target.value}))} />
         </Field>
         <p style={{ fontSize:'.78rem', color:'#6B7280', marginTop:4 }}>
-          O funcionário entra com este e-mail e senha. Você define as fazendas e
+          O operador entra com este e-mail e senha. Você define as fazendas e
           permissões dele depois, no botão Gerenciar.
         </p>
         <div className="modal-actions" style={{ marginTop:16 }}>
