@@ -2,12 +2,12 @@
 import { db } from '../lib/supabase'
 import { calcCategoria, calcCategoriaRebanho, fmtData, fmtMoeda, pct } from '../lib/helpers'
 import { Loading, Badge, AlertBox, toast } from '../components/UI'
-import jsPDF from 'jspdf'
-import html2canvas from 'html2canvas'
+import { useFazenda } from '../lib/FazendaContext'
 
 const TABS = ['Resumo Geral','Reprodução','Financeiro']
 const CATS_REL = ['Terneira','Terneiro','Novilha 13-24m','Novilha 25-36m','Novilho','Vaca','Boi','Vaca Madura']
 const NOMES_PDF = ['relatorio-geral','relatorio-reprodutivo','relatorio-financeiro']
+const TITULOS_PDF = ['Relatório Geral', 'Painel Reprodutivo', 'Gestão Financeira']
 
 export default function Relatorios() {
   const [tab,       setTab]      = useState(0)
@@ -21,6 +21,7 @@ export default function Relatorios() {
   const [catPrecos, setCatPrecos]= useState([])
   const [loading,   setLoading]  = useState(true)
   const [generating,setGenerating]=useState(false)
+  const { fazendaAtual } = useFazenda()
   const resumoRef      = useRef(null)
   const reproducaoRef  = useRef(null)
   const financeiroRef  = useRef(null)
@@ -58,28 +59,12 @@ export default function Relatorios() {
     setLoading(false)
   }
 
-  const gerarPDF = async (ref, filename) => {
+  const gerarPDF = async (ref, filename, titulo = '') => {
     if (!ref.current) return
     setGenerating(true)
     try {
-      const canvas  = await html2canvas(ref.current, { scale: 2, useCORS: true, logging: false })
-      const imgData = canvas.toDataURL('image/png')
-      const pdf     = new jsPDF('p', 'mm', 'a4')
-      const pgW     = pdf.internal.pageSize.getWidth()
-      const pgH     = pdf.internal.pageSize.getHeight()
-      const imgH    = (canvas.height * pgW) / canvas.width
-      let left      = imgH
-
-      pdf.addImage(imgData, 'PNG', 0, 0, pgW, imgH)
-      left -= pgH
-      while (left > 0) {
-        pdf.addPage()
-        pdf.addImage(imgData, 'PNG', 0, -(imgH - left), pgW, imgH)
-        left -= pgH
-      }
-
-      const dateStr = new Date().toLocaleDateString('pt-BR').replace(/\//g,'-')
-      pdf.save(`${filename}-${dateStr}.pdf`)
+      const { gerarPDFComMolduras } = await import('../lib/pdf')
+      await gerarPDFComMolduras(ref.current, filename, titulo, fazendaAtual?.nome || '')
     } catch (e) {
       toast('Erro ao gerar PDF: ' + e.message, 'error')
     }
@@ -89,7 +74,7 @@ export default function Relatorios() {
   const PDFButton = ({ tabIdx }) => (
     <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:12 }}>
       <button className="btn btn-primary btn-sm"
-        onClick={() => gerarPDF(tabRefs[tabIdx], NOMES_PDF[tabIdx])}
+        onClick={() => gerarPDF(tabRefs[tabIdx], NOMES_PDF[tabIdx], TITULOS_PDF[tabIdx])}
         disabled={generating}>
         <i className="ti ti-file-type-pdf" /> {generating ? 'Gerando...' : 'Gerar PDF'}
       </button>

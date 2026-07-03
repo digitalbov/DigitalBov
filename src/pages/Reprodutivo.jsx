@@ -502,7 +502,7 @@ export default function Reprodutivo() {
                   <i className="ti ti-plus" /> Novo lote de inseminação
                 </button>
               )}
-              <BotaoPDF contentRef={refLotes} filename="reprodutivo-lotes" />
+              <BotaoPDF contentRef={refLotes} filename="reprodutivo-lotes" titulo="Reprodutivo: Lotes de Inseminação" />
             </div>
           </div>
           <div ref={refLotes}>
@@ -562,7 +562,7 @@ export default function Reprodutivo() {
                 <i className="ti ti-plus" /> Adicionar animais
               </button>
             )}
-            <BotaoPDF contentRef={refDiag} filename="reprodutivo-diagnostico" />
+            <BotaoPDF contentRef={refDiag} filename="reprodutivo-diagnostico" titulo="Reprodutivo: Diagnóstico do Lote" />
           </div>
           <div ref={refDiag}>
           <div className="grid-4" style={{ marginBottom:14 }}>
@@ -666,7 +666,7 @@ export default function Reprodutivo() {
                     <i className="ti ti-plus" /> Registrar nascimento
                   </button>
                 )}
-                <BotaoPDF contentRef={refNasc} filename="reprodutivo-nascimentos" />
+                <BotaoPDF contentRef={refNasc} filename="reprodutivo-nascimentos" titulo="Reprodutivo: Nascimentos" />
               </div>
             </div>
 
@@ -774,7 +774,7 @@ export default function Reprodutivo() {
       {tab === 2 && (
         <div>
           <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:8 }}>
-            <BotaoPDF contentRef={refIndices} filename="reprodutivo-indices" />
+            <BotaoPDF contentRef={refIndices} filename="reprodutivo-indices" titulo="Reprodutivo: Índices" />
           </div>
           {loadingIdx ? <Loading /> : <>
           <div ref={refIndices}>

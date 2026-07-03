@@ -135,7 +135,7 @@ export default function Sanidade() {
                   <i className="ti ti-plus" /> Novo procedimento
                 </button>
               )}
-              <BotaoPDF contentRef={refReg} filename="sanidade-registros" />
+              <BotaoPDF contentRef={refReg} filename="sanidade-registros" titulo="Sanidade: Registros" />
             </div>
           </div>
           <div ref={refReg}>
@@ -189,7 +189,7 @@ export default function Sanidade() {
       {tab === 1 && (
         <div>
           <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:8 }}>
-            <BotaoPDF contentRef={refAlertas} filename="sanidade-alertas" />
+            <BotaoPDF contentRef={refAlertas} filename="sanidade-alertas" titulo="Sanidade: Alertas" />
           </div>
           <div ref={refAlertas}>
           {vencidos.length === 0 && proximos.length === 0 && (
@@ -238,7 +238,7 @@ export default function Sanidade() {
       {tab === 2 && (
         <div>
           <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:8 }}>
-            <BotaoPDF contentRef={refHist} filename="sanidade-historico" />
+            <BotaoPDF contentRef={refHist} filename="sanidade-historico" titulo="Sanidade: Histórico" />
           </div>
           <div ref={refHist}>
           <div className="grid-3" style={{ marginBottom:16 }}>

@@ -114,7 +114,7 @@ export function Rebanho() {
       {tab === 0 && (
         <div>
           <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:8 }}>
-            <BotaoPDF contentRef={refVisao} filename="rebanho-visao-geral" />
+            <BotaoPDF contentRef={refVisao} filename="rebanho-visao-geral" titulo="Rebanho: Visão Geral" />
           </div>
           <div ref={refVisao}>
           <div className="kpi-grid">
@@ -172,7 +172,7 @@ export function Rebanho() {
       {tab === 1 && (
         <div>
           <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:8 }}>
-            <BotaoPDF contentRef={refIndices} filename="rebanho-indices" />
+            <BotaoPDF contentRef={refIndices} filename="rebanho-indices" titulo="Rebanho: Índices" />
           </div>
           <div ref={refIndices}>
           <div className="sl">Índices reprodutivos — ciclo atual</div>
@@ -196,7 +196,7 @@ export function Rebanho() {
       {tab === 2 && (
         <div>
           <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:8 }}>
-            <BotaoPDF contentRef={refComp} filename="rebanho-comparativo" />
+            <BotaoPDF contentRef={refComp} filename="rebanho-comparativo" titulo="Rebanho: Comparativo" />
           </div>
           <div ref={refComp}>
           <div className="card">
@@ -214,7 +214,7 @@ export function Rebanho() {
       {tab === 3 && (
         <div>
           <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:8 }}>
-            <BotaoPDF contentRef={refHist} filename="rebanho-historico" />
+            <BotaoPDF contentRef={refHist} filename="rebanho-historico" titulo="Rebanho: Histórico" />
           </div>
           <div ref={refHist}>
           <div className="card">
@@ -232,7 +232,7 @@ export function Rebanho() {
       {tab === 4 && (
         <div>
           <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:8 }}>
-            <BotaoPDF contentRef={refValor} filename="rebanho-valor" />
+            <BotaoPDF contentRef={refValor} filename="rebanho-valor" titulo="Rebanho: Valor do Rebanho" />
           </div>
           <div ref={refValor}>
           <div style={{ marginBottom:14 }}>

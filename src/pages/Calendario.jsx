@@ -251,7 +251,7 @@ export default function Calendario() {
             </button>
           ))}
         </div>
-        <BotaoPDF contentRef={agendaRef} filename="agenda-fazenda" />
+        <BotaoPDF contentRef={agendaRef} filename="agenda-fazenda" titulo="Calendário: Agenda" />
       </div>
 
       {/* ── Conteúdo ── */}

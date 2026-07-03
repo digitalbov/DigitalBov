@@ -500,7 +500,7 @@ export default function Animais() {
               <i className="ti ti-edit" /> Editar
             </button>
           )}
-          <BotaoPDF contentRef={detalheRef} filename={`animal-${a.brinco}`} />
+          <BotaoPDF contentRef={detalheRef} filename={`animal-${a.brinco}`} titulo="Animais: Ficha do Animal" />
         </div>
 
         <div ref={detalheRef}>
@@ -672,7 +672,7 @@ export default function Animais() {
               <i className="ti ti-plus" /> Novo animal
             </button>
           )}
-          <BotaoPDF contentRef={listaRef} filename="animais-cadastro" />
+          <BotaoPDF contentRef={listaRef} filename="animais-cadastro" titulo="Animais: Cadastro" />
         </div>
       </div>
 

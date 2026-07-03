@@ -138,7 +138,7 @@ export default function Pesagens() {
                   <i className="ti ti-plus" /> Registrar pesagem
                 </button>
               )}
-              <BotaoPDF contentRef={refReg} filename="pesagens-lista" />
+              <BotaoPDF contentRef={refReg} filename="pesagens-lista" titulo="Pesagens: Registros" />
             </div>
           </div>
           <div ref={refReg}>
@@ -183,7 +183,7 @@ export default function Pesagens() {
       {tab === 1 && (
         <div>
           <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:8 }}>
-            <BotaoPDF contentRef={refAnimal} filename="pesagens-animal" />
+            <BotaoPDF contentRef={refAnimal} filename="pesagens-animal" titulo="Pesagens: Por Animal" />
           </div>
           <div ref={refAnimal}>
           <div style={{ marginBottom:14 }}>
@@ -257,7 +257,7 @@ export default function Pesagens() {
       {tab === 2 && (
         <div>
           <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:8 }}>
-            <BotaoPDF contentRef={refDesemp} filename="pesagens-desempenho" />
+            <BotaoPDF contentRef={refDesemp} filename="pesagens-desempenho" titulo="Pesagens: Desempenho" />
           </div>
           <div ref={refDesemp}>
           <div className="grid-3" style={{ marginBottom:14 }}>
@@ -343,7 +343,7 @@ export default function Pesagens() {
                   </span>
                 )}
               </div>
-              <BotaoPDF contentRef={refProj} filename="projecao-peso" />
+              <BotaoPDF contentRef={refProj} filename="projecao-peso" titulo="Pesagens: Projeção de Peso" />
             </div>
 
             <div ref={refProj}>

@@ -249,7 +249,7 @@ export default function Metas() {
               <i className="ti ti-settings" /> Editar metas
             </button>
           )}
-          <BotaoPDF contentRef={contentRef} filename="metas-indicadores" />
+          <BotaoPDF contentRef={contentRef} filename="metas-indicadores" titulo="Metas: Indicadores" />
         </div>
       </div>
 

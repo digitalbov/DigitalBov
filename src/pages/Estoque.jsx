@@ -165,7 +165,7 @@ export default function Estoque() {
                   <i className="ti ti-plus" /> Novo item
                 </button>
               )}
-              <BotaoPDF contentRef={refInv} filename="estoque-inventario" />
+              <BotaoPDF contentRef={refInv} filename="estoque-inventario" titulo="Estoque: Inventário" />
             </div>
           </div>
 
@@ -241,7 +241,7 @@ export default function Estoque() {
                   <i className="ti ti-plus" /> Movimentar
                 </button>
               )}
-              <BotaoPDF contentRef={refMov} filename="estoque-movimentacoes" />
+              <BotaoPDF contentRef={refMov} filename="estoque-movimentacoes" titulo="Estoque: Movimentações" />
             </div>
           </div>
           <div ref={refMov}>
@@ -276,7 +276,7 @@ export default function Estoque() {
       {tab === 2 && (
         <div>
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
-            <BotaoPDF contentRef={refAlertas} filename="estoque-alertas" />
+            <BotaoPDF contentRef={refAlertas} filename="estoque-alertas" titulo="Estoque: Alertas" />
           </div>
           <div ref={refAlertas}>
 

@@ -240,7 +240,7 @@ export default function Financeiro() {
       {tab===0 && (
         <div>
           <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:8 }}>
-            <BotaoPDF contentRef={refResumo} filename="financeiro-resumo" />
+            <BotaoPDF contentRef={refResumo} filename="financeiro-resumo" titulo="Financeiro: Resumo" />
           </div>
           <div ref={refResumo}>
           <div className="kpi-grid">
@@ -314,7 +314,7 @@ export default function Financeiro() {
                   <i className="ti ti-plus"/> Novo lançamento
                 </button>
               )}
-              <BotaoPDF contentRef={refLancs} filename="financeiro-lancamentos" />
+              <BotaoPDF contentRef={refLancs} filename="financeiro-lancamentos" titulo="Financeiro: Lançamentos" />
             </div>
           </div>
           <div ref={refLancs}>
@@ -370,7 +370,7 @@ export default function Financeiro() {
                   <i className="ti ti-plus"/> Registrar transação
                 </button>
               )}
-              <BotaoPDF contentRef={refTransacs} filename="financeiro-transacoes" />
+              <BotaoPDF contentRef={refTransacs} filename="financeiro-transacoes" titulo="Financeiro: Compra & Venda" />
             </div>
           </div>
           <div ref={refTransacs}>
@@ -410,7 +410,7 @@ export default function Financeiro() {
       {tab===3 && (
         <div>
           <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:8 }}>
-            <BotaoPDF contentRef={refResultados} filename="financeiro-resultados" />
+            <BotaoPDF contentRef={refResultados} filename="financeiro-resultados" titulo="Financeiro: Resultados" />
           </div>
           <div ref={refResultados}>
           <div className="card" style={{marginBottom:12}}>
@@ -443,7 +443,7 @@ export default function Financeiro() {
       {tab===4 && (
         <div>
           <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:8 }}>
-            <BotaoPDF contentRef={refParams} filename="financeiro-parametros" />
+            <BotaoPDF contentRef={refParams} filename="financeiro-parametros" titulo="Financeiro: Parâmetros" />
           </div>
           <div ref={refParams}>
           <div className="card">

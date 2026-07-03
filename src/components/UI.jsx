@@ -1,4 +1,5 @@
 ﻿import { useState, useCallback } from 'react'
+import { useFazenda } from '../lib/FazendaContext'
 
 // ── Toast notification system ─────────────────────────────────────
 let toastFn = null
@@ -264,31 +265,19 @@ export function AlertBox({ type = 'green', icon, title, body }) {
 }
 
 // ── BotaoPDF ─────────────────────────────────────────────────────
-export function BotaoPDF({ contentRef, filename, label = 'Gerar PDF' }) {
+export function BotaoPDF({ contentRef, filename, titulo = '', label = 'Gerar PDF' }) {
   const [gerando, setGerando] = useState(false)
+  const { fazendaAtual } = useFazenda()
   const gerar = async () => {
     if (!contentRef?.current) return
     setGerando(true)
     try {
-      const { default: html2canvas } = await import('html2canvas')
-      const { default: jsPDF } = await import('jspdf')
-      const canvas = await html2canvas(contentRef.current, { scale: 2, useCORS: true, backgroundColor: '#ffffff' })
-      const imgData = canvas.toDataURL('image/png')
-      const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
-      const pageW = pdf.internal.pageSize.getWidth()
-      const pageH = pdf.internal.pageSize.getHeight()
-      const imgW = pageW - 20
-      const imgH = (canvas.height * imgW) / canvas.width
-      let y = 10
-      let remainH = imgH
-      while (remainH > 0) {
-        pdf.addImage(imgData, 'PNG', 10, y, imgW, imgH)
-        remainH -= (pageH - 20)
-        if (remainH > 0) { pdf.addPage(); y = 10 - (imgH - remainH) }
-      }
-      const today = new Date().toLocaleDateString('pt-BR').replace(/\//g,'-')
-      pdf.save(`${filename}-${today}.pdf`)
-    } catch(e) { console.error(e) }
+      const { gerarPDFComMolduras } = await import('../lib/pdf')
+      await gerarPDFComMolduras(contentRef.current, filename, titulo, fazendaAtual?.nome || '')
+    } catch(e) {
+      console.error(e)
+      toast('Erro ao gerar PDF: ' + e.message, 'error')
+    }
     setGerando(false)
   }
   return (
