@@ -29,7 +29,7 @@ export default function InstallPrompt() {
       background:'#2B6CD9', color:'white', borderRadius:12, padding:'14px 16px',
       display:'flex', alignItems:'center', gap:12, boxShadow:'0 8px 24px rgba(0,0,0,.25)'
     }}>
-      <img src="/icon-72.png" style={{width:40,height:40,borderRadius:8}} alt=""/>
+      <img src="/pdf-marca.png" style={{width:40,height:40,borderRadius:8}} alt=""/>
       <div style={{flex:1}}>
         <div style={{fontSize:'.85rem',fontWeight:600}}>Instalar DigitalBov</div>
         <div style={{fontSize:'.75rem',opacity:.8}}>Acesso rápido direto da tela inicial</div>

@@ -86,7 +86,7 @@ export default function Sidebar({ user, perfil, mobileOpen, onClose }) {
       <aside className={`sidebar ${mobileOpen ? 'mobile-open' : ''}`}>
         {/* Logo */}
         <div className="sidebar-logo">
-          <img src="/circular-DIGITALBOV.png" style={{width:32,height:32,objectFit:'contain',borderRadius:4}} alt="Logo"/>
+          <img src="/logo-DIGITALBOV.png" style={{width:44,height:44,objectFit:'contain',borderRadius:4}} alt="Logo"/>
           <div className="sidebar-logo-text">
             <div className="sidebar-logo-title">DigitalBov</div>
             <div className="sidebar-logo-sub">Gestão Pecuária</div>

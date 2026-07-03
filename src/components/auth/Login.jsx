@@ -116,9 +116,9 @@ export default function Login() {
 
       {/* Painel direito — visual */}
       <div className="login-side">
-        <div style={{ textAlign: 'center', color: 'white', maxWidth: 420 }}>
-          <img src="/horizontal-DIGITALBOV.png" style={{width:'100%', maxWidth:420, objectFit:'contain', marginBottom:24}} alt="DigitalBov"/>
-          <p style={{ color: 'rgba(255,255,255,.7)', fontSize: '.95rem', lineHeight: 1.7, marginBottom: 32 }}>
+        <div style={{ textAlign: 'center', color: '#1a1a1a', maxWidth: 420 }}>
+          <img src="/log vazado 2.png" style={{width:360, height:360, objectFit:'contain', marginTop:-20, marginBottom:8}} alt="DigitalBov"/>
+          <p style={{ color: 'rgba(0,0,0,.7)', fontSize: '.95rem', lineHeight: 1.7, marginTop: -60, marginBottom: 32, fontWeight: 700 }}>
             Sistema completo de gestão pecuária.
             Rebanho, reprodução, financeiro, sanidade e muito mais.
           </p>
@@ -133,17 +133,13 @@ export default function Login() {
           ].map(([icon, text]) => (
             <div key={text} style={{
               display: 'flex', alignItems: 'center', gap: 12,
-              padding: '8px 0', borderBottom: '.5px solid rgba(255,255,255,.1)',
-              textAlign: 'left', fontSize: '.85rem', color: 'rgba(255,255,255,.85)'
+              padding: '8px 0', borderBottom: '.5px solid rgba(0,0,0,.1)',
+              textAlign: 'left', fontSize: '.85rem', color: 'rgba(0,0,0,.85)', fontWeight: 700
             }}>
               <span style={{ fontSize: '1.2rem' }}>{icon}</span>
               {text}
             </div>
           ))}
-
-          <div style={{ marginTop: 28, fontSize: '.75rem', color: 'rgba(255,255,255,.4)' }}>
-            Viamão / RS · Ciclo 2025/2026
-          </div>
         </div>
       </div>
     </div>
