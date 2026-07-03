@@ -115,15 +115,35 @@ export default function Login() {
       </div>
 
       {/* Painel direito — visual */}
-      <div className="login-side">
-        <div style={{ textAlign: 'center', color: '#1a1a1a', maxWidth: 420 }}>
-          <img src="/log vazado 2.png" style={{width:360, height:360, objectFit:'contain', marginTop:-20, marginBottom:8}} alt="DigitalBov"/>
-          <p style={{ color: 'rgba(0,0,0,.7)', fontSize: '.95rem', lineHeight: 1.7, marginTop: -60, marginBottom: 32, fontWeight: 700 }}>
-            Sistema completo de gestão pecuária.
-            Rebanho, reprodução, financeiro, sanidade e muito mais.
-          </p>
+      <div className="login-side" style={{ position: 'relative' }}>
+        {/* LOGO — ancorada no topo, posição independente */}
+        <img src="/log vazado 2.png"
+          style={{
+            position: 'absolute',
+            top: '-20px',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            width: 300, height: 300, objectFit: 'contain'
+          }}
+          alt="DigitalBov" />
 
-          {/* Feature list */}
+        {/* CAIXA de texto — ancorada independentemente; ajuste só o "top" para subir/descer */}
+        <div style={{
+          position: 'absolute',
+          top: '220px',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          width: '85%', maxWidth: 420,
+          background: 'rgba(255,255,255,0.0)',
+          backdropFilter: 'blur(2px)',
+          borderRadius: '12px',
+          padding: '14px 20px',
+          boxShadow: 'none',
+          textAlign: 'center', color: '#1a1a1a'
+        }}>
+          <p style={{ color: 'rgba(0,0,0,.7)', fontSize: '.95rem', lineHeight: 1.7, marginTop: 0, marginBottom: 12, fontWeight: 700 }}>
+            Sistema completo de gestão pecuária. Rebanho, reprodução, financeiro, sanidade e muito mais.
+          </p>
           {[
             ['🐄', 'Cadastro completo do rebanho Angus'],
             ['🧬', 'Painel reprodutivo com IA e voz'],
@@ -133,8 +153,8 @@ export default function Login() {
           ].map(([icon, text]) => (
             <div key={text} style={{
               display: 'flex', alignItems: 'center', gap: 12,
-              padding: '8px 0', borderBottom: '.5px solid rgba(0,0,0,.1)',
-              textAlign: 'left', fontSize: '.85rem', color: 'rgba(0,0,0,.85)', fontWeight: 700
+              padding: '6px 0', borderBottom: '.5px solid rgba(0,0,0,.1)',
+              textAlign: 'left', fontSize: '.9rem', color: 'rgba(0,0,0,.85)', fontWeight: 700
             }}>
               <span style={{ fontSize: '1.2rem' }}>{icon}</span>
               {text}
