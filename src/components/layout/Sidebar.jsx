@@ -1,9 +1,10 @@
-﻿import { useState } from 'react'
+﻿import { useState, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { auth, supabase } from '../../lib/supabase'
 import { useFazenda } from '../../lib/FazendaContext'
 import { useConta } from '../../lib/ContaContext'
 import OnboardingWizard from '../OnboardingWizard'
+import Tutorial from '../Tutorial'
 
 const NAV = [
   { section: 'PRINCIPAL' },
@@ -42,6 +43,14 @@ export default function Sidebar({ user, perfil, mobileOpen, onClose }) {
   const [novaForm, setNovaForm] = useState({ nome:'', localizacao:'' })
   const [salvandoNova, setSalvandoNova] = useState(false)
   const [wizardFazendaId, setWizardFazendaId] = useState(null)
+  const [tutorialAberto, setTutorialAberto] = useState(false)
+
+  useEffect(() => {
+    const jaViu = localStorage.getItem('digitalbov_tutorial_visto')
+    if (!jaViu && ehAdmin) {
+      setTutorialAberto(true)
+    }
+  }, [ehAdmin])
 
   const initials = (nome) => nome
     ? nome.split(' ').filter((_,i,a) => i===0||i===a.length-1).map(w=>w[0]).join('').toUpperCase()
@@ -185,6 +194,16 @@ export default function Sidebar({ user, perfil, mobileOpen, onClose }) {
             )
           })}
 
+          {ehAdmin && (
+            <button
+              className="nav-item"
+              onClick={() => setTutorialAberto(true)}
+            >
+              <i className="ti ti-school nav-item-icon" />
+              Tutorial
+            </button>
+          )}
+
           {/* Comparativo — só aparece com 2+ fazendas */}
           {mostrarComparativo && (
             <>
@@ -271,6 +290,15 @@ export default function Sidebar({ user, perfil, mobileOpen, onClose }) {
         <OnboardingWizard
           fazendaId={wizardFazendaId}
           onClose={() => { setWizardFazendaId(null); window.location.reload() }}
+        />
+      )}
+      {tutorialAberto && (
+        <Tutorial
+          onClose={() => setTutorialAberto(false)}
+          onNaoMostrarMais={() => {
+            localStorage.setItem('digitalbov_tutorial_visto', '1')
+            setTutorialAberto(false)
+          }}
         />
       )}
     </>
