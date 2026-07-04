@@ -145,7 +145,7 @@ export default function Login() {
             Sistema completo de gestão pecuária. Rebanho, reprodução, financeiro, sanidade e muito mais.
           </p>
           {[
-            ['🐄', 'Cadastro completo do rebanho Angus'],
+            ['🐄', 'Cadastro completo do rebanho'],
             ['🧬', 'Painel reprodutivo com IA e voz'],
             ['💰', 'Gestão financeira por ciclo'],
             ['💉', 'Controle sanitário com alertas'],

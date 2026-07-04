@@ -417,6 +417,34 @@ export default function Animais() {
     setSelected(prev => ({ ...prev, observacoes: notas }))
   }
 
+  const excluirAnimal = async (animal) => {
+    const [pes, insem, comoMae, comoBezerro] = await Promise.all([
+      db.pesagens.countByAnimal(animal.id),
+      db.inseminacoes.byAnimal(animal.id),
+      db.partos.byMae(animal.id),
+      db.partos.byBezerro(animal.id),
+    ])
+    const temPesagem     = (pes?.count       || 0) > 0
+    const temInsem       = (insem?.data?.length   || 0) > 0
+    const temComoMae     = (comoMae?.data?.length || 0) > 0
+    const temComoBezerro = !!comoBezerro?.data
+    if (temPesagem || temInsem || temComoMae || temComoBezerro) {
+      const motivos = []
+      if (temPesagem)     motivos.push('pesagens')
+      if (temInsem)       motivos.push('inseminações')
+      if (temComoMae)     motivos.push('partos como mãe')
+      if (temComoBezerro) motivos.push('nascimento registrado')
+      toast(`Não é possível excluir: o animal tem histórico (${motivos.join(', ')}). Use "vender" ou "marcar como morto" para dar baixa.`, 'error')
+      return
+    }
+    if (!confirm(`Excluir definitivamente o animal ${animal.brinco}? Esta ação não pode ser desfeita.`)) return
+    const { error } = await db.animais.delete(animal.id)
+    if (error) { toast('Erro ao excluir: ' + error.message, 'error'); return }
+    toast('Animal excluído.')
+    setSelected(null)
+    loadAll()
+  }
+
   // Filtros
   const filtered = sortBrinco(animais.filter(a => {
     if (filtSit  && a.situacao         !== filtSit)  return false
@@ -533,6 +561,12 @@ export default function Animais() {
           {podeEditarAnimais && a.situacao === 'ativo' && (
             <button className="btn btn-secondary btn-sm" onClick={() => openEdit(a)}>
               <i className="ti ti-edit" /> Editar
+            </button>
+          )}
+          {podeEditarAnimais && (
+            <button className="btn btn-sm" style={{ background: '#FEE2E2', color: '#DC2626', border: 'none' }}
+              onClick={() => excluirAnimal(a)}>
+              <i className="ti ti-trash" /> Excluir
             </button>
           )}
           <BotaoPDF contentRef={detalheRef} filename={`animal-${a.brinco}`} titulo="Animais: Ficha do Animal" />
