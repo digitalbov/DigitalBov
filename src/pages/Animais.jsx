@@ -3,6 +3,7 @@ import { usePermissoes } from '../lib/PermissoesContext'
 import { db } from '../lib/supabase'
 import { calcCategoria, idadeFormatada, fmtData, catCor, sitCor, repCor, sortBrinco } from '../lib/helpers'
 import { Loading, EmptyState, Modal, Field, MicButton, Badge, toast, BotaoPDF, ErroCarregamento } from '../components/UI'
+import { baixarModeloAnimais, lerPlanilhaAnimais, validarLinhas } from '../lib/importacaoAnimais'
 
 const SITUACOES = ['ativo','vendido','morto']
 
@@ -287,6 +288,11 @@ export default function Animais() {
   // Notas
   const [notas,           setNotas]           = useState('')
   const [savingNotas,     setSavingNotas]     = useState(false)
+  // Importação via planilha
+  const [modalImport,     setModalImport]     = useState(false)
+  const [previewImport,   setPreviewImport]   = useState(null) // { validos, erros }
+  const [importando,      setImportando]      = useState(false)
+  const fileImportRef = useRef(null)
 
   useEffect(() => { loadAll() }, [])
 
@@ -475,6 +481,35 @@ export default function Animais() {
     if (/fêmea|vaca|novilha/i.test(t)) setEditData(p => ({ ...p, sexo: 'F' }))
     if (/prenha|grávida/i.test(t)) setEditData(p => ({ ...p, sit_reprodutiva: 'prenha' }))
     if (/vazia/i.test(t)) setEditData(p => ({ ...p, sit_reprodutiva: 'vazia' }))
+  }
+
+  const onEscolherArquivo = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    try {
+      const linhas = await lerPlanilhaAnimais(file)
+      const { validos, erros } = validarLinhas(linhas, props, lotes)
+      setPreviewImport({ validos, erros })
+      setModalImport(true)
+    } catch (err) {
+      toast('Erro ao ler a planilha: ' + err.message, 'error')
+    }
+    e.target.value = '' // permite reimportar o mesmo arquivo
+  }
+
+  const confirmarImportacao = async () => {
+    if (!previewImport?.validos?.length) return
+    setImportando(true)
+    let ok = 0, falhas = 0
+    for (const payload of previewImport.validos) {
+      const { error } = await db.animais.insert(payload)
+      if (error) falhas++; else ok++
+    }
+    setImportando(false)
+    setModalImport(false)
+    setPreviewImport(null)
+    toast(`Importação concluída: ${ok} animais cadastrados` + (falhas ? `, ${falhas} falharam` : ''))
+    loadAll()
   }
 
   if (loading) return <Loading />
@@ -668,9 +703,18 @@ export default function Animais() {
         />
         <div style={{ display: 'flex', gap: 8, marginLeft: 'auto' }}>
           {podeEditarAnimais && (
-            <button className="btn btn-primary btn-sm" onClick={openNew}>
-              <i className="ti ti-plus" /> Novo animal
-            </button>
+            <>
+              <button className="btn btn-secondary btn-sm" onClick={() => baixarModeloAnimais()}>
+                <i className="ti ti-download" /> Planilha de cadastro em lote
+              </button>
+              <button className="btn btn-secondary btn-sm" onClick={() => fileImportRef.current?.click()}>
+                <i className="ti ti-upload" /> Importar planilha de cadastro em lote
+              </button>
+              <input ref={fileImportRef} type="file" accept=".xlsx,.xls" style={{display:'none'}} onChange={onEscolherArquivo} />
+              <button className="btn btn-primary btn-sm" onClick={openNew}>
+                <i className="ti ti-plus" /> Novo animal
+              </button>
+            </>
           )}
           <BotaoPDF contentRef={listaRef} filename="animais-cadastro" titulo="Animais: Cadastro" />
         </div>
@@ -815,6 +859,33 @@ export default function Animais() {
                 }
               </button>
               <button className="btn btn-secondary" onClick={() => setModal(false)}>Cancelar</button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      <Modal open={modalImport} onClose={() => setModalImport(false)} title="Importar animais" width={560}>
+        {previewImport && (
+          <div>
+            <p style={{ fontWeight:600, marginBottom:8 }}>
+              {previewImport.validos.length} animais prontos para importar
+              {previewImport.erros.length > 0 && ` · ${previewImport.erros.length} linha(s) com erro`}
+            </p>
+            {previewImport.erros.length > 0 && (
+              <div style={{ maxHeight:200, overflowY:'auto', background:'#FEF2F2', border:'.5px solid #FECACA', borderRadius:8, padding:10, marginBottom:12 }}>
+                {previewImport.erros.map((er, i) => (
+                  <div key={i} style={{ fontSize:'.8rem', color:'#B91C1C' }}>Linha {er.linha}: {er.motivo}</div>
+                ))}
+              </div>
+            )}
+            <p style={{ fontSize:'.8rem', color:'#6B7280', marginBottom:12 }}>
+              As linhas com erro serão ignoradas. Corrija-as na planilha e importe novamente se necessário.
+            </p>
+            <div className="modal-actions">
+              <button className="btn btn-secondary btn-sm" onClick={() => setModalImport(false)}>Cancelar</button>
+              <button className="btn btn-primary btn-sm" onClick={confirmarImportacao} disabled={importando || previewImport.validos.length===0}>
+                {importando ? 'Importando...' : `Importar ${previewImport.validos.length} animais`}
+              </button>
             </div>
           </div>
         )}
