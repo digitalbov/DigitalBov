@@ -31,15 +31,11 @@ export default function OnboardingWizard({ fazendaId, onClose }) {
   }, [fazendaId])
 
   const proxPasso = () => {
-    if (passo === 3 && qtdProprietarios === 0) {
-      toast('Cadastre ao menos um proprietário para continuar', 'error'); return
-    }
     if (passo < total) setPasso(p => p+1)
   }
   const voltarPasso = () => { if (passo > 1) setPasso(p => p-1) }
 
   const concluir = async () => {
-    if (qtdProprietarios === 0) { toast('Cadastre ao menos um proprietário', 'error'); setPasso(3); return }
     setSaving(true)
     setSaving(false)
     toast('Tutorial concluído! Bem-vindo ao sistema.')
@@ -83,7 +79,9 @@ export default function OnboardingWizard({ fazendaId, onClose }) {
             Voltar
           </button>
           {passo < total ? (
-            <button className="btn btn-primary" onClick={proxPasso}>Próximo</button>
+            <button className="btn btn-primary" onClick={proxPasso}>
+              {passo === 3 && qtdProprietarios === 0 ? 'Pular' : 'Próximo'}
+            </button>
           ) : (
             <button className="btn btn-primary" onClick={concluir} disabled={saving}>
               {saving ? 'Concluindo...' : 'Concluir'}
@@ -162,8 +160,8 @@ function PassoConteudo({ passo, form, setForm, fazendaId, contaId, setQtdProprie
           onKeyDown={e => e.key==='Enter' && novoNome && addItem('proprietarios', { nome:novoNome })} />
         <button className="btn btn-primary btn-sm" disabled={!novoNome||saving} onClick={() => addItem('proprietarios',{ nome:novoNome })}>+</button>
       </div>
-      <p style={{ fontSize:'.75rem', color: qtdProprietarios === 0 ? '#DC2626' : '#9CA3AF' }}>
-        {qtdProprietarios === 0 ? 'Obrigatório: cadastre ao menos um proprietário para continuar.' : 'Você pode adicionar mais depois.'}
+      <p style={{ fontSize:'.75rem', color:'#9CA3AF' }}>
+        {qtdProprietarios === 0 ? 'Opcional: você pode cadastrar depois em Propriedade → Proprietários.' : 'Você pode adicionar mais depois.'}
       </p>
     </div>
   )

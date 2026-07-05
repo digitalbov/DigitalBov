@@ -1,25 +1,21 @@
 ﻿import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase, db } from '../lib/supabase'
-import { calcCategoria, fmtMoeda } from '../lib/helpers'
+import { calcCategoria, calcCategoriaRebanho, fmtMoeda, valorPropLanc } from '../lib/helpers'
 import { Loading, AlertBox, IndexCard, ErroCarregamento } from '../components/UI'
 import { useFazenda } from '../lib/FazendaContext'
 import { usePermissoes } from '../lib/PermissoesContext'
 
-const MODULES = [
-  { path:'/propriedade', icon:'ti-home-2',         label:'Propriedade',          sub:'Fazenda, piquetes e lotes',       bg:'#E8F0FC', color:'#1E55B0' },
-  { path:'/animais',     icon:'ti-clipboard-list',  label:'Cadastro de Animais',  sub:'Registro individual do rebanho',  bg:'#FAEEDA', color:'#633806' },
-  { path:'/reprodutivo', icon:'ti-activity',        label:'Painel Reprodutivo',   sub:'IATF, diagnósticos e partos',     bg:'#EEEDFE', color:'#3C3489' },
-  { path:'/rebanho',     icon:'ti-chart-line',      label:'Controle de Rebanho',  sub:'Índices e estatísticas',          bg:'#E6F1FB', color:'#0C447C' },
-  { path:'/sanidade',    icon:'ti-shield-check',    label:'Sanidade',             sub:'Vacinas e procedimentos',         bg:'#E8F0FC', color:'#1E55B0' },
-  { path:'/pesagens',    icon:'ti-weight',          label:'Pesagens',             sub:'Pesos e GMD por animal',          bg:'#FAEEDA', color:'#633806' },
-  { path:'/estoque',     icon:'ti-box',             label:'Estoque',              sub:'Medicamentos e insumos',          bg:'#EEEDFE', color:'#3C3489' },
-  { path:'/financeiro',  icon:'ti-cash',            label:'Gestão Financeira',    sub:'Receitas e despesas',             bg:'#E8F0FC', color:'#1E55B0' },
+const CATEGORIAS_VALOR = [
+  'Terneira','Novilha 13-24m','Novilha Prenha 13-24m',
+  'Novilha 25-36m','Novilha Prenha 25-36m',
+  'Vaca Vazia','Vaca Prenha','Vaca Madura Vazia','Vaca Madura Prenha',
+  'Terneiro','Novilho 13-24m','Novilho 25-36m','Boi','Touro'
 ]
 
 export default function Dashboard({ perfil }) {
   const navigate = useNavigate()
-  const { fazendaAtual } = useFazenda()
+  const { fazendaAtual, fazendas } = useFazenda()
   const { podeEditar } = usePermissoes()
   const fileInputRef = useRef(null)
   const [enviandoFoto, setEnviandoFoto] = useState(false)
@@ -34,6 +30,7 @@ export default function Dashboard({ perfil }) {
   const [loadError,  setLoadError]  = useState(false)
   const [filtProp,   setFiltProp]   = useState(0)
   const [props,      setProps]      = useState([])
+  const [catPrecos,  setCatPrecos]  = useState([])
 
   useEffect(() => { loadData() }, [fazendaAtual?.id]) // eslint-disable-line
 
@@ -41,12 +38,13 @@ export default function Dashboard({ perfil }) {
     setLoading(true)
     setLoadError(false)
     try {
-      const [ra, rc, rp, rpiq, rplan] = await Promise.all([
+      const [ra, rc, rp, rpiq, rplan, rcp] = await Promise.all([
         db.animais.list({ situacao:'ativo' }),
         db.ciclos.current(),
         db.proprietarios.list(),
         db.piquetes.list(),
         db.planejamentos.get(),
+        db.categoriasPreco.list(),
       ])
       const animList  = ra.data   || []
       const cicloData = rc.data
@@ -58,6 +56,7 @@ export default function Dashboard({ perfil }) {
       setProps(propList)
       setPiqs(piqList)
       setPlan(planData)
+      setCatPrecos(rcp.data || [])
       if (cicloData) {
         const [{ data: lData }, { data: tData }] = await Promise.all([
           db.lancamentos.list(cicloData.id),
@@ -89,11 +88,14 @@ export default function Dashboard({ perfil }) {
     cats[c] = (cats[c] || 0) + 1
   })
 
-  // Financeiro (lançamentos + transações de animais)
-  const todasReceitas = [...lancamentos.filter(l=>l.tipo==='R'), ...transacoes.filter(t=>t.tipo==='V')]
-  const todasDespesas = [...lancamentos.filter(l=>l.tipo==='D'), ...transacoes.filter(t=>t.tipo==='C')]
-  const rec  = todasReceitas.reduce((s,l) => s + Number(l.valor), 0)
-  const desp = todasDespesas.reduce((s,l) => s + Number(l.valor), 0)
+  // Financeiro (lançamentos com rateio por proprietário + transações de animais, sem rateio)
+  const filtPropId  = filtProp === 0 ? '' : filtProp
+  const recLanc     = valorPropLanc(lancamentos, 'R', filtPropId)
+  const despLanc    = valorPropLanc(lancamentos, 'D', filtPropId)
+  const recTransac  = filtProp === 0 ? transacoes.filter(t=>t.tipo==='V').reduce((s,t)=>s+Number(t.valor),0) : 0
+  const despTransac = filtProp === 0 ? transacoes.filter(t=>t.tipo==='C').reduce((s,t)=>s+Number(t.valor),0) : 0
+  const rec  = recLanc + recTransac
+  const desp = despLanc + despTransac
   const resu = rec - desp
 
   // Piquetes
@@ -124,6 +126,19 @@ export default function Dashboard({ perfil }) {
   const prenhas = filtAnimais.filter(a => a.sit_reprodutiva === 'prenha').length
   const txPrenhez = matrizes > 0 ? Math.round((prenhas / matrizes) * 100) : 0
 
+  // Valor do rebanho (resumo)
+  const valorRows = CATEGORIAS_VALOR.map(cat => {
+    const animaisCat = filtAnimais.filter(a =>
+      calcCategoriaRebanho(a.data_nascimento, a.sexo, a.sit_reprodutiva, a.is_touro) === cat
+    )
+    const total = animaisCat.length
+    const precoRec = catPrecos.find(r => r.categoria === cat)
+    const valor = precoRec && total > 0 ? total * (precoRec.peso_medio || 0) * (precoRec.preco_kg || 0) : 0
+    return { cat, total, valor }
+  }).filter(row => row.total > 0)
+  const totalAnimais = valorRows.reduce((s, r) => s + r.total, 0)
+  const totalValor   = valorRows.reduce((s, r) => s + r.valor, 0)
+
   const enviarFoto = async (e) => {
     const file = e.target.files?.[0]
     if (!file || !fazendaAtual) return
@@ -147,6 +162,30 @@ export default function Dashboard({ perfil }) {
 
   if (loading) return <Loading text="Carregando dashboard..." />
   if (loadError) return <ErroCarregamento onRetry={loadData} />
+
+  if (fazendas.length === 0) {
+    return (
+      <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', minHeight:'60vh', textAlign:'center', padding:24 }}>
+        <div style={{ fontSize:48, marginBottom:16 }}>🏡</div>
+        <div style={{ fontSize:'1.2rem', fontWeight:700, color:'#1a1a1a', marginBottom:8 }}>
+          Bem-vindo ao DigitalBov!
+        </div>
+        <div style={{ fontSize:'.95rem', color:'#6B7280', marginBottom:24, maxWidth:380 }}>
+          Você ainda não tem nenhuma fazenda cadastrada. Crie sua primeira fazenda no módulo Propriedade para começar a usar o sistema.
+        </div>
+        <button className="btn btn-primary" onClick={() => navigate('/propriedade')}
+          style={{ animation:'pulseNovaFazenda 1.6s ease-in-out infinite' }}>
+          <i className="ti ti-arrow-right" /> Ir para Propriedade
+        </button>
+        <style>{`
+          @keyframes pulseNovaFazenda {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(43,108,217,.45); }
+            50%      { box-shadow: 0 0 0 9px rgba(43,108,217,0); }
+          }
+        `}</style>
+      </div>
+    )
+  }
 
   return (
     <div>
@@ -238,34 +277,43 @@ export default function Dashboard({ perfil }) {
       </div>
 
       <div className="grid-2" style={{ marginBottom:16 }}>
-        {/* Módulos */}
+        {/* Valor do Rebanho */}
         <div>
-          <div className="sl">Módulos do sistema</div>
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
-            {MODULES.map(m => (
-              <button
-                key={m.path}
-                onClick={() => navigate(m.path)}
-                style={{
-                  background:'white', border:'.5px solid #E5E7EB', borderRadius:10,
-                  padding:'12px 14px', cursor:'pointer', textAlign:'left',
-                  transition:'all .15s', fontFamily:'inherit'
-                }}
-                onMouseEnter={e => { e.currentTarget.style.borderColor='#9CA3AF'; e.currentTarget.style.background='#F9FAFB' }}
-                onMouseLeave={e => { e.currentTarget.style.borderColor='#E5E7EB'; e.currentTarget.style.background='white' }}
-              >
-                <div style={{
-                  width:30, height:30, borderRadius:8,
-                  background:m.bg, color:m.color,
-                  display:'flex', alignItems:'center', justifyContent:'center',
-                  fontSize:14, marginBottom:7
-                }}>
-                  <i className={`ti ${m.icon}`} />
-                </div>
-                <div style={{ fontSize:'.82rem', fontWeight:500, color:'#111' }}>{m.label}</div>
-                <div style={{ fontSize:'.72rem', color:'#9CA3AF', marginTop:2 }}>{m.sub}</div>
-              </button>
-            ))}
+          <div className="sl">Valor do rebanho</div>
+          <div className="card" style={{ padding:'12px 14px' }}>
+            {valorRows.length === 0 ? (
+              <div style={{ fontSize:'.82rem', color:'#9CA3AF', textAlign:'center', padding:'12px 0' }}>
+                Sem dados suficientes (cadastre animais e preços por categoria em Financeiro → Parâmetros)
+              </div>
+            ) : (
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr><th>Categoria</th><th style={{ textAlign:'center' }}>Qtd</th><th style={{ textAlign:'right' }}>Valor estimado</th></tr>
+                  </thead>
+                  <tbody>
+                    {valorRows.map(row => (
+                      <tr key={row.cat}>
+                        <td>{row.cat}</td>
+                        <td style={{ textAlign:'center' }}>{row.total}</td>
+                        <td style={{ textAlign:'right', fontWeight:600, color:'#2B6CD9' }}>
+                          {row.valor > 0 ? fmtMoeda(row.valor) : '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr style={{ borderTop: '2px solid #E5E7EB', fontWeight: 700 }}>
+                      <td>Total</td>
+                      <td style={{ textAlign:'center' }}>{totalAnimais}</td>
+                      <td style={{ textAlign:'right', color:'#1E55B0' }}>
+                        {totalValor > 0 ? fmtMoeda(totalValor) : '—'}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            )}
           </div>
         </div>
 

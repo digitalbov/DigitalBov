@@ -1,15 +1,18 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react'
 import { supabase, setCurrentFazendaId } from './supabase'
+import { useConta } from './ContaContext'
 
 const FazendaCtx = createContext(null)
 
 export function FazendaProvider({ children }) {
+  const { contaAtual } = useConta()
   const [fazendas,      setFazendas]      = useState([])
   const [fazendaAtual,  setFazendaAtualSt]= useState(null)
   const [loading,       setLoading]       = useState(true)
 
   const carregarFazendas = useCallback(async () => {
-    const { data } = await supabase.from('fazendas').select('*').eq('ativo', true).order('nome')
+    if (!contaAtual) { setFazendas([]); setFazendaAtualSt(null); setCurrentFazendaId(null); setLoading(false); return [] }
+    const { data } = await supabase.from('fazendas').select('*').eq('ativo', true).eq('conta_id', contaAtual.id).order('nome')
     const lista = data || []
     setFazendas(lista)
     const savedId = localStorage.getItem('fazenda_atual_id')
@@ -18,7 +21,7 @@ export function FazendaProvider({ children }) {
     setCurrentFazendaId(sel?.id || null)
     setLoading(false)
     return lista
-  }, [])
+  }, [contaAtual])
 
   useEffect(() => { carregarFazendas() }, [carregarFazendas])
 

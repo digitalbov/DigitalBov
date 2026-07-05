@@ -262,7 +262,7 @@ export default function Propriedade() {
   }
 
   const loadAll = useCallback(async () => {
-    if (!fazendaAtual) return
+    if (!fazendaAtual) { setLoading(false); return }
     setLoading(true)
     carregarInativas()
     const [rp, rq, rl, rplan, rb, ra] = await Promise.all([
@@ -492,12 +492,17 @@ export default function Propriedade() {
 
   const excluirFazendaPermanente = async (faz) => {
     if (nomeDeletar !== faz.nome) { toast('Nome digitado incorreto.','error'); return }
-    if (fazendas.length <= 1) { toast('Não é possível excluir a única fazenda.','error'); return }
     const { error } = await db.fazendas.hardDelete(faz.id)
     if (error) { toast('Erro: '+error.message,'error'); return }
     toast('Fazenda excluída permanentemente.')
     const lista = await carregarFazendas()
-    if (lista?.length) setFazendaAtual(lista[0])
+    if (lista?.length) {
+      setFazendaAtual(lista[0])
+    } else {
+      // Ficou sem nenhuma fazenda: limpa a seleção e permanece na tela de Propriedade
+      localStorage.removeItem('fazenda_atual_id')
+      setFazendaAtual(null)
+    }
     setConfirmFaz(null); setNomeDeletar('')
   }
 
@@ -610,6 +615,13 @@ export default function Propriedade() {
   // ── RENDER ────────────────────────────────────────────────────
   return (
     <div>
+      <style>{`
+        @keyframes pulseNovaFazenda {
+          0%, 100% { box-shadow: 0 0 0 0 rgba(43,108,217,.45); }
+          50%      { box-shadow: 0 0 0 9px rgba(43,108,217,0); }
+        }
+      `}</style>
+
       {showOnboarding && fazendaAtual && (
         <OnboardingWizard fazendaId={fazendaAtual.id} onClose={() => { setShowOnboarding(false); loadAll() }} />
       )}
@@ -631,8 +643,24 @@ export default function Propriedade() {
         </div>
       )}
 
+      {fazendas.length === 0 && (
+        <div style={{ textAlign:'center', padding:'40px 16px' }}>
+          <div style={{ fontSize:32, marginBottom:12 }}>🏡</div>
+          <div style={{ fontSize:'1rem', fontWeight:600, color:'#1a1a1a', marginBottom:6 }}>
+            Nenhuma fazenda cadastrada
+          </div>
+          <div style={{ fontSize:'.88rem', color:'#6B7280', marginBottom:20 }}>
+            Adicione uma fazenda para começar a usar o sistema.
+          </div>
+          <button className="btn btn-primary" onClick={() => openModal('nova-faz')}
+            style={{ animation:'pulseNovaFazenda 1.6s ease-in-out infinite' }}>
+            <i className="ti ti-plus" /> Criar primeira fazenda
+          </button>
+        </div>
+      )}
+
       {/* ══ RESUMO ═══════════════════════════════════════════════ */}
-      {section === 'resumo' && (
+      {section === 'resumo' && fazendas.length > 0 && (
         <div>
           <div style={{ marginBottom:20, display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
             <div>
@@ -906,11 +934,21 @@ export default function Propriedade() {
             <div className="card-title" style={{ display:'flex', justifyContent:'space-between' }}>
               <span><i className="ti ti-home-2" style={{ color:'#2B6CD9' }} /> Todas as fazendas</span>
               {podeEditarProp && (
-                <button className="btn btn-primary btn-xs" onClick={() => openModal('nova-faz')}>
-                  <i className="ti ti-plus" /> Nova fazenda
+                <button
+                  className="btn btn-primary btn-xs"
+                  onClick={() => openModal('nova-faz')}
+                  style={fazendas.length === 0 ? { animation:'pulseNovaFazenda 1.6s ease-in-out infinite' } : undefined}
+                >
+                  <i className="ti ti-plus" /> Nova fazenda {fazendas.length === 0 && '←'}
                 </button>
               )}
             </div>
+            {fazendas.length === 0 && (
+              <div style={{ textAlign:'center', padding:'28px 12px', color:'#6B7280' }}>
+                <div style={{ fontSize:28, marginBottom:8 }}>↑</div>
+                <div style={{ fontSize:'.88rem' }}>Nenhuma fazenda cadastrada. Adicione uma para começar.</div>
+              </div>
+            )}
             {fazendas.map(f => (
               <div key={f.id} style={{ display:'flex', alignItems:'center', gap:12, padding:'10px 0', borderBottom:'.5px solid #F3F4F6' }}>
                 <div style={{ flex:1 }}>
@@ -922,7 +960,7 @@ export default function Propriedade() {
                     <i className="ti ti-archive" /> Desativar
                   </button>
                 )}
-                {f.id === fazendaAtual?.id && fazendas.length > 1 && podeEditarProp && (
+                {f.id === fazendaAtual?.id && podeEditarProp && (
                   <button className="btn btn-secondary btn-xs" style={{ color:'#E24B4A' }} onClick={() => { setNomeDeletar(''); setConfirmFaz({ acao:'excluir', item:f }) }}>
                     <i className="ti ti-trash" /> Excluir
                   </button>

@@ -2,6 +2,7 @@
 // CONTROLE DE REBANHO
 // ─────────────────────────────────────────────────────────────────
 import { useState, useEffect, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { db } from '../lib/supabase'
 import { calcCategoria, calcCategoriaRebanho, pct, fmtMoeda } from '../lib/helpers'
 import { Loading, IndexCard, BotaoPDF, ErroCarregamento } from '../components/UI'
@@ -11,9 +12,15 @@ import {
 } from 'recharts'
 
 const TABS_R = ['Visão Geral','Índices','Comparativo','Histórico','Valor do Rebanho']
-const CATEGORIAS_VALOR = ['Terneira','Terneiro','Novilha 13-24m','Novilha 25-36m','Novilho','Vaca','Boi','Vaca Madura']
+const CATEGORIAS_VALOR = [
+  'Terneira','Novilha 13-24m','Novilha Prenha 13-24m',
+  'Novilha 25-36m','Novilha Prenha 25-36m',
+  'Vaca Vazia','Vaca Prenha','Vaca Madura Vazia','Vaca Madura Prenha',
+  'Terneiro','Novilho 13-24m','Novilho 25-36m','Boi','Touro'
+]
 
 export function Rebanho() {
+  const navigate   = useNavigate()
   const refVisao   = useRef(null)
   const refIndices = useRef(null)
   const refComp    = useRef(null)
@@ -76,7 +83,9 @@ export function Rebanho() {
   const ativosGlobal    = animais.filter(a => a.situacao === 'ativo')
   const propsSelecionadas = props.filter(p => selProps.includes(p.id))
   const valorRows = CATEGORIAS_VALOR.map(cat => {
-    const animaisCat = ativosGlobal.filter(a => calcCategoriaRebanho(a.data_nascimento, a.sexo) === cat)
+    const animaisCat = ativosGlobal.filter(a =>
+      calcCategoriaRebanho(a.data_nascimento, a.sexo, a.sit_reprodutiva, a.is_touro) === cat
+    )
     const porProp = propsSelecionadas.map(p => ({
       propId: p.id,
       count: animaisCat.filter(a => a.proprietario_id === p.id).length
@@ -231,7 +240,10 @@ export function Rebanho() {
 
       {tab === 4 && (
         <div>
-          <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:8 }}>
+          <div style={{ display:'flex', justifyContent:'flex-end', gap:8, marginBottom:8 }}>
+            <button className="btn btn-secondary btn-sm" onClick={() => navigate('/financeiro', { state: { tab: 4 } })}>
+              <i className="ti ti-settings" /> Ajustar preços (Parâmetros)
+            </button>
             <BotaoPDF contentRef={refValor} filename="rebanho-valor" titulo="Rebanho: Valor do Rebanho" />
           </div>
           <div ref={refValor}>

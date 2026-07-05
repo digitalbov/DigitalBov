@@ -36,9 +36,10 @@ export default function Sidebar({ user, perfil, mobileOpen, onClose }) {
   const navigate  = useNavigate()
   const location  = useLocation()
   const { fazendas, fazendaAtual, setFazendaAtual, carregarFazendas } = useFazenda()
-  const { contaAtual } = useConta()
+  const { contas, contaAtual, setContaAtual } = useConta()
   const ehAdmin = contaAtual?.papel === 'dono' || contaAtual?.papel === 'admin'
   const [seletorAberto, setSeletorAberto] = useState(false)
+  const [seletorContaAberto, setSeletorContaAberto] = useState(false)
   const [modalNova, setModalNova] = useState(false)
   const [novaForm, setNovaForm] = useState({ nome:'', localizacao:'' })
   const [salvandoNova, setSalvandoNova] = useState(false)
@@ -62,6 +63,15 @@ export default function Sidebar({ user, perfil, mobileOpen, onClose }) {
     setFazendaAtual(f)
     setSeletorAberto(false)
     navigate(location.pathname, { replace: true })
+    window.location.reload()
+  }
+
+  const handleSelectConta = (c) => {
+    setContaAtual(c)
+    setSeletorContaAberto(false)
+    // limpa a fazenda atual, pois é de outra conta
+    localStorage.removeItem('fazenda_atual_id')
+    navigate('/', { replace: true })
     window.location.reload()
   }
 
@@ -101,6 +111,58 @@ export default function Sidebar({ user, perfil, mobileOpen, onClose }) {
             <div className="sidebar-logo-sub">Gestão Pecuária</div>
           </div>
         </div>
+
+        {/* Seletor de Conta — só aparece se o usuário tem mais de uma conta */}
+        {contas.length > 1 && contaAtual && (
+          <div style={{ padding:'6px 12px', marginBottom:4, position:'relative' }}>
+            <button
+              onClick={() => setSeletorContaAberto(o => !o)}
+              style={{
+                width:'100%', background:'rgba(255,255,255,.06)', border:'1px solid rgba(255,255,255,.14)',
+                borderRadius:10, padding:'8px 10px', cursor:'pointer', color:'white',
+                display:'flex', alignItems:'center', gap:8, fontFamily:'inherit', textAlign:'left'
+              }}
+            >
+              <i className="ti ti-building-bank" style={{ fontSize:14, flexShrink:0 }} />
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ fontSize:'.65rem', color:'rgba(255,255,255,.55)' }}>
+                  Conta
+                </div>
+                <div style={{ fontSize:'.78rem', fontWeight:600, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                  {contaAtual.nome}
+                </div>
+              </div>
+              <i className={`ti ti-chevron-${seletorContaAberto?'up':'down'}`} style={{ fontSize:12, flexShrink:0 }} />
+            </button>
+
+            {seletorContaAberto && (
+              <div style={{
+                position:'absolute', top:'100%', left:12, right:12, zIndex:100,
+                background:'white', borderRadius:10, boxShadow:'0 8px 24px rgba(0,0,0,.18)',
+                border:'1px solid #E5E7EB', overflow:'hidden', marginTop:4
+              }}>
+                {contas.map(c => (
+                  <button
+                    key={c.id}
+                    onClick={() => handleSelectConta(c)}
+                    style={{
+                      width:'100%', padding:'10px 14px', background: c.id===contaAtual.id ? '#E8F0FC' : 'white',
+                      border:'none', cursor:'pointer', textAlign:'left', fontFamily:'inherit',
+                      borderBottom:'1px solid #F3F4F6', display:'flex', alignItems:'center', gap:8
+                    }}
+                  >
+                    <i className="ti ti-building-bank" style={{ color:'#2B6CD9', fontSize:14 }} />
+                    <div>
+                      <div style={{ fontSize:'.83rem', fontWeight:c.id===contaAtual.id?600:400, color:'#111827' }}>{c.nome}</div>
+                      <div style={{ fontSize:'.72rem', color:'#9CA3AF' }}>{c.papel}</div>
+                    </div>
+                    {c.id===contaAtual.id && <i className="ti ti-check" style={{ marginLeft:'auto', color:'#2B6CD9', fontSize:14 }} />}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Seletor de Fazenda */}
         {fazendaAtual && (

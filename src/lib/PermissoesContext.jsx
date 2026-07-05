@@ -24,6 +24,7 @@ export function PermissoesProvider({ children }) {
       .from('usuario_permissoes')
       .select('modulo, pode_editar')
       .eq('usuario_id', user.id)
+      .eq('conta_id', contaAtual.id)
     const map = {}
     ;(data || []).forEach(p => { map[p.modulo] = p.pode_editar })
     setPerms(map)

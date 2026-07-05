@@ -98,7 +98,7 @@ export const db = {
     update:       (id, d)   => escopo(T('fazendas', { semFazenda: true }).raw().update({ ...d, atualizado_em: new Date().toISOString() }).eq('id', id), { semFazenda: true }).select().single(),
     deactivate:   (id)      => escopo(T('fazendas', { semFazenda: true }).raw().update({ ativo: false }).eq('id', id), { semFazenda: true }),
     reactivate:   (id)      => escopo(T('fazendas', { semFazenda: true }).raw().update({ ativo: true }).eq('id', id), { semFazenda: true }),
-    hardDelete:   (id)      => escopo(T('fazendas', { semFazenda: true }).raw().delete().eq('id', id), { semFazenda: true }),
+    hardDelete:   (id)      => supabase.rpc('excluir_fazenda', { p_fazenda_id: id }),
   },
 
   lotes: {
@@ -175,9 +175,18 @@ export const db = {
   },
 
   lancamentos: {
-    list:   (cicloId) => T('lancamentos_financeiros').select('*').eq('ciclo_id', cicloId).order('data', { ascending: false }),
+    list:   (cicloId) => T('lancamentos_financeiros').select('*, rateios:lancamento_rateios(proprietario_id, valor, percentual, proprietario:proprietarios(nome))').eq('ciclo_id', cicloId).order('data', { ascending: false }),
     insert: (data)    => T('lancamentos_financeiros').insertOne(data).select().single(),
     delete: (id)      => escopo(T('lancamentos_financeiros').raw().delete().eq('id', id)),
+  },
+
+  lancamentoRateios: {
+    list:        (lancamentoId) => T('lancamento_rateios').select('*, proprietario:proprietarios(id,nome)').eq('lancamento_id', lancamentoId),
+    inserirVarios: async (rateios) => {
+      if (!rateios?.length) return { error: null }
+      return supabase.from('lancamento_rateios').insert(rateios)
+    },
+    deletePorLancamento: (lancamentoId) => supabase.from('lancamento_rateios').delete().eq('lancamento_id', lancamentoId),
   },
 
   transacoes: {
@@ -223,5 +232,9 @@ export const db = {
   benchmarks: {
     list:   ()           => T('benchmarks_rentabilidade').select('*').order('cenario'),
     update: (cenario, d) => escopo(T('benchmarks_rentabilidade').raw().update(d).eq('cenario', cenario)),
+  },
+
+  contaMembros: {
+    removerMembro: (contaId, usuarioId) => supabase.rpc('remover_membro', { p_conta_id: contaId, p_usuario_id: usuarioId }),
   },
 }

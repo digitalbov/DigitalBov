@@ -1,5 +1,5 @@
 ﻿import { useEffect, useState, useCallback } from 'react'
-import { supabase } from '../lib/supabase'
+import { supabase, db } from '../lib/supabase'
 import { useConta } from '../lib/ContaContext'
 import { useFazenda } from '../lib/FazendaContext'
 import { Loading, EmptyState, Modal, Field, toast, Badge } from '../components/UI'
@@ -44,7 +44,7 @@ export default function Usuarios() {
     setFazVinc(new Set((vinc || []).map(v => v.fazenda_id)))
     // permissões
     const { data: pp } = await supabase
-      .from('usuario_permissoes').select('modulo, pode_editar').eq('usuario_id', m.usuario_id)
+      .from('usuario_permissoes').select('modulo, pode_editar').eq('usuario_id', m.usuario_id).eq('conta_id', contaAtual.id)
     const map = {}
     ;(pp || []).forEach(p => { map[p.modulo] = p.pode_editar })
     setPerms(map)
@@ -86,6 +86,15 @@ export default function Usuarios() {
     })
     if (error) { toast('Erro: ' + error.message, 'error'); return }
     toast(novoPapel === 'admin' ? 'Promovido a administrador' : 'Alterado para operador')
+    await carregar()
+  }
+
+  const removerOperador = async (m) => {
+    if (m.papel === 'dono') return
+    if (!confirm(`Remover ${m.email} desta conta? Ele perde o acesso, mas a conta de login dele não é apagada.`)) return
+    const { error } = await db.contaMembros.removerMembro(contaAtual.id, m.usuario_id)
+    if (error) { toast('Erro ao remover: ' + error.message, 'error'); return }
+    toast('Operador removido da conta.')
     await carregar()
   }
 
@@ -152,9 +161,15 @@ export default function Usuarios() {
                 {m.papel === 'dono' ? (
                   <span style={{ fontSize:'.78rem', color:'#9CA3AF' }}>Dono</span>
                 ) : m.papel === 'admin' ? (
-                  <button className="btn btn-secondary btn-sm" onClick={() => mudarPapel(m.usuario_id, 'operador')}>
-                    Tornar operador
-                  </button>
+                  <div style={{ display:'flex', gap:6 }}>
+                    <button className="btn btn-secondary btn-sm" onClick={() => mudarPapel(m.usuario_id, 'operador')}>
+                      Tornar operador
+                    </button>
+                    <button className="btn btn-sm" style={{ background:'#FEE2E2', color:'#DC2626', border:'none' }}
+                      onClick={() => removerOperador(m)}>
+                      Remover
+                    </button>
+                  </div>
                 ) : (
                   <div style={{ display:'flex', gap:6 }}>
                     <button className="btn btn-secondary btn-sm" onClick={() => abrirGestao(m)}>
@@ -162,6 +177,10 @@ export default function Usuarios() {
                     </button>
                     <button className="btn btn-secondary btn-sm" onClick={() => mudarPapel(m.usuario_id, 'admin')}>
                       Tornar admin
+                    </button>
+                    <button className="btn btn-sm" style={{ background:'#FEE2E2', color:'#DC2626', border:'none' }}
+                      onClick={() => removerOperador(m)}>
+                      Remover
                     </button>
                   </div>
                 )}

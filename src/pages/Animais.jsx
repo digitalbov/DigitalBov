@@ -1,7 +1,7 @@
 ﻿import { useState, useEffect, useRef } from 'react'
 import { usePermissoes } from '../lib/PermissoesContext'
 import { db } from '../lib/supabase'
-import { calcCategoria, idadeFormatada, fmtData, catCor, sitCor, repCor, sortBrinco } from '../lib/helpers'
+import { calcCategoria, calcCategoriaRebanho, idadeFormatada, fmtData, catCor, sitCor, repCor, sortBrinco } from '../lib/helpers'
 import { Loading, EmptyState, Modal, Field, MicButton, Badge, toast, BotaoPDF, ErroCarregamento } from '../components/UI'
 import { baixarModeloAnimais, lerPlanilhaAnimais, validarLinhas } from '../lib/importacaoAnimais'
 
@@ -462,7 +462,7 @@ export default function Animais() {
     setEditData({
       brinco:'', sexo:'F', data_nascimento:'', raca:'Angus', pelagem:'Preto',
       pai:'', mae_brinco:'', proprietario_id:'', lote_id:'',
-      situacao:'ativo', sit_reprodutiva:'vazia'
+      situacao:'ativo', sit_reprodutiva:'vazia', is_touro: false
     })
     setModal(true)
   }
@@ -546,7 +546,7 @@ export default function Animais() {
   // ── Detalhe do animal ─────────────────────────────────────────────
   const detalhe = selected ? (() => {
     const a   = selected
-    const cat = calcCategoria(a.data_nascimento, a.sexo)
+    const cat = calcCategoriaRebanho(a.data_nascimento, a.sexo, a.sit_reprodutiva, a.is_touro)
     const cc  = catCor[cat]             || catCor.Vaca
     const sc  = sitCor[a.situacao]      || sitCor.ativo
     const rc  = repCor[a.sit_reprodutiva] || repCor.nao_se_aplica
@@ -771,7 +771,7 @@ export default function Animais() {
                 </thead>
                 <tbody>
                   {filtered.map(a => {
-                    const cat = calcCategoria(a.data_nascimento, a.sexo)
+                    const cat = calcCategoriaRebanho(a.data_nascimento, a.sexo, a.sit_reprodutiva, a.is_touro)
                     const cc  = catCor[cat]             || catCor.Vaca
                     const sc  = sitCor[a.situacao]      || sitCor.ativo
                     const rc  = repCor[a.sit_reprodutiva] || repCor.nao_se_aplica
@@ -838,8 +838,18 @@ export default function Animais() {
                 <input type="date" value={editData.data_nascimento || ''} onChange={e => setEditData(p => ({ ...p, data_nascimento: e.target.value }))} />
               </Field>
               <Field label="Categoria" hint="Calculada automaticamente">
-                <input readOnly value={editData.data_nascimento && editData.sexo ? calcCategoria(editData.data_nascimento, editData.sexo) : '—'} />
+                <input readOnly value={editData.data_nascimento && editData.sexo
+                  ? calcCategoriaRebanho(editData.data_nascimento, editData.sexo, editData.sit_reprodutiva, editData.is_touro)
+                  : '—'} />
               </Field>
+              {editData?.sexo === 'M' && (
+                <label style={{ display:'flex', alignItems:'center', gap:8, cursor:'pointer' }}>
+                  <input type="checkbox"
+                    checked={!!editData?.is_touro}
+                    onChange={e => setEditData(p => ({...p, is_touro: e.target.checked}))} />
+                  <span>É touro (ignora categoria por idade)</span>
+                </label>
+              )}
               <Field label="Raça">
                 <input value={editData.raca || ''} onChange={e => setEditData(p => ({ ...p, raca: e.target.value }))} />
               </Field>

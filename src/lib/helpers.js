@@ -51,17 +51,20 @@ export const calcCategoria = (dataNasc, sexo) => {
   }
 }
 
-export const calcCategoriaRebanho = (dataNasc, sexo) => {
+export const calcCategoriaRebanho = (dataNasc, sexo, sitReprodutiva, isTouro) => {
+  if (isTouro) return 'Touro'
   const m = mesesDeVida(dataNasc)
+  const prenha = sitReprodutiva === 'prenha'
   if (sexo === 'F') {
     if (m <= 12) return 'Terneira'
-    if (m <= 24) return 'Novilha 13-24m'
-    if (m <= 36) return 'Novilha 25-36m'
-    if (m <= 84) return 'Vaca'
-    return 'Vaca Madura'
+    if (m <= 24) return prenha ? 'Novilha Prenha 13-24m' : 'Novilha 13-24m'
+    if (m <= 36) return prenha ? 'Novilha Prenha 25-36m' : 'Novilha 25-36m'
+    if (m <= 84) return prenha ? 'Vaca Prenha' : 'Vaca Vazia'
+    return prenha ? 'Vaca Madura Prenha' : 'Vaca Madura Vazia'
   } else {
     if (m <= 12) return 'Terneiro'
-    if (m <= 36) return 'Novilho'
+    if (m <= 24) return 'Novilho 13-24m'
+    if (m <= 36) return 'Novilho 25-36m'
     return 'Boi'
   }
 }
@@ -94,7 +97,18 @@ export const catCor = {
   Novilho:  { bg: '#E6F1FB', text: '#0C447C' },
   Vaca:     { bg: '#EAF3DE', text: '#27500A' },
   Boi:      { bg: '#EAF3DE', text: '#27500A' },
-  'Vaca Madura': { bg: '#FAEEDA', text: '#633806' }
+  'Vaca Madura': { bg: '#FAEEDA', text: '#633806' },
+  'Novilha 13-24m':        { bg: '#E6F1FB', text: '#0C447C' },
+  'Novilha Prenha 13-24m': { bg: '#E6F1FB', text: '#0C447C' },
+  'Novilha 25-36m':        { bg: '#E6F1FB', text: '#0C447C' },
+  'Novilha Prenha 25-36m': { bg: '#E6F1FB', text: '#0C447C' },
+  'Novilho 13-24m': { bg: '#E6F1FB', text: '#0C447C' },
+  'Novilho 25-36m': { bg: '#E6F1FB', text: '#0C447C' },
+  'Vaca Vazia':  { bg: '#EAF3DE', text: '#27500A' },
+  'Vaca Prenha': { bg: '#EAF3DE', text: '#27500A' },
+  'Vaca Madura Vazia':  { bg: '#FAEEDA', text: '#633806' },
+  'Vaca Madura Prenha': { bg: '#FAEEDA', text: '#633806' },
+  Touro: { bg: '#EDE9FE', text: '#7C3AED' },
 }
 
 export const sitCor = {
@@ -124,6 +138,15 @@ export const GRUPOS_DES = [
   'Máquinas e Equipamentos', 'Investimentos',
   'Realização de Lucro', 'Inseminação'
 ]
+
+// ── Valor de lançamentos por proprietário (via rateio) ─────────────────────────
+export const valorPropLanc = (lancamentos, tipo, propId) => {
+  if (!propId) return lancamentos.filter(l=>l.tipo===tipo).reduce((s,l)=>s+Number(l.valor),0)
+  return lancamentos.filter(l=>l.tipo===tipo).reduce((s,l) => {
+    const rateio = l.rateios?.find(r => r.proprietario_id === propId)
+    return s + (rateio ? Number(rateio.valor) : 0)
+  }, 0)
+}
 
 // ── Debounce ─────────────────────────────────────────────────────────────────
 export const debounce = (fn, ms) => {

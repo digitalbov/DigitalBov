@@ -1,30 +1,36 @@
 ﻿import { useState, useEffect, useRef } from 'react'
+import { useLocation } from 'react-router-dom'
 import { db } from '../lib/supabase'
-import { fmtMoeda, fmtData, GRUPOS_REC, GRUPOS_DES } from '../lib/helpers'
+import { fmtMoeda, fmtData, GRUPOS_REC, GRUPOS_DES, valorPropLanc } from '../lib/helpers'
 import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, AlertBox, BotaoPDF, ErroCarregamento } from '../components/UI'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import { usePermissoes } from '../lib/PermissoesContext'
+import { useConta } from '../lib/ContaContext'
+import { useFazenda } from '../lib/FazendaContext'
 
 const TABS = ['Resumo','Lançamentos','Compra & Venda','Resultados','Parâmetros','Ciclos']
 
 export default function Financeiro() {
+  const location = useLocation()
   const refResumo    = useRef(null)
   const refLancs     = useRef(null)
   const refTransacs  = useRef(null)
   const refResultados= useRef(null)
   const refParams    = useRef(null)
 
-  const [tab,      setTab]     = useState(0)
+  const [tab,      setTab]     = useState(location.state?.tab ?? 0)
   const [ciclos,   setCiclos]  = useState([])
   const [cicloId,  setCicloId] = useState('')
   const [lancs,    setLancs]   = useState([])
   const [transacs, setTransacs]= useState([])
   const [catPrecos,setCatPrecos]= useState([])
+  const [props,    setProps]   = useState([])
   const [loading,   setLoading]  = useState(true)
   const [loadError, setLoadError]= useState(false)
   const [modal,    setModal]   = useState(null)
   const [form,     setForm]    = useState({})
   const [filtTp,      setFiltTp]      = useState('')
+  const [filtProp,    setFiltProp]    = useState('')
   const [saving,      setSaving]      = useState(false)
   const [cicloVencido,setCicloVencido]= useState(null)
   const [modalCiclo,  setModalCiclo]  = useState(false)
@@ -33,6 +39,8 @@ export default function Financeiro() {
 
   const { podeEditar } = usePermissoes()
   const podeEditarFinanceiro = podeEditar('financeiro')
+  const { contaAtual } = useConta()
+  const { fazendaAtual } = useFazenda()
 
   useEffect(() => { loadBase() }, [])
   useEffect(() => { if (cicloId) loadCiclo() }, [cicloId])
@@ -40,10 +48,11 @@ export default function Financeiro() {
   const loadBase = async () => {
     setLoadError(false)
     try {
-      const [rc, rcp] = await Promise.all([db.ciclos.list(), db.categoriasPreco.list()])
+      const [rc, rcp, rp] = await Promise.all([db.ciclos.list(), db.categoriasPreco.list(), db.proprietarios.list()])
       const cl = rc.data || []
       setCiclos(cl)
       setCatPrecos(rcp.data || [])
+      setProps(rp.data || [])
       const cur = cl.find(c => c.atual)
       if (cur) {
         setCicloId(cur.id)
@@ -87,6 +96,48 @@ export default function Financeiro() {
     loadBase()
   }
 
+  const abrirModalLanc = () => {
+    setForm({ rateios: props.map(p => ({ proprietario_id: p.id, percentual: '', valor: '' })) })
+    setModal('lanc')
+  }
+
+  const setRateioPercentual = (propId, perc) => {
+    const valorTotal = parseFloat(form.valor || 0)
+    const novoValor = perc === '' ? '' : (parseFloat(perc) / 100) * valorTotal
+    setForm(p => ({
+      ...p,
+      rateios: p.rateios.map(r => r.proprietario_id === propId
+        ? { ...r, percentual: perc, valor: novoValor === '' ? '' : novoValor.toFixed(2) }
+        : r)
+    }))
+  }
+
+  const setRateioValor = (propId, val) => {
+    const valorTotal = parseFloat(form.valor || 1) || 1
+    const novoPerc = val === '' ? '' : (parseFloat(val) / valorTotal) * 100
+    setForm(p => ({
+      ...p,
+      rateios: p.rateios.map(r => r.proprietario_id === propId
+        ? { ...r, valor: val, percentual: novoPerc === '' ? '' : novoPerc.toFixed(2) }
+        : r)
+    }))
+  }
+
+  const dividirIgualmente = () => {
+    const valorTotal = parseFloat(form.valor || 0)
+    const n = props.length
+    if (!valorTotal || n === 0) { toast('Preencha o valor do lançamento antes.', 'error'); return }
+    const percIgual = (100 / n)
+    const valorIgual = valorTotal / n
+    setForm(p => ({
+      ...p,
+      rateios: props.map(pr => ({ proprietario_id: pr.id, percentual: percIgual.toFixed(2), valor: valorIgual.toFixed(2) }))
+    }))
+  }
+
+  const totalRateioPerc  = (form.rateios || []).reduce((s, r) => s + (parseFloat(r.percentual) || 0), 0)
+  const totalRateioValor = (form.rateios || []).reduce((s, r) => s + (parseFloat(r.valor) || 0), 0)
+
   const excluirLanc = async (id) => {
     const { error } = await db.lancamentos.delete(id)
     if (error) { toast('Erro ao excluir.', 'error'); return }
@@ -100,10 +151,21 @@ export default function Financeiro() {
     setTransacs(rt.data || [])
   }
 
-  const rec  = lancs.filter(l => l.tipo==='R').reduce((s,l) => s+Number(l.valor),0)
-  const desp = lancs.filter(l => l.tipo==='D').reduce((s,l) => s+Number(l.valor),0)
+  const rec  = valorPropLanc(lancs, 'R', filtProp)
+  const desp = valorPropLanc(lancs, 'D', filtProp)
   const resu = rec - desp
   const cicloAtual = ciclos.find(c => c.id === cicloId)
+
+  const lancsFiltrados = lancs
+    .filter(l => !filtTp || l.tipo === filtTp)
+    .filter(l => !filtProp || l.rateios?.some(r => r.proprietario_id === filtProp))
+
+  const totalLancs = lancsFiltrados.reduce((s, l) => {
+    const v = filtProp
+      ? (l.rateios?.find(r => r.proprietario_id === filtProp)?.valor ?? 0)
+      : Number(l.valor)
+    return s + (l.tipo === 'R' ? v : -v)
+  }, 0)
 
   const salvarLanc = async () => {
     if (!form.data||!form.grupo||!form.valor||!form.descricao) {
@@ -114,13 +176,28 @@ export default function Financeiro() {
       const d=new Date(form.data+'T12:00:00'),ini=new Date(c.inicio),fim=new Date(c.fim)
       return d>=ini && d<=fim
     })
-    const { error } = await db.lancamentos.insert({
+    const { data: lancData, error } = await db.lancamentos.insert({
       ciclo_id: ciclo?.id||cicloId, data:form.data,
       tipo:form.tipo||'D', grupo:form.grupo,
       descricao:form.descricao, valor:parseFloat(form.valor)
     })
+    if (error) { setSaving(false); toast('Erro: '+error.message,'error'); return }
+
+    const rateiosPreenchidos = (form.rateios || []).filter(r => parseFloat(r.valor) > 0)
+    if (rateiosPreenchidos.length > 0 && lancData?.id) {
+      const payload = rateiosPreenchidos.map(r => ({
+        conta_id: contaAtual.id,
+        fazenda_id: fazendaAtual.id,
+        lancamento_id: lancData.id,
+        proprietario_id: r.proprietario_id,
+        valor: parseFloat(r.valor) || 0,
+        percentual: parseFloat(r.percentual) || 0,
+      }))
+      const { error: errRateio } = await db.lancamentoRateios.inserirVarios(payload)
+      if (errRateio) toast('Lançamento salvo, mas houve erro ao salvar o rateio: ' + errRateio.message, 'error')
+    }
+
     setSaving(false)
-    if (error) { toast('Erro: '+error.message,'error'); return }
     toast('Lançamento salvo!'); setModal(null); setForm({}); loadCiclo()
   }
 
@@ -239,7 +316,12 @@ export default function Financeiro() {
       {/* ── Resumo ── */}
       {tab===0 && (
         <div>
-          <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:8 }}>
+          <div style={{ display:'flex', justifyContent:'space-between', flexWrap:'wrap', gap:8, marginBottom:8 }}>
+            <select value={filtProp} onChange={e => setFiltProp(e.target.value)}
+              className="input" style={{width:180}}>
+              <option value="">Todos os proprietários</option>
+              {props.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}
+            </select>
             <BotaoPDF contentRef={refResumo} filename="financeiro-resumo" titulo="Financeiro: Resumo" />
           </div>
           <div ref={refResumo}>
@@ -307,10 +389,15 @@ export default function Financeiro() {
               <button className={`pill ${filtTp===''?'active':''}`} onClick={()=>setFiltTp('')}>Todos</button>
               <button className={`pill ${filtTp==='R'?'active':''}`} onClick={()=>setFiltTp('R')}>Receitas</button>
               <button className={`pill ${filtTp==='D'?'active':''}`} onClick={()=>setFiltTp('D')}>Despesas</button>
+              <select value={filtProp} onChange={e => setFiltProp(e.target.value)}
+                className="input" style={{width:180, marginBottom:8}}>
+                <option value="">Todos os proprietários</option>
+                {props.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}
+              </select>
             </div>
             <div style={{ display:'flex', gap:8 }}>
               {podeEditarFinanceiro && (
-                <button className="btn btn-primary btn-sm" onClick={()=>setModal('lanc')}>
+                <button className="btn btn-primary btn-sm" onClick={abrirModalLanc}>
                   <i className="ti ti-plus"/> Novo lançamento
                 </button>
               )}
@@ -318,21 +405,34 @@ export default function Financeiro() {
             </div>
           </div>
           <div ref={refLancs}>
-          {lancs.filter(l=>!filtTp||l.tipo===filtTp).length===0
+          {lancsFiltrados.length===0
             ? <EmptyState icon="💰" title="Nenhum lançamento" sub="Registre receitas e despesas do ciclo."/>
             : (
               <div className="table-wrap">
                 <table>
-                  <thead><tr><th>Data</th><th>Tipo</th><th>Grupo</th><th>Descrição</th><th style={{textAlign:'right'}}>Valor</th><th></th></tr></thead>
+                  <thead><tr><th>Data</th><th>Tipo</th><th>Grupo</th><th>Descrição</th><th style={{textAlign:'right'}}>Valor</th><th style={{textAlign:'center'}}>Rateio</th><th></th></tr></thead>
                   <tbody>
-                    {lancs.filter(l=>!filtTp||l.tipo===filtTp).map(l=>(
+                    {lancsFiltrados.map(l=>{
+                      const temRateio = (l.rateios || []).length > 0
+                      const tituloRateio = temRateio
+                        ? l.rateios.map(r => `${r.proprietario?.nome || '—'}: ${fmtMoeda(r.valor)}`).join(' · ')
+                        : 'Sem rateio definido'
+                      return (
                       <tr key={l.id}>
                         <td>{fmtData(l.data)}</td>
                         <td><Badge color={l.tipo==='R'?'green':'red'}>{l.tipo==='R'?'Rec':'Des'}</Badge></td>
                         <td style={{fontSize:'.78rem',color:'#6B7280'}}>{l.grupo}</td>
                         <td style={{color:'#6B7280'}}>{l.descricao}</td>
                         <td style={{textAlign:'right',fontWeight:500,color:l.tipo==='R'?'#1E55B0':'#791F1F'}}>
-                          {l.tipo==='R'?'+':'-'}{fmtMoeda(l.valor)}
+                          {(() => {
+                            const valorExibir = filtProp
+                              ? (l.rateios?.find(r => r.proprietario_id === filtProp)?.valor ?? l.valor)
+                              : l.valor
+                            return <>{l.tipo==='R'?'+':'-'}{fmtMoeda(valorExibir)}</>
+                          })()}
+                        </td>
+                        <td style={{textAlign:'center'}} title={tituloRateio}>
+                          <i className="ti ti-users" style={{ color: temRateio ? '#2B6CD9' : '#D1D5DB' }} />
                         </td>
                         <td>
                           {podeEditarFinanceiro && (
@@ -342,12 +442,14 @@ export default function Financeiro() {
                           )}
                         </td>
                       </tr>
-                    ))}
+                      )
+                    })}
                     <tr className="tr-total">
                       <td colSpan={4}>Resultado do ciclo</td>
-                      <td style={{textAlign:'right',color:resu>=0?'#1E55B0':'#791F1F'}}>
-                        {resu>=0?'+':''}{fmtMoeda(resu)}
+                      <td style={{textAlign:'right',color:totalLancs>=0?'#1E55B0':'#791F1F'}}>
+                        {totalLancs>=0?'+':''}{fmtMoeda(totalLancs)}
                       </td>
+                      <td></td>
                       <td></td>
                     </tr>
                   </tbody>
@@ -409,7 +511,12 @@ export default function Financeiro() {
       {/* ── Resultados ── */}
       {tab===3 && (
         <div>
-          <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:8 }}>
+          <div style={{ display:'flex', justifyContent:'space-between', flexWrap:'wrap', gap:8, marginBottom:8 }}>
+            <select value={filtProp} onChange={e => setFiltProp(e.target.value)}
+              className="input" style={{width:180}}>
+              <option value="">Todos os proprietários</option>
+              {props.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}
+            </select>
             <BotaoPDF contentRef={refResultados} filename="financeiro-resultados" titulo="Financeiro: Resultados" />
           </div>
           <div ref={refResultados}>
@@ -460,7 +567,9 @@ export default function Financeiro() {
                       <input type="number" defaultValue={cp.peso_medio} style={{width:80}}
                         readOnly={!podeEditarFinanceiro}
                         onBlur={async e => {
-                          await db.categoriasPreco.update(cp.id,{peso_medio:parseFloat(e.target.value)||0})
+                          const novoValor = parseFloat(e.target.value) || 0
+                          await db.categoriasPreco.update(cp.id, { peso_medio: novoValor })
+                          setCatPrecos(prev => prev.map(x => x.id === cp.id ? { ...x, peso_medio: novoValor } : x))
                           toast('Atualizado!')
                         }}/>
                     </td>
@@ -468,7 +577,9 @@ export default function Financeiro() {
                       <input type="number" step="0.01" defaultValue={cp.preco_kg} style={{width:80}}
                         readOnly={!podeEditarFinanceiro}
                         onBlur={async e => {
-                          await db.categoriasPreco.update(cp.id,{preco_kg:parseFloat(e.target.value)||0})
+                          const novoValor = parseFloat(e.target.value) || 0
+                          await db.categoriasPreco.update(cp.id, { preco_kg: novoValor })
+                          setCatPrecos(prev => prev.map(x => x.id === cp.id ? { ...x, preco_kg: novoValor } : x))
                           toast('Atualizado!')
                         }}/>
                     </td>
@@ -573,6 +684,41 @@ export default function Financeiro() {
           <Field label="Valor (R$)" required><input type="number" step="0.01" value={form.valor||''} onChange={e=>setForm(p=>({...p,valor:e.target.value}))} placeholder="0,00"/></Field>
         </div>
         <Field label="Descrição" required><input value={form.descricao||''} onChange={e=>setForm(p=>({...p,descricao:e.target.value}))} placeholder="Descreva o lançamento..."/></Field>
+
+        {props.length > 0 && (
+          <div style={{ marginTop:16, paddingTop:14, borderTop:'.5px solid #E5E7EB' }}>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
+              <span style={{ fontSize:'.85rem', fontWeight:600, color:'#374151' }}>Rateio por proprietário (opcional)</span>
+              <button type="button" className="btn btn-secondary btn-sm" onClick={dividirIgualmente}>
+                Dividir igualmente
+              </button>
+            </div>
+            <p style={{ fontSize:'.75rem', color:'#9CA3AF', marginBottom:10 }}>
+              Deixe em branco se não quiser definir rateio agora.
+            </p>
+            {(form.rateios || []).map(r => {
+              const prop = props.find(p => p.id === r.proprietario_id)
+              return (
+                <div key={r.proprietario_id} style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8 }}>
+                  <span style={{ flex:1, fontSize:'.83rem', color:'#374151' }}>{prop?.nome || '—'}</span>
+                  <input type="number" step="0.01" placeholder="%" value={r.percentual}
+                    onChange={e => setRateioPercentual(r.proprietario_id, e.target.value)}
+                    style={{ width:70, textAlign:'right' }} />
+                  <span style={{ fontSize:'.78rem', color:'#9CA3AF' }}>%</span>
+                  <input type="number" step="0.01" placeholder="0,00" value={r.valor}
+                    onChange={e => setRateioValor(r.proprietario_id, e.target.value)}
+                    style={{ width:90, textAlign:'right' }} />
+                  <span style={{ fontSize:'.78rem', color:'#9CA3AF' }}>R$</span>
+                </div>
+              )
+            })}
+            <div style={{ display:'flex', justifyContent:'flex-end', gap:16, fontSize:'.78rem', color:'#6B7280', marginTop:6 }}>
+              <span>Total: <strong style={{ color:'#374151' }}>{totalRateioPerc.toFixed(2)}%</strong></span>
+              <span>{fmtMoeda(totalRateioValor)}</span>
+            </div>
+          </div>
+        )}
+
         <div style={{display:'flex',gap:8,marginTop:14}}>
           <button className="btn btn-primary" onClick={salvarLanc} disabled={saving}>{saving?'Salvando...':<><i className="ti ti-check"/>Salvar</>}</button>
           <button className="btn btn-secondary" onClick={()=>setModal(null)}>Cancelar</button>

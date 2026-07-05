@@ -5,7 +5,12 @@ import { Loading, Badge, AlertBox, toast } from '../components/UI'
 import { useFazenda } from '../lib/FazendaContext'
 
 const TABS = ['Resumo Geral','Reprodução','Financeiro']
-const CATS_REL = ['Terneira','Terneiro','Novilha 13-24m','Novilha 25-36m','Novilho','Vaca','Boi','Vaca Madura']
+const CATS_REL = [
+  'Terneira','Novilha 13-24m','Novilha Prenha 13-24m',
+  'Novilha 25-36m','Novilha Prenha 25-36m',
+  'Vaca Vazia','Vaca Prenha','Vaca Madura Vazia','Vaca Madura Prenha',
+  'Terneiro','Novilho 13-24m','Novilho 25-36m','Boi','Touro'
+]
 const NOMES_PDF = ['relatorio-geral','relatorio-reprodutivo','relatorio-financeiro']
 const TITULOS_PDF = ['Relatório Geral', 'Painel Reprodutivo', 'Gestão Financeira']
 
@@ -102,7 +107,9 @@ export default function Relatorios() {
   })
 
   const valorRowsRel = CATS_REL.map(cat => {
-    const animaisCat = ativos.filter(a => calcCategoriaRebanho(a.data_nascimento, a.sexo) === cat)
+    const animaisCat = ativos.filter(a =>
+      calcCategoriaRebanho(a.data_nascimento, a.sexo, a.sit_reprodutiva, a.is_touro) === cat
+    )
     const porProp = props.map(p => ({
       propId: p.id,
       nome:   p.nome.split(' ')[0],

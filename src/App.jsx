@@ -3,8 +3,8 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { auth, supabase } from './lib/supabase'
 import { FazendaProvider, useFazenda } from './lib/FazendaContext'
 import { ContaProvider, useConta } from './lib/ContaContext'
-import { PermissoesProvider } from './lib/PermissoesContext'
-import { ToastContainer } from './components/UI'
+import { PermissoesProvider, usePermissoes } from './lib/PermissoesContext'
+import { ToastContainer, toast } from './components/UI'
 import InstallPrompt from './components/InstallPrompt'
 import Layout          from './components/layout/Layout'
 import Login           from './components/auth/Login'
@@ -67,23 +67,25 @@ function PrimeiroAcesso() {
   const { carregarContas } = useConta()
   const [form, setForm] = useState({ conta: '', fazenda: '', localizacao: '' })
   const [saving, setSaving] = useState(false)
-  const [erro, setErro] = useState('')
   const [wizardFazendaId, setWizardFazendaId] = useState(null)
 
   const criar = async () => {
-    if (!form.conta || !form.fazenda) return
-    setSaving(true); setErro('')
-    const { data: fazendaId, error } = await supabase.rpc('criar_conta_com_fazenda', {
-      p_nome_conta: form.conta,
-      p_nome_fazenda: form.fazenda
-    })
-    if (error || !fazendaId) {
-      setErro('Não foi possível criar. Tente novamente.')
-      setSaving(false)
-      return
+    if (!form.conta) { toast('Informe o nome da conta.', 'error'); return }
+    setSaving(true)
+    if (form.fazenda) {
+      // cria conta + fazenda e abre wizard (fluxo atual)
+      const { data: fazendaId, error } = await supabase.rpc('criar_conta_com_fazenda', {
+        p_nome_conta: form.conta, p_nome_fazenda: form.fazenda
+      })
+      if (error) { toast('Erro: '+error.message, 'error'); setSaving(false); return }
+      setWizardFazendaId(fazendaId)
+    } else {
+      // cria só a conta e entra no sistema (fazenda depois)
+      const { error } = await supabase.rpc('criar_conta_simples', { p_nome_conta: form.conta })
+      if (error) { toast('Erro: '+error.message, 'error'); setSaving(false); return }
+      window.location.reload()
     }
     setSaving(false)
-    setWizardFazendaId(fazendaId)
   }
 
   return (
@@ -103,13 +105,15 @@ function PrimeiroAcesso() {
           <input className="input" style={{ width:'100%' }} placeholder="ex: Agropecuária Silva"
             value={form.conta} onChange={e => setForm(p => ({ ...p, conta: e.target.value }))} />
         </div>
-        <div style={{ textAlign:'left', marginBottom:16 }}>
-          <label style={{ fontSize:'.82rem', fontWeight:600, color:'#374151', display:'block', marginBottom:6 }}>Nome da primeira fazenda *</label>
+        <div style={{ textAlign:'left', marginBottom:8 }}>
+          <label style={{ fontSize:'.82rem', fontWeight:600, color:'#374151', display:'block', marginBottom:6 }}>Nome da primeira fazenda (opcional)</label>
           <input className="input" style={{ width:'100%' }} placeholder="ex: Fazenda São João"
             value={form.fazenda} onChange={e => setForm(p => ({ ...p, fazenda: e.target.value }))} />
         </div>
-        {erro && <p style={{ color:'#DC2626', fontSize:'.8rem', marginBottom:12 }}>{erro}</p>}
-        <button className="btn btn-primary" style={{ width:'100%' }} onClick={criar} disabled={saving || !form.conta || !form.fazenda}>
+        <p style={{ fontSize:'.78rem', color:'#9CA3AF', marginBottom:16, textAlign:'left' }}>
+          Se deixar em branco, você poderá criar sua fazenda depois, no módulo Propriedade.
+        </p>
+        <button className="btn btn-primary" style={{ width:'100%' }} onClick={criar} disabled={saving || !form.conta}>
           {saving ? 'Criando...' : 'Criar e começar'}
         </button>
       </div>
@@ -152,9 +156,12 @@ function ContaGuard({ user, perfil }) {
 // ── Guard de fazenda: aguarda fazendas carregarem ─────────────────
 function FazendaGuard({ user, perfil }) {
   const { loading, fazendas } = useFazenda()
+  const { ehAdmin } = usePermissoes()
 
   if (loading) return <FullLoading text="Carregando fazendas..." />
-  if (fazendas.length === 0) return <SemAcessoFazenda />
+  // 0 fazendas: admin/dono continua vendo a interface normal (pode criar uma nova em Propriedade).
+  // Só bloqueia o operador sem nenhum vínculo de fazenda.
+  if (fazendas.length === 0 && !ehAdmin) return <SemAcessoFazenda />
 
   return <Layout user={user} perfil={perfil} />
 }

@@ -11,6 +11,15 @@ const TOPICOS = [
     ]
   },
   {
+    icon: '📱', titulo: 'Instalar no Celular',
+    itens: [
+      ['📲', 'Instale como aplicativo', 'O DigitalBov funciona como um app no seu celular, com ícone na tela inicial e acesso rápido, sem precisar baixar de nenhuma loja.'],
+      ['🤖', 'No Android (Chrome)', 'Abra o site no Chrome, toque no menu (três pontinhos) no canto superior direito e escolha "Instalar aplicativo" ou "Adicionar à tela inicial".'],
+      ['🍎', 'No iPhone (Safari)', 'Abra o site no Safari, toque no botão de compartilhar (quadrado com seta para cima) e escolha "Adicionar à Tela de Início".'],
+      ['⚡', 'Vantagens', 'Depois de instalado, o app abre em tela cheia, carrega mais rápido e fica sempre à mão, como qualquer outro aplicativo do seu celular.'],
+    ]
+  },
+  {
     icon: '🏡', titulo: 'Propriedade',
     itens: [
       ['🏢', 'Várias fazendas', 'Você pode cadastrar e gerenciar mais de uma fazenda na mesma conta, trocando entre elas pelo menu.'],

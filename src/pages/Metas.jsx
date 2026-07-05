@@ -12,6 +12,7 @@ const CFG = {
   mortalidade:   { label: 'Mortalidade',      icon: '📊', inverted: true,  desc: 'Mortos / total registrado (meta = máx. aceitável)' },
 }
 const ORDEM = ['taxa_prenhez', 'taxa_paricao', 'gmd_terneiros', 'mortalidade']
+const IDEAIS = { taxa_prenhez: '90%', taxa_paricao: '85%', gmd_terneiros: '0,8', mortalidade: '5%' }
 
 // ── Avalia status da meta ─────────────────────────────────────────
 function avaliar(atual, meta, inverted) {
@@ -276,6 +277,7 @@ export default function Metas() {
                   <div style={{ fontSize: '.82rem', fontWeight: 500, color: '#374151', marginBottom: 3 }}>
                     {cfg.label}
                     {cfg.inverted && <span style={{ fontSize: '.70rem', color: '#9CA3AF', marginLeft: 6 }}>(menor é melhor)</span>}
+                    {IDEAIS[m.indicador] && <span style={{ fontSize: '.70rem', color: '#9CA3AF', marginLeft: 6 }}>(ideal: {IDEAIS[m.indicador]})</span>}
                   </div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
