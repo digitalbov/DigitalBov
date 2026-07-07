@@ -489,13 +489,14 @@ export default function Animais() {
     if (!payload.proprietario_id) { toast('Selecione o proprietário.', 'error'); return }
     if (!payload.data_nascimento) { toast('Preencha a data de nascimento.', 'error'); return }
     setSaving(true)
-    const { error } = editData.id
+    const { data: animalSalvo, error } = editData.id
       ? await db.animais.update(editData.id, payload)
       : await db.animais.insert(payload)
     setSaving(false)
     if (error) { toast('Erro ao salvar: ' + error.message, 'error'); return }
     toast(editData.id ? 'Animal atualizado!' : 'Animal cadastrado!')
     setModal(false)
+    if (editData.id && animalSalvo) setSelected(animalSalvo)
     loadAll()
   }
 

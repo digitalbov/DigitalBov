@@ -102,12 +102,21 @@ export default function Dashboard({ perfil }) {
   const totalHa  = piqs.reduce((s,p) => s + parseFloat(p.area_ha||0), 0)
   const emUsoCnt = piqs.filter(p => p.status === 'em_uso').length
 
+  // Rentabilidade do planejamento (mesmo cálculo de Propriedade.jsx — não é salvo no banco)
+  const vTerra  = plan?.dados?.valor_terra > 0
+    ? plan.dados.valor_terra
+    : (plan?.dados?.valor_ha > 0 && totalHa > 0 ? plan.dados.valor_ha * totalHa : 0)
+  const vRebanho = plan?.dados?.valor_rebanho > 0 ? plan.dados.valor_rebanho : 0
+  const vBenf    = plan?.dados?.valor_benfeitorias > 0 ? plan.dados.valor_benfeitorias : 0
+  const vTotal   = vTerra + vRebanho + vBenf
+  const rentTerra   = vTerra  > 0 && typeof resu==='number' && !isNaN(resu) ? (resu/vTerra*100)   : null
+  const rentRebanho = vRebanho> 0 && typeof resu==='number' && !isNaN(resu) ? (resu/vRebanho*100) : null
+  const rentTotal   = vTotal  > 0 && typeof resu==='number' && !isNaN(resu) ? (resu/vTotal*100)   : null
+
   // Planejamento
   const getCicloAno = () => { const h=new Date(); const m=h.getMonth()+1; return m>=7?h.getFullYear():h.getFullYear()-1 }
   const cicloAno    = getCicloAno()
   const acoesCiclo  = acoes.filter(a => a.ciclo_alvo === cicloAno)
-  const acoesPend   = acoes.filter(a => a.status !== 'concluida').length
-  const acoesConcl  = acoes.filter(a => a.status === 'concluida').length
 
   const hoje        = new Date()
   const hora        = hoje.getHours()
@@ -238,6 +247,46 @@ export default function Dashboard({ perfil }) {
           style={{ display:'none' }} onChange={enviarFoto} />
       </div>
 
+      {/* Card de planejamento (resumo do ciclo) */}
+      {plan && (
+        <div className="card" style={{ marginBottom:16, borderTop:'3px solid #2B6CD9' }}>
+          <div className="kpi-label" style={{ marginBottom:2 }}>
+            Ciclo {cicloAno}/{cicloAno+1} — Planejamento
+          </div>
+          {plan.dados?.proposito && (
+            <div style={{ fontSize:'.88rem', marginBottom:4 }}>
+              <span className="kpi-label" style={{ marginRight:4 }}>Propósito:</span>
+              <span style={{ fontWeight:600, color:'var(--gray-900,#111)' }}>{plan.dados.proposito}</span>
+            </div>
+          )}
+          {plan.dados?.objetivos_longo_prazo && (
+            <div style={{ fontSize:'.85rem', marginBottom:10 }}>
+              <span className="kpi-label" style={{ marginRight:4 }}>Objetivo:</span>
+              <span style={{ color:'var(--gray-600,#4B5563)' }}>{plan.dados.objetivos_longo_prazo}</span>
+            </div>
+          )}
+          <div style={{ display:'flex', flexWrap:'wrap', gap:16 }}>
+            <div>
+              <div className="kpi-label">Resultado do ciclo</div>
+              <div className="kpi-value" style={{ fontSize:'1.1rem', color:'#1E55B0' }}>
+                {typeof resu==='number'&&!isNaN(resu) ? fmtMoeda(resu) : '—'}
+              </div>
+            </div>
+            {rentTerra   != null && <div><div className="kpi-label">Rent. Terra</div><div className="kpi-value" style={{ fontSize:'1.1rem' }}>{rentTerra.toFixed(2)}%</div></div>}
+            {rentRebanho != null && <div><div className="kpi-label">Rent. Rebanho</div><div className="kpi-value" style={{ fontSize:'1.1rem' }}>{rentRebanho.toFixed(2)}%</div></div>}
+            {rentTotal   != null && <div><div className="kpi-label">Rent. Propriedade</div><div className="kpi-value" style={{ fontSize:'1.1rem' }}>{rentTotal.toFixed(2)}%</div></div>}
+            {acoesCiclo.length > 0 && (
+              <div>
+                <div className="kpi-label">Ações concluídas</div>
+                <div className="kpi-value" style={{ fontSize:'1.1rem' }}>
+                  {acoesCiclo.filter(a=>a.status==='concluida').length}/{acoesCiclo.length}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Filtro proprietário */}
       <div style={{ marginBottom:16, display:'flex', alignItems:'center', gap:8 }}>
         <span style={{ fontSize:'.78rem', color:'#6B7280', fontWeight:500 }}>Exibindo:</span>
@@ -365,45 +414,6 @@ export default function Dashboard({ perfil }) {
           </div>
         </div>
       </div>
-
-      {/* Card de planejamento */}
-      {plan && (
-        <div style={{ marginBottom:16 }}>
-          <div className="sl">Planejamento — ciclo {cicloAno}/{String(cicloAno+1).slice(-2)}</div>
-          <div className="card" style={{ borderTop:'3px solid #0C447C' }}>
-            {plan.proposito && (
-              <p style={{ fontSize:'.82rem', color:'#374151', marginBottom:12, fontStyle:'italic' }}>"{plan.proposito}"</p>
-            )}
-            <div style={{ display:'flex', gap:12, flexWrap:'wrap', marginBottom:12 }}>
-              <div style={{ background:'#F9FAFB', border:'.5px solid #E5E7EB', borderRadius:8, padding:'8px 14px' }}>
-                <div style={{ fontSize:'.68rem', color:'#9CA3AF' }}>AÇÕES CONCLUÍDAS</div>
-                <div style={{ fontWeight:700, color:'#2B6CD9' }}>{acoesConcl}/{acoesConcl+acoesPend}</div>
-              </div>
-              {acoesCiclo.length > 0 && (
-                <div style={{ background:'#EEF2FF', border:'.5px solid #C7D2FE', borderRadius:8, padding:'8px 14px' }}>
-                  <div style={{ fontSize:'.68rem', color:'#4338CA' }}>METAS DO CICLO</div>
-                  <div style={{ fontWeight:700, color:'#3730A3' }}>{acoesCiclo.filter(a=>a.status==='concluida').length}/{acoesCiclo.length}</div>
-                </div>
-              )}
-            </div>
-            {acoesCiclo.length > 0 && (
-              <div>
-                <div style={{ fontSize:'.78rem', fontWeight:600, color:'#374151', marginBottom:6 }}>Objetivos do ciclo atual:</div>
-                {acoesCiclo.slice(0,4).map(a => (
-                  <div key={a.id} style={{ display:'flex', alignItems:'center', gap:8, marginBottom:6 }}>
-                    <span style={{ fontSize:16 }}>{a.status==='concluida'?'✅':'⭕'}</span>
-                    <span style={{ fontSize:'.82rem', color:'#374151', textDecoration:a.status==='concluida'?'line-through':'none' }}>{a.descricao}</span>
-                  </div>
-                ))}
-                {acoesCiclo.length > 4 && <div style={{ fontSize:'.75rem', color:'#9CA3AF' }}>+{acoesCiclo.length-4} mais — veja em Propriedade</div>}
-              </div>
-            )}
-            <button className="btn btn-secondary btn-sm" style={{ marginTop:10 }} onClick={() => navigate('/propriedade')}>
-              <i className="ti ti-target" /> Ver planejamento completo
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* Alertas */}
       <div className="sl">Alertas do sistema</div>

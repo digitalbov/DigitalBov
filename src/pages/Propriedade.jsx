@@ -9,7 +9,7 @@ import { db, supabase } from '../lib/supabase'
 import { useFazenda } from '../lib/FazendaContext'
 import { useConta } from '../lib/ContaContext'
 import { usePermissoes } from '../lib/PermissoesContext'
-import { diasDesde, fmtMoeda } from '../lib/helpers'
+import { diasDesde, fmtMoeda, calcCategoriaRebanho } from '../lib/helpers'
 import { Loading, Modal, Field, Badge, toast, EmptyState, Confirm } from '../components/UI'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -26,14 +26,6 @@ const getCicloAtualAno = () => {
 const calcAreaHa = (geom) => {
   if (!geom) return 0
   try { return (area(geom) / 10000).toFixed(2) } catch { return 0 }
-}
-
-// GeoJSON [lng,lat] → Leaflet [[lat,lng]]
-const geoJsonToLeaflet = (geom) => {
-  if (!geom) return []
-  const rings = geom.type === 'Polygon' ? geom.coordinates
-    : geom.type === 'MultiPolygon' ? geom.coordinates.flat() : []
-  return rings.map(ring => ring.map(([lng, lat]) => [lat, lng]))
 }
 
 // Leaflet [[lat,lng]] → GeoJSON [lng,lat]
@@ -61,7 +53,7 @@ function MapaPiquetes({ piqs }) {
         ).addTo(map)
         renderPiquetes(map, piqs)
       } else if (!same) {
-        mapRef.current.eachLayer(l => { if (l instanceof L.Polygon || l instanceof L.Marker) mapRef.current.removeLayer(l) })
+        mapRef.current.eachLayer(l => { if (l instanceof L.Polygon || l instanceof L.Marker || l instanceof L.GeoJSON) mapRef.current.removeLayer(l) })
         renderPiquetes(mapRef.current, piqs)
       }
     }, 100)
@@ -72,33 +64,38 @@ function MapaPiquetes({ piqs }) {
   const CORES = ['#4ADE80','#60A5FA','#FACC15','#FB923C','#A78BFA','#F472B6']
 
   const renderPiquetes = (map, lista) => {
+    const layers = []
     lista.forEach((p, idx) => {
-      const coords = p.geometria ? geoJsonToLeaflet(p.geometria) : []
-      if (!coords.length) return
-      const cor = CORES[idx % CORES.length]
-      const emUso = p.status === 'em_uso'
-      const poly = L.polygon(coords, { color: cor, fillColor: cor, fillOpacity: 0.35, weight: 2 }).addTo(map)
-      poly.bindPopup(`
-        <div style="font-family:sans-serif;min-width:150px;padding:2px">
-          <div style="font-weight:700;font-size:14px;margin-bottom:3px">${p.nome}</div>
-          <div style="font-size:12px;color:#6B7280;margin-bottom:5px">${parseFloat(p.area_ha||0).toFixed(1)} ha</div>
-          <div style="font-size:12px;font-weight:600">${emUso?'🟢 Em uso':'🟡 Em descanso'}</div>
-        </div>`)
-      const center = poly.getBounds().getCenter()
-      L.marker([center.lat, center.lng], {
-        icon: L.divIcon({
-          className: '',
-          html: `<div style="transform:translate(-50%,-50%);background:rgba(0,0,0,.7);color:#fff;padding:3px 8px;border-radius:5px;font-size:10px;font-weight:600;border:1.5px solid ${cor};white-space:nowrap;pointer-events:none">${p.nome}<br><span style="font-weight:400;opacity:.8">${parseFloat(p.area_ha||0).toFixed(1)} ha</span></div>`,
-          iconSize: [1,1], iconAnchor: [0,0]
-        })
-      }).addTo(map)
+      if (!p.geojson) return
+      try {
+        const geo = typeof p.geojson === 'string' ? JSON.parse(p.geojson) : p.geojson
+        const cor = CORES[idx % CORES.length]
+        const emUso = p.status === 'em_uso'
+        const layer = L.geoJSON(geo, {
+          style: { color: cor, weight: 2, fillColor: cor, fillOpacity: 0.35 }
+        }).addTo(map)
+        layer.bindPopup(`
+          <div style="font-family:sans-serif;min-width:150px;padding:2px">
+            <div style="font-weight:700;font-size:14px;margin-bottom:3px">${p.nome}</div>
+            <div style="font-size:12px;color:#6B7280;margin-bottom:5px">${parseFloat(p.area_ha||0).toFixed(1)} ha</div>
+            <div style="font-size:12px;font-weight:600">${emUso?'🟢 Em uso':'🟡 Em descanso'}</div>
+          </div>`)
+        const center = layer.getBounds().getCenter()
+        L.marker([center.lat, center.lng], {
+          icon: L.divIcon({
+            className: '',
+            html: `<div style="transform:translate(-50%,-50%);background:rgba(0,0,0,.7);color:#fff;padding:3px 8px;border-radius:5px;font-size:10px;font-weight:600;border:1.5px solid ${cor};white-space:nowrap;pointer-events:none">${p.nome}<br><span style="font-weight:400;opacity:.8">${parseFloat(p.area_ha||0).toFixed(1)} ha</span></div>`,
+            iconSize: [1,1], iconAnchor: [0,0]
+          })
+        }).addTo(map)
+        layers.push(layer)
+      } catch (e) {
+        console.warn('geometria inválida para piquete', p.nome, e)
+      }
     })
-    if (lista.length && lista[0].geometria) {
-      const bounds = lista.reduce((b, p) => {
-        const c = geoJsonToLeaflet(p.geometria)
-        return c.length ? b.extend(c.flat()) : b
-      }, L.latLngBounds([]))
-      if (bounds.isValid()) map.fitBounds(bounds, { padding: [30, 30] })
+    if (layers.length) {
+      const group = L.featureGroup(layers)
+      map.fitBounds(group.getBounds(), { padding: [30, 30] })
     }
   }
 
@@ -215,7 +212,7 @@ function GraficoBenchmark({ titulo, valorFazenda, benchmarks, tipo }) {
           <Bar dataKey="referência" fill="#93C5FD" radius={[3,3,0,0]} />
           {valorFazenda !== null && (
             <ReferenceLine y={valorFazenda} stroke={valorFazenda>=0?'#2B6CD9':'#E24B4A'} strokeWidth={2} strokeDasharray="4 2"
-              label={{ value:`Fazenda: ${valorFazenda.toFixed(1)}%`, position:'insideTopRight', fontSize:10, fill: valorFazenda>=0?'#2B6CD9':'#E24B4A' }} />
+              label={{ value:`Fazenda: ${valorFazenda.toFixed(2)}%`, position:'insideTopRight', fontSize:10, fill: valorFazenda>=0?'#2B6CD9':'#E24B4A' }} />
           )}
         </BarChart>
       </ResponsiveContainer>
@@ -255,6 +252,8 @@ export default function Propriedade() {
   const [fazendasInativas, setFazendasInativas] = useState([])
   const [animais,       setAnimais]       = useState([])
   const [animaisDoLote, setAnimaisDoLote] = useState([])
+  const [filtroCategLote, setFiltroCategLote] = useState('')
+  const [filtroPropLote, setFiltroPropLote] = useState('')
 
   const carregarInativas = async () => {
     const { data } = await db.fazendas.listInativas()
@@ -305,12 +304,14 @@ export default function Propriedade() {
   useEffect(() => { loadAll() }, [loadAll])
 
   const openModal  = (type, data={}) => {
-    setModal(type); setForm({...data}); setModoArea('manual')
+    setModal(type)
+    setForm(type === 'piq' ? { ...data, geometria: data.geojson || null } : {...data})
+    setModoArea('manual')
     if (type === 'lote') {
       setAnimaisDoLote(data.id ? animais.filter(a => a.lote_id === data.id).map(a => a.id) : [])
     }
   }
-  const closeModal = () => { setModal(null); setForm({}); setModoArea('manual') }
+  const closeModal = () => { setModal(null); setForm({}); setModoArea('manual'); setFiltroCategLote(''); setFiltroPropLote('') }
 
   // ── Proprietários ─────────────────────────────────────────────
   const saveProprietario = async () => {
@@ -365,7 +366,7 @@ export default function Propriedade() {
       qualidade_past: form.qualidade_past || '',
       tipo_pastagem:  form.tipo_pastagem  || '',
       finalidade:     form.finalidade     || '',
-      geojson:        form.geojson        || null,
+      geojson:        form.geometria      || null,
     }
     const { error } = form.id
       ? await db.piquetes.update(form.id, payload)
@@ -517,15 +518,6 @@ export default function Propriedade() {
     toast('Planejamento criado!')
   }
 
-  const savePlanejamento = async (campo, valor) => {
-    if (!plan) return
-    const novoDados = { ...(plan.dados || {}), [campo]: valor }
-    const { data, error } = await db.planejamentos.update(plan.id, { dados: novoDados })
-    if (error) { toast('Erro ao salvar.','error'); return }
-    setPlan(data)
-    toast('Salvo!')
-  }
-
   const saveAcao = async () => {
     if (!form.descricao) { toast('Informe a descrição.','error'); return }
     if (!plan) { toast('Crie o planejamento primeiro.','error'); return }
@@ -563,10 +555,18 @@ export default function Propriedade() {
     setSaving(true)
     const novoDados = {
       ...(plan.dados || {}),
-      valor_terra:        parseFloat(form.valor_terra)        || null,
-      valor_ha:           parseFloat(form.valor_ha)           || null,
-      valor_rebanho:      parseFloat(form.valor_rebanho)      || null,
-      valor_benfeitorias: parseFloat(form.valor_benfeitorias) || null,
+      valor_terra:        form.valor_terra
+        ? parseFloat(String(form.valor_terra).replace(/\./g,'').replace(',','.'))
+        : null,
+      valor_ha:           form.valor_ha
+        ? parseFloat(String(form.valor_ha).replace(/\./g,'').replace(',','.'))
+        : null,
+      valor_rebanho:      form.valor_rebanho
+        ? parseFloat(String(form.valor_rebanho).replace(/\./g,'').replace(',','.'))
+        : null,
+      valor_benfeitorias: form.valor_benfeitorias
+        ? parseFloat(String(form.valor_benfeitorias).replace(/\./g,'').replace(',','.'))
+        : null,
     }
     const { data, error } = await db.planejamentos.update(plan.id, { dados: novoDados })
     setSaving(false)
@@ -775,7 +775,7 @@ export default function Propriedade() {
                         <div style={{ fontSize:'1.6rem', fontWeight:700, color:'#2B6CD9', lineHeight:1 }}>{parseFloat(p.area_ha||0).toFixed(1)}</div>
                         <div style={{ fontSize:'.72rem', color:'#9CA3AF', marginTop:2 }}>hectares</div>
                       </div>
-                      {p.geometria && <div style={{ fontSize:'.72rem', color:'#6B7280' }}><i className="ti ti-map-2" style={{ fontSize:11 }} /> Geometria salva</div>}
+                      {p.geojson && <div style={{ fontSize:'.72rem', color:'#6B7280' }}><i className="ti ti-map-2" style={{ fontSize:11 }} /> Geometria salva</div>}
                       <Badge color={emUso?'green':'amber'}><i className={`ti ${emUso?'ti-circle-check':'ti-moon'}`} style={{ fontSize:11 }} /> {emUso?'Em uso':'Em descanso'}</Badge>
                       {dias !== null && <div style={{ fontSize:'.75rem', color:'#9CA3AF' }}><i className="ti ti-clock" style={{ fontSize:12 }} /> {dias} dia{dias!==1?'s':''} neste status</div>}
                       {podeEditarProp && (
@@ -816,6 +816,37 @@ export default function Propriedade() {
                   </div>
                 </div>
                 {l.descricao && <div style={{ fontSize:'.78rem', color:'#6B7280', lineHeight:1.5 }}>{l.descricao}</div>}
+                {(() => {
+                  const animaisL = animais.filter(a => a.lote_id === l.id)
+                  if (animaisL.length === 0) return <div style={{fontSize:'.78rem',color:'#9CA3AF',marginTop:6}}>Nenhum animal neste lote</div>
+
+                  // agrupa por categoria
+                  const porCat = {}
+                  animaisL.forEach(a => {
+                    const cat = calcCategoriaRebanho(a.data_nascimento, a.sexo, a.sit_reprodutiva, a.is_touro)
+                    porCat[cat] = (porCat[cat]||0) + 1
+                  })
+
+                  // agrupa por proprietário
+                  const porProp = {}
+                  animaisL.forEach(a => {
+                    const nome = a.proprietario?.nome?.split(' ')[0] || '—'
+                    porProp[nome] = (porProp[nome]||0) + 1
+                  })
+
+                  return (
+                    <div style={{ marginTop:8, paddingTop:8, borderTop:'.5px solid #F3F4F6' }}>
+                      <div style={{ fontSize:'.75rem', color:'#6B7280', marginBottom:4 }}>
+                        <strong>{animaisL.length} animais</strong>
+                        {' · '}
+                        {Object.entries(porCat).map(([cat,qtd]) => `${cat}: ${qtd}`).join(' · ')}
+                      </div>
+                      <div style={{ fontSize:'.72rem', color:'#9CA3AF' }}>
+                        {Object.entries(porProp).map(([nome,qtd]) => `${nome}: ${qtd}`).join(' · ')}
+                      </div>
+                    </div>
+                  )
+                })()}
               </div>
             ))
           }
@@ -860,7 +891,7 @@ export default function Propriedade() {
 
               {/* Tab Propósito */}
               {planTab === 'proposito' && (
-                <PlanProposito plan={plan} onSave={savePlanejamento} podeEditar={podeEditarProp} />
+                <PlanProposito plan={plan} setPlan={setPlan} podeEditar={podeEditarProp} />
               )}
 
               {/* Tab Números */}
@@ -1095,25 +1126,67 @@ export default function Propriedade() {
           <textarea rows={3} value={form.descricao||''} onChange={e=>setForm(p=>({...p,descricao:e.target.value}))} placeholder="Descreva o lote..." />
         </Field>
         <Field label={`Animais do lote (${animaisDoLote.length})`}>
-          <div style={{ maxHeight:200, overflowY:'auto', border:'.5px solid #E5E7EB', borderRadius:8, padding:8 }}>
-            {animais.length === 0
-              ? <div style={{ fontSize:'.82rem', color:'#9CA3AF' }}>Nenhum animal ativo cadastrado.</div>
-              : animais.map(a => {
-                  const marcado = animaisDoLote.includes(a.id)
-                  // animal já pertence a OUTRO lote?
-                  const outroLote = a.lote_id && a.lote_id !== form.id
-                  return (
-                    <label key={a.id} style={{ display:'flex', alignItems:'center', gap:8, padding:'4px 0', cursor:'pointer' }}>
-                      <input type="checkbox" checked={marcado}
-                        onChange={() => setAnimaisDoLote(prev => marcado ? prev.filter(id => id !== a.id) : [...prev, a.id])} />
-                      <strong>{a.brinco}</strong>
-                      <span style={{ fontSize:'.8rem', color:'#6B7280' }}>{a.sexo==='F'?'♀':'♂'}</span>
-                      {outroLote && <span style={{ fontSize:'.72rem', color:'#D97706' }}>(em outro lote: {a.lote?.nome||'—'})</span>}
-                    </label>
-                  )
-                })
-            }
-          </div>
+          {(() => {
+            const categoriasDisponiveis = [...new Set(animais.map(a =>
+              calcCategoriaRebanho(a.data_nascimento, a.sexo, a.sit_reprodutiva, a.is_touro)
+            ))].sort()
+            const animaisFiltradosLote = animais.filter(a => {
+              const cat = calcCategoriaRebanho(a.data_nascimento, a.sexo, a.sit_reprodutiva, a.is_touro)
+              if (filtroCategLote && cat !== filtroCategLote) return false
+              if (filtroPropLote && a.proprietario_id !== filtroPropLote) return false
+              return true
+            })
+            return (
+              <>
+                <select value={filtroCategLote} onChange={e => setFiltroCategLote(e.target.value)}
+                  className="input" style={{ width:'100%', marginBottom:8 }}>
+                  <option value="">Todas as categorias</option>
+                  {categoriasDisponiveis.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+                <select value={filtroPropLote} onChange={e => setFiltroPropLote(e.target.value)}
+                  className="input" style={{ width:'100%', marginBottom:8 }}>
+                  <option value="">Todos os proprietários</option>
+                  {props.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}
+                </select>
+                {animaisFiltradosLote.length > 0 && (
+                  <button type="button" className="btn btn-secondary btn-xs" style={{ marginBottom:8 }}
+                    onClick={() => {
+                      const idsFiltrados = animaisFiltradosLote.map(a => a.id)
+                      const todosMarcados = idsFiltrados.every(id => animaisDoLote.includes(id))
+                      if (todosMarcados) {
+                        setAnimaisDoLote(prev => prev.filter(id => !idsFiltrados.includes(id)))
+                      } else {
+                        setAnimaisDoLote(prev => [...new Set([...prev, ...idsFiltrados])])
+                      }
+                    }}>
+                    {animaisFiltradosLote.every(a => animaisDoLote.includes(a.id)) ? 'Desmarcar todos do filtro' : 'Selecionar todos do filtro'}
+                  </button>
+                )}
+                <div style={{ maxHeight:200, overflowY:'auto', border:'.5px solid #E5E7EB', borderRadius:8, padding:8 }}>
+                  {animaisFiltradosLote.length === 0
+                    ? <div style={{ fontSize:'.82rem', color:'#9CA3AF' }}>Nenhum animal ativo cadastrado.</div>
+                    : animaisFiltradosLote.map(a => {
+                        const marcado = animaisDoLote.includes(a.id)
+                        // animal já pertence a OUTRO lote?
+                        const outroLote = a.lote_id && a.lote_id !== form.id
+                        const cat = calcCategoriaRebanho(a.data_nascimento, a.sexo, a.sit_reprodutiva, a.is_touro)
+                        return (
+                          <label key={a.id} style={{ display:'flex', alignItems:'center', gap:8, padding:'4px 0', cursor:'pointer' }}>
+                            <input type="checkbox" checked={marcado}
+                              onChange={() => setAnimaisDoLote(prev => marcado ? prev.filter(id => id !== a.id) : [...prev, a.id])} />
+                            <strong>{a.brinco}</strong>
+                            <span style={{ fontSize:'.8rem', color:'#6B7280' }}>{a.sexo==='F'?'♀':'♂'}</span>
+                            <span style={{ fontSize:'.75rem', color:'#7B2FBE', fontWeight:500 }}>{cat}</span>
+                            <span style={{ fontSize:'.75rem', color:'#9CA3AF' }}>{a.proprietario?.nome?.split(' ')[0]||''}</span>
+                            {outroLote && <span style={{ fontSize:'.72rem', color:'#D97706' }}>(em outro lote: {a.lote?.nome||'—'})</span>}
+                          </label>
+                        )
+                      })
+                  }
+                </div>
+              </>
+            )
+          })()}
         </Field>
         <div style={{ display:'flex', gap:8, marginTop:12 }}>
           <button className="btn btn-primary" onClick={saveLote} disabled={saving}>{saving?'Salvando...':<><i className="ti ti-check" /> Salvar</>}</button>
@@ -1243,16 +1316,21 @@ export default function Propriedade() {
 }
 
 // ── Sub-componentes do planejamento ───────────────────────────────
-function PlanProposito({ plan, onSave, podeEditar }) {
+function PlanProposito({ plan, setPlan, podeEditar }) {
   const [proposito,  setProposito]  = useState(plan?.dados?.proposito||'')
   const [objetivos,  setObjetivos]  = useState(plan?.dados?.objetivos_longo_prazo||'')
   const [saving,     setSaving]     = useState(false)
 
   const salvar = async () => {
     setSaving(true)
-    await onSave('proposito', proposito)
-    await onSave('objetivos_longo_prazo', objetivos)
+    if (!plan) { setSaving(false); return }
+    // salva os dois campos juntos num único update, evitando condição de corrida
+    const novoDados = { ...(plan.dados || {}), proposito, objetivos_longo_prazo: objetivos }
+    const { data, error } = await db.planejamentos.update(plan.id, { dados: novoDados })
     setSaving(false)
+    if (error) { toast('Erro ao salvar.','error'); return }
+    setPlan(data)
+    toast('Salvo!')
   }
 
   return (
@@ -1273,10 +1351,18 @@ function PlanProposito({ plan, onSave, podeEditar }) {
 function PlanNumeros({ plan, form, setForm, totalHa, resultadoLiquido, cicloAtual, rentTerra, rentRebanho, rentTotal, vTerraEfetivo, vRebanho, vTotal, benchmarks, onSaveValores, saving, podeEditar }) {
   useEffect(() => {
     setForm({
-      valor_terra:        plan?.dados?.valor_terra||'',
-      valor_ha:           plan?.dados?.valor_ha||'',
-      valor_rebanho:      plan?.dados?.valor_rebanho||'',
-      valor_benfeitorias: plan?.dados?.valor_benfeitorias||'',
+      valor_terra:        plan?.dados?.valor_terra
+        ? String(plan.dados.valor_terra).replace('.', ',')
+        : '',
+      valor_ha:           plan?.dados?.valor_ha
+        ? String(plan.dados.valor_ha).replace('.', ',')
+        : '',
+      valor_rebanho:      plan?.dados?.valor_rebanho
+        ? String(plan.dados.valor_rebanho).replace('.', ',')
+        : '',
+      valor_benfeitorias: plan?.dados?.valor_benfeitorias
+        ? String(plan.dados.valor_benfeitorias).replace('.', ',')
+        : '',
     })
   }, [plan?.id]) // eslint-disable-line
 
@@ -1287,16 +1373,81 @@ function PlanNumeros({ plan, form, setForm, totalHa, resultadoLiquido, cicloAtua
         <p style={{ fontSize:'.82rem', color:'#6B7280', marginBottom:14 }}>Informe o valor de mercado para calcular a rentabilidade do negócio.</p>
         <div className="grid-form">
           <Field label="Valor da terra (R$) — ou deixe vazio e use R$/ha">
-            <input type="number" step="1000" value={form.valor_terra||''} onChange={e=>setForm(p=>({...p,valor_terra:e.target.value}))} placeholder="ex: 4600000" />
+            <input type="text" inputMode="decimal"
+              value={(() => {
+                if (!form.valor_terra && form.valor_terra !== 0) return ''
+                const str = String(form.valor_terra)
+                const [int, dec] = str.split(',')
+                const intFormatado = int.replace(/\B(?=(\d{3})+(?!\d))/g,'.')
+                const decFormatado = dec ? dec.padEnd(2,'0') : '00'
+                return intFormatado + ',' + decFormatado
+              })()}
+              onChange={e => {
+                const raw = e.target.value.replace(/[^\d,]/g,'')
+                const partes = raw.split(',')
+                const inteiro = partes[0]
+                const decimal = partes.length > 1 ? ',' + partes[1].slice(0,2) : ''
+                setForm(p => ({...p, valor_terra: inteiro + decimal}))
+              }}
+              placeholder="ex: 4.600.000,00" />
           </Field>
           <Field label={`Valor por hectare (R$/ha) — área: ${totalHa.toFixed(1)} ha`}>
-            <input type="number" step="100" value={form.valor_ha||''} onChange={e=>setForm(p=>({...p,valor_ha:e.target.value}))} placeholder="ex: 50000" />
+            <input type="text" inputMode="decimal"
+              value={(() => {
+                if (!form.valor_ha && form.valor_ha !== 0) return ''
+                const str = String(form.valor_ha)
+                const [int, dec] = str.split(',')
+                const intFormatado = int.replace(/\B(?=(\d{3})+(?!\d))/g,'.')
+                return intFormatado + (dec !== undefined ? ',' + dec : '')
+              })()}
+              onChange={e => {
+                // permite dígitos e no máximo uma vírgula com até 2 casas
+                const raw = e.target.value.replace(/[^\d,]/g,'')
+                const partes = raw.split(',')
+                const inteiro = partes[0].replace(/\D/g,'')
+                const decimal = partes.length > 1 ? ',' + partes[1].slice(0,2) : ''
+                const num = inteiro + decimal
+                setForm(p => ({...p, valor_ha: num}))
+              }}
+              placeholder="ex: 50.000" />
           </Field>
           <Field label="Valor do rebanho (R$)">
-            <input type="number" step="1000" value={form.valor_rebanho||''} onChange={e=>setForm(p=>({...p,valor_rebanho:e.target.value}))} placeholder="ex: 800000" />
+            <input type="text" inputMode="decimal"
+              value={(() => {
+                if (!form.valor_rebanho && form.valor_rebanho !== 0) return ''
+                const str = String(form.valor_rebanho)
+                const [int, dec] = str.split(',')
+                const intFormatado = int.replace(/\B(?=(\d{3})+(?!\d))/g,'.')
+                const decFormatado = dec ? dec.padEnd(2,'0') : '00'
+                return intFormatado + ',' + decFormatado
+              })()}
+              onChange={e => {
+                const raw = e.target.value.replace(/[^\d,]/g,'')
+                const partes = raw.split(',')
+                const inteiro = partes[0]
+                const decimal = partes.length > 1 ? ',' + partes[1].slice(0,2) : ''
+                setForm(p => ({...p, valor_rebanho: inteiro + decimal}))
+              }}
+              placeholder="ex: 800.000,00" />
           </Field>
           <Field label="Valor de benfeitorias (R$)">
-            <input type="number" step="1000" value={form.valor_benfeitorias||''} onChange={e=>setForm(p=>({...p,valor_benfeitorias:e.target.value}))} placeholder="opcional" />
+            <input type="text" inputMode="decimal"
+              value={(() => {
+                if (!form.valor_benfeitorias && form.valor_benfeitorias !== 0) return ''
+                const str = String(form.valor_benfeitorias)
+                const [int, dec] = str.split(',')
+                const intFormatado = int.replace(/\B(?=(\d{3})+(?!\d))/g,'.')
+                const decFormatado = dec ? dec.padEnd(2,'0') : '00'
+                return intFormatado + ',' + decFormatado
+              })()}
+              onChange={e => {
+                const raw = e.target.value.replace(/[^\d,]/g,'')
+                const partes = raw.split(',')
+                const inteiro = partes[0]
+                const decimal = partes.length > 1 ? ',' + partes[1].slice(0,2) : ''
+                setForm(p => ({...p, valor_benfeitorias: inteiro + decimal}))
+              }}
+              placeholder="opcional" />
           </Field>
         </div>
         <div style={{ display:'flex', gap:8 }}>
@@ -1367,7 +1518,10 @@ function PlanPratica({ acoesPend, acoesConcl, acoesCiclo, cicloAno, onToggle, on
       <div style={{ flex:1 }}>
         <div style={{ fontSize:'.86rem', color:'#111827', textDecoration:a.status==='concluida'?'line-through':'none' }}>{a.descricao}</div>
         <div style={{ display:'flex', gap:8, marginTop:3, flexWrap:'wrap' }}>
-          {a.ciclo_alvo && <Badge color="blue">Ciclo {a.ciclo_alvo}/{String(a.ciclo_alvo+1).slice(-2)}</Badge>}
+          {a.ciclo_alvo && (() => {
+            const ano = parseInt(a.ciclo_alvo)
+            return <Badge color="blue">Ciclo {ano}/{ano+1}</Badge>
+          })()}
           {a.prazo      && <Badge color="amber">Prazo: {new Date(a.prazo+'T12:00').toLocaleDateString('pt-BR')}</Badge>}
           {a.concluida_em && <span style={{ fontSize:'.72rem', color:'#9CA3AF' }}>Concluída em {new Date(a.concluida_em).toLocaleDateString('pt-BR')}</span>}
         </div>
