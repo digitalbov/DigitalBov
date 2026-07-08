@@ -136,11 +136,7 @@ export default function Sidebar({ user, perfil, mobileOpen, onClose }) {
       <aside className={`sidebar ${mobileOpen ? 'mobile-open' : ''}`}>
         {/* Logo */}
         <div className="sidebar-logo">
-          <img src="/solido.png" style={{width:88,height:88,objectFit:'contain',borderRadius:4}} alt="Logo"/>
-          <div className="sidebar-logo-text">
-            <div className="sidebar-logo-title">DigitalBov</div>
-            <div className="sidebar-logo-sub">Gestão Pecuária</div>
-          </div>
+          <img src="/pdf-marca.png" style={{width:120,height:120,objectFit:'contain'}} alt="DigitalBov"/>
         </div>
 
         {/* Seletor de Conta — só aparece se o usuário tem mais de uma conta */}
