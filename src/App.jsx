@@ -8,7 +8,6 @@ import { ToastContainer, toast } from './components/UI'
 import InstallPrompt from './components/InstallPrompt'
 import Layout          from './components/layout/Layout'
 import Login           from './components/auth/Login'
-import OnboardingWizard from './components/OnboardingWizard'
 
 const Dashboard   = lazy(() => import('./pages/Dashboard'))
 const Propriedade = lazy(() => import('./pages/Propriedade'))
@@ -62,57 +61,31 @@ function FullLoading({ text = 'Carregando...' }) {
   )
 }
 
-// ── Onboarding: cria conta + primeira fazenda via RPC ─────────────
+// ── Onboarding: cria só a conta via RPC ────────────────────────────
 function PrimeiroAcesso() {
   const { carregarContas } = useConta()
-  const [form, setForm] = useState({ conta: '', fazenda: '', localizacao: '' })
+  const [form, setForm] = useState({ conta: '' })
   const [saving, setSaving] = useState(false)
-  const [wizardFazendaId, setWizardFazendaId] = useState(null)
 
   const criar = async () => {
     if (!form.conta) { toast('Informe o nome da conta.', 'error'); return }
     setSaving(true)
-    if (form.fazenda) {
-      // cria conta + fazenda e abre wizard (fluxo atual)
-      const { data: fazendaId, error } = await supabase.rpc('criar_conta_com_fazenda', {
-        p_nome_conta: form.conta, p_nome_fazenda: form.fazenda
-      })
-      if (error) { toast('Erro: '+error.message, 'error'); setSaving(false); return }
-      setWizardFazendaId(fazendaId)
-    } else {
-      // cria só a conta e entra no sistema (fazenda depois)
-      const { error } = await supabase.rpc('criar_conta_simples', { p_nome_conta: form.conta })
-      if (error) { toast('Erro: '+error.message, 'error'); setSaving(false); return }
-      window.location.reload()
-    }
-    setSaving(false)
+    const { error } = await supabase.rpc('criar_conta_simples', { p_nome_conta: form.conta })
+    if (error) { toast('Erro: '+error.message, 'error'); setSaving(false); return }
+    window.location.reload()
   }
 
   return (
     <div style={{ height:'100vh', display:'flex', alignItems:'center', justifyContent:'center', background:'#F9FAFB', padding:24 }}>
-      {wizardFazendaId && (
-        <OnboardingWizard
-          fazendaId={wizardFazendaId}
-          onClose={() => window.location.reload()}
-        />
-      )}
       <div style={{ background:'white', borderRadius:16, padding:'40px 36px', maxWidth:440, width:'100%', boxShadow:'0 8px 32px rgba(0,0,0,.1)', textAlign:'center' }}>
         <img src="/circular-DIGITALBOV.png" style={{ width:72, height:72, objectFit:'contain', marginBottom:16 }} alt="DigitalBov" />
         <h2 style={{ fontSize:'1.35rem', fontWeight:700, color:'#2B6CD9', marginBottom:8 }}>Bem-vindo ao DigitalBov</h2>
-        <p style={{ fontSize:'.88rem', color:'#6B7280', marginBottom:28 }}>Vamos criar sua conta e sua primeira fazenda.</p>
+        <p style={{ fontSize:'.88rem', color:'#6B7280', marginBottom:28 }}>Crie sua conta para começar. Você poderá criar suas fazendas depois no módulo Propriedade.</p>
         <div style={{ textAlign:'left', marginBottom:16 }}>
           <label style={{ fontSize:'.82rem', fontWeight:600, color:'#374151', display:'block', marginBottom:6 }}>Nome da sua conta / empresa *</label>
           <input className="input" style={{ width:'100%' }} placeholder="ex: Agropecuária Silva"
             value={form.conta} onChange={e => setForm(p => ({ ...p, conta: e.target.value }))} />
         </div>
-        <div style={{ textAlign:'left', marginBottom:8 }}>
-          <label style={{ fontSize:'.82rem', fontWeight:600, color:'#374151', display:'block', marginBottom:6 }}>Nome da primeira fazenda (opcional)</label>
-          <input className="input" style={{ width:'100%' }} placeholder="ex: Fazenda São João"
-            value={form.fazenda} onChange={e => setForm(p => ({ ...p, fazenda: e.target.value }))} />
-        </div>
-        <p style={{ fontSize:'.78rem', color:'#9CA3AF', marginBottom:16, textAlign:'left' }}>
-          Se deixar em branco, você poderá criar sua fazenda depois, no módulo Propriedade.
-        </p>
         <button className="btn btn-primary" style={{ width:'100%' }} onClick={criar} disabled={saving || !form.conta}>
           {saving ? 'Criando...' : 'Criar e começar'}
         </button>
