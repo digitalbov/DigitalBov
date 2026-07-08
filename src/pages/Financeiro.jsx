@@ -317,11 +317,14 @@ export default function Financeiro() {
       {tab===0 && (
         <div>
           <div style={{ display:'flex', justifyContent:'space-between', flexWrap:'wrap', gap:8, marginBottom:8 }}>
-            <select value={filtProp} onChange={e => setFiltProp(e.target.value)}
-              className="input" style={{width:180}}>
-              <option value="">Todos os proprietários</option>
-              {props.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}
-            </select>
+            <div className="pill-group">
+              <button className={`pill ${filtProp===''?'active':''}`} onClick={() => setFiltProp('')}>Todos os proprietários</button>
+              {props.map(p => (
+                <button key={p.id} className={`pill ${filtProp===p.id?'active':''}`} onClick={() => setFiltProp(p.id)}>
+                  {p.nome.split(' ')[0]}
+                </button>
+              ))}
+            </div>
             <BotaoPDF contentRef={refResumo} filename="financeiro-resumo" titulo="Financeiro: Resumo" />
           </div>
           <div ref={refResumo}>
@@ -385,15 +388,20 @@ export default function Financeiro() {
       {tab===1 && (
         <div>
           <div style={{display:'flex',justifyContent:'space-between',marginBottom:12,flexWrap:'wrap',gap:8}}>
-            <div className="pill-group">
-              <button className={`pill ${filtTp===''?'active':''}`} onClick={()=>setFiltTp('')}>Todos</button>
-              <button className={`pill ${filtTp==='R'?'active':''}`} onClick={()=>setFiltTp('R')}>Receitas</button>
-              <button className={`pill ${filtTp==='D'?'active':''}`} onClick={()=>setFiltTp('D')}>Despesas</button>
-              <select value={filtProp} onChange={e => setFiltProp(e.target.value)}
-                className="input" style={{width:180, marginBottom:8}}>
-                <option value="">Todos os proprietários</option>
-                {props.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}
-              </select>
+            <div style={{display:'flex', gap:8, flexWrap:'wrap'}}>
+              <div className="pill-group">
+                <button className={`pill ${filtTp===''?'active':''}`} onClick={()=>setFiltTp('')}>Todos</button>
+                <button className={`pill ${filtTp==='R'?'active':''}`} onClick={()=>setFiltTp('R')}>Receitas</button>
+                <button className={`pill ${filtTp==='D'?'active':''}`} onClick={()=>setFiltTp('D')}>Despesas</button>
+              </div>
+              <div className="pill-group">
+                <button className={`pill ${filtProp===''?'active':''}`} onClick={() => setFiltProp('')}>Todos os proprietários</button>
+                {props.map(p => (
+                  <button key={p.id} className={`pill ${filtProp===p.id?'active':''}`} onClick={() => setFiltProp(p.id)}>
+                    {p.nome.split(' ')[0]}
+                  </button>
+                ))}
+              </div>
             </div>
             <div style={{ display:'flex', gap:8 }}>
               {podeEditarFinanceiro && (
@@ -512,11 +520,14 @@ export default function Financeiro() {
       {tab===3 && (
         <div>
           <div style={{ display:'flex', justifyContent:'space-between', flexWrap:'wrap', gap:8, marginBottom:8 }}>
-            <select value={filtProp} onChange={e => setFiltProp(e.target.value)}
-              className="input" style={{width:180}}>
-              <option value="">Todos os proprietários</option>
-              {props.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}
-            </select>
+            <div className="pill-group">
+              <button className={`pill ${filtProp===''?'active':''}`} onClick={() => setFiltProp('')}>Todos os proprietários</button>
+              {props.map(p => (
+                <button key={p.id} className={`pill ${filtProp===p.id?'active':''}`} onClick={() => setFiltProp(p.id)}>
+                  {p.nome.split(' ')[0]}
+                </button>
+              ))}
+            </div>
             <BotaoPDF contentRef={refResultados} filename="financeiro-resultados" titulo="Financeiro: Resultados" />
           </div>
           <div ref={refResultados}>

@@ -145,11 +145,11 @@ function ContaGuard({ user, perfil }) {
   if (loading) return <FullLoading text="Carregando conta..." />
   if (contas.length === 0) return <PrimeiroAcesso />
   return (
-    <PermissoesProvider>
-      <FazendaProvider>
+    <FazendaProvider>
+      <PermissoesProvider>
         <FazendaGuard user={user} perfil={perfil} />
-      </FazendaProvider>
-    </PermissoesProvider>
+      </PermissoesProvider>
+    </FazendaProvider>
   )
 }
 
@@ -164,6 +164,20 @@ function FazendaGuard({ user, perfil }) {
   if (fazendas.length === 0 && !ehAdmin) return <SemAcessoFazenda />
 
   return <Layout user={user} perfil={perfil} />
+}
+
+// ── Guard de rota: bloqueia módulo sem permissão de visualização na fazenda atual ──
+function RotaProtegida({ modulo, children }) {
+  const { podeVer, ehAdmin, carregado } = usePermissoes()
+  if (!carregado) return null
+  if (ehAdmin || modulo === 'dashboard' || podeVer(modulo)) return children
+  return (
+    <div style={{ padding:40, textAlign:'center', color:'#6B7280' }}>
+      <i className="ti ti-lock" style={{ fontSize:40, marginBottom:12 }} />
+      <div style={{ fontWeight:600, marginBottom:6 }}>Sem permissão</div>
+      <div style={{ fontSize:'.85rem' }}>Você não tem permissão para acessar este módulo nesta fazenda.</div>
+    </div>
+  )
 }
 
 function ProtectedRoutes({ user, perfil }) {
@@ -218,17 +232,17 @@ export default function App() {
           <Route path="/"            element={<Suspense fallback={null}><Dashboard  perfil={perfil} /></Suspense>} />
           <Route path="/assistente"  element={<Suspense fallback={null}><Assistente /></Suspense>} />
           <Route path="/calendario"  element={<Suspense fallback={null}><Calendario /></Suspense>} />
-          <Route path="/metas"       element={<Suspense fallback={null}><Metas /></Suspense>} />
+          <Route path="/metas"       element={<RotaProtegida modulo="metas"><Suspense fallback={null}><Metas /></Suspense></RotaProtegida>} />
           <Route path="/backup"      element={<Suspense fallback={null}><Backup /></Suspense>} />
-          <Route path="/propriedade" element={<Suspense fallback={null}><Propriedade /></Suspense>} />
-          <Route path="/animais"     element={<Suspense fallback={null}><Animais /></Suspense>} />
-          <Route path="/reprodutivo" element={<Suspense fallback={null}><Reprodutivo /></Suspense>} />
-          <Route path="/rebanho"     element={<Suspense fallback={null}><Rebanho /></Suspense>} />
-          <Route path="/sanidade"    element={<Suspense fallback={null}><Sanidade /></Suspense>} />
-          <Route path="/pesagens"    element={<Suspense fallback={null}><Pesagens /></Suspense>} />
-          <Route path="/estoque"     element={<Suspense fallback={null}><Estoque /></Suspense>} />
-          <Route path="/financeiro"  element={<Suspense fallback={null}><Financeiro /></Suspense>} />
-          <Route path="/relatorios"  element={<Suspense fallback={null}><Relatorios /></Suspense>} />
+          <Route path="/propriedade" element={<RotaProtegida modulo="propriedade"><Suspense fallback={null}><Propriedade /></Suspense></RotaProtegida>} />
+          <Route path="/animais"     element={<RotaProtegida modulo="animais"><Suspense fallback={null}><Animais /></Suspense></RotaProtegida>} />
+          <Route path="/reprodutivo" element={<RotaProtegida modulo="reprodutivo"><Suspense fallback={null}><Reprodutivo /></Suspense></RotaProtegida>} />
+          <Route path="/rebanho"     element={<RotaProtegida modulo="rebanho"><Suspense fallback={null}><Rebanho /></Suspense></RotaProtegida>} />
+          <Route path="/sanidade"    element={<RotaProtegida modulo="sanidade"><Suspense fallback={null}><Sanidade /></Suspense></RotaProtegida>} />
+          <Route path="/pesagens"    element={<RotaProtegida modulo="pesagens"><Suspense fallback={null}><Pesagens /></Suspense></RotaProtegida>} />
+          <Route path="/estoque"     element={<RotaProtegida modulo="estoque"><Suspense fallback={null}><Estoque /></Suspense></RotaProtegida>} />
+          <Route path="/financeiro"  element={<RotaProtegida modulo="financeiro"><Suspense fallback={null}><Financeiro /></Suspense></RotaProtegida>} />
+          <Route path="/relatorios"  element={<RotaProtegida modulo="relatorios"><Suspense fallback={null}><Relatorios /></Suspense></RotaProtegida>} />
           <Route path="/comparativo" element={<Suspense fallback={null}><Comparativo /></Suspense>} />
           <Route path="/usuarios"   element={<Suspense fallback={null}><Usuarios /></Suspense>} />
         </Route>

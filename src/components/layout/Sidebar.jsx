@@ -3,8 +3,17 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import { auth, supabase } from '../../lib/supabase'
 import { useFazenda } from '../../lib/FazendaContext'
 import { useConta } from '../../lib/ContaContext'
+import { usePermissoes } from '../../lib/PermissoesContext'
 import OnboardingWizard from '../OnboardingWizard'
 import Tutorial from '../Tutorial'
+
+// Módulos com permissão gerenciável (mesma lista de Usuarios.jsx). Itens fora
+// desta lista (assistente, calendário, backup) ficam sempre visíveis: o
+// sistema de permissões não os cobre.
+const MODULOS_GERENCIAVEIS = [
+  'propriedade', 'animais', 'reprodutivo', 'rebanho', 'sanidade',
+  'pesagens', 'estoque', 'financeiro', 'relatorios', 'metas',
+]
 
 const NAV = [
   { section: 'PRINCIPAL' },
@@ -37,6 +46,7 @@ export default function Sidebar({ user, perfil, mobileOpen, onClose }) {
   const location  = useLocation()
   const { fazendas, fazendaAtual, setFazendaAtual, carregarFazendas } = useFazenda()
   const { contas, contaAtual, setContaAtual } = useConta()
+  const { podeVer } = usePermissoes()
   const ehAdmin = contaAtual?.papel === 'dono' || contaAtual?.papel === 'admin'
   const [seletorAberto, setSeletorAberto] = useState(false)
   const [seletorContaAberto, setSeletorContaAberto] = useState(false)
@@ -98,6 +108,27 @@ export default function Sidebar({ user, perfil, mobileOpen, onClose }) {
   }
 
   const mostrarComparativo = fazendas.length >= 2
+
+  // Itens visíveis do menu: admin vê tudo; operador vê dashboard + módulos
+  // fora da lista gerenciável sempre, e os demais conforme podeVer(modulo).
+  // Cabeçalhos de seção (item.section) só aparecem se sobrar algum item abaixo.
+  const navVisivel = (() => {
+    const itemVisivel = (item) => {
+      if (ehAdmin) return true
+      const modulo = item.path === '/' ? 'dashboard' : item.path.slice(1)
+      if (modulo === 'dashboard' || !MODULOS_GERENCIAVEIS.includes(modulo)) return true
+      return podeVer(modulo)
+    }
+    const out = []
+    let secaoPendente = null
+    NAV.forEach(item => {
+      if (item.section) { secaoPendente = item; return }
+      if (!itemVisivel(item)) return
+      if (secaoPendente) { out.push(secaoPendente); secaoPendente = null }
+      out.push(item)
+    })
+    return out
+  })()
 
   return (
     <>
@@ -231,7 +262,7 @@ export default function Sidebar({ user, perfil, mobileOpen, onClose }) {
 
         {/* Navigation */}
         <nav className="sidebar-nav">
-          {NAV.map((item, i) => {
+          {navVisivel.map((item, i) => {
             if (item.section) return <div key={i} className="nav-section-label">{item.section}</div>
             const active = location.pathname === item.path
             return (

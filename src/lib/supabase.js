@@ -162,6 +162,15 @@ export const db = {
     delete: (id)     => escopo(T('procedimentos_sanitarios').raw().delete().eq('id', id)),
   },
 
+  sanidadeAnimais: {
+    listPorProcedimento: (procId)   => T('sanidade_animais').select('*, animal:animais(id,brinco)').eq('procedimento_id', procId),
+    listPorAnimal:       (animalId) => supabase.from('sanidade_animais').select('*, procedimento:procedimentos_sanitarios(*)').eq('animal_id', animalId),
+    inserirVarios: async (vinculos) => {
+      if (!vinculos?.length) return { error: null }
+      return supabase.from('sanidade_animais').insert(vinculos)
+    },
+  },
+
   estoque: {
     list:   ()       => T('estoque_itens').select('*').eq('ativo', true).order('categoria, item'),
     insert: (data)   => T('estoque_itens').insertOne(data).select().single(),
@@ -236,5 +245,25 @@ export const db = {
 
   contaMembros: {
     removerMembro: (contaId, usuarioId) => supabase.rpc('remover_membro', { p_conta_id: contaId, p_usuario_id: usuarioId }),
+  },
+
+  usuarioPermissoes: {
+    listPorUsuarioFazenda: (contaId, usuarioId, fazendaId) =>
+      supabase.from('usuario_permissoes').select('*')
+        .eq('conta_id', contaId).eq('usuario_id', usuarioId).eq('fazenda_id', fazendaId),
+    upsertVarios: async (perms) => {
+      if (!perms?.length) return { error: null }
+      return supabase.from('usuario_permissoes')
+        .upsert(perms, { onConflict: 'conta_id,usuario_id,fazenda_id,modulo' })
+    },
+  },
+
+  usuarioFazendas: {
+    listPorUsuario: (usuarioId) =>
+      supabase.from('usuario_fazendas').select('fazenda_id').eq('usuario_id', usuarioId),
+    definir: (contaId, usuarioId, fazendaId, vincular) =>
+      supabase.rpc('definir_fazenda_usuario', {
+        p_conta_id: contaId, p_usuario_id: usuarioId, p_fazenda_id: fazendaId, p_vincular: vincular
+      }),
   },
 }

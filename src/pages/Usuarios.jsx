@@ -7,7 +7,7 @@ import { Loading, EmptyState, Modal, Field, toast, Badge } from '../components/U
 const FUNCTIONS_URL = import.meta.env.VITE_SUPABASE_URL + '/functions/v1/dynamic-responder'
 
 const MODULOS = [
-  ['dashboard','Dashboard'], ['propriedade','Propriedade'], ['animais','Animais'],
+  ['propriedade','Propriedade'], ['animais','Animais'],
   ['reprodutivo','Reprodutivo'], ['rebanho','Rebanho'], ['sanidade','Sanidade'],
   ['pesagens','Pesagens'], ['estoque','Estoque'], ['financeiro','Financeiro'],
   ['relatorios','Relatórios'], ['metas','Metas'],
@@ -15,13 +15,17 @@ const MODULOS = [
 
 export default function Usuarios() {
   const { contaAtual } = useConta()
-  const { fazendas } = useFazenda()
+  const { fazendas, fazendaAtual } = useFazenda()
   const [membros, setMembros] = useState([])
   const [loading, setLoading] = useState(true)
   const [editando, setEditando] = useState(null) // usuario_id em edição
-  const [fazVinc, setFazVinc] = useState(new Set())
-  const [perms, setPerms] = useState({}) // modulo -> bool
-  const [salvando, setSalvando] = useState(false)
+  const [fazVinc, setFazVinc] = useState(new Set()) // fazendas com acesso (indicador visual), derivado de usuario_fazendas
+  // Permissões por fazenda + módulo
+  const [fazendaGestao, setFazendaGestaoSt] = useState(null) // fazenda_id selecionada para gerenciar permissões
+  const [permsFazenda, setPermsFazenda] = useState({}) // modulo -> { pode_ver, pode_editar }
+  const [permsDirty, setPermsDirty] = useState(false)
+  const [carregandoPerms, setCarregandoPerms] = useState(false)
+  const [salvandoPerms, setSalvandoPerms] = useState(false)
   const [modalNovo, setModalNovo] = useState(false)
   const [novo, setNovo] = useState({ email:'', senha:'' })
   const [criando, setCriando] = useState(false)
@@ -36,48 +40,79 @@ export default function Usuarios() {
 
   useEffect(() => { carregar() }, [carregar])
 
+  const carregarPermsFazenda = async (usuarioId, fazendaId) => {
+    if (!fazendaId) { setPermsFazenda({}); return }
+    setCarregandoPerms(true)
+    const { data } = await db.usuarioPermissoes.listPorUsuarioFazenda(contaAtual.id, usuarioId, fazendaId)
+    const map = {}
+    ;(data || []).forEach(p => { map[p.modulo] = { pode_ver: !!p.pode_ver, pode_editar: !!p.pode_editar } })
+    setPermsFazenda(map)
+    setPermsDirty(false)
+    setCarregandoPerms(false)
+  }
+
   const abrirGestao = async (m) => {
     setEditando(m.usuario_id)
-    // fazendas vinculadas
-    const { data: vinc } = await supabase
-      .from('usuario_fazendas').select('fazenda_id').eq('usuario_id', m.usuario_id)
+    // fazendas com acesso (só para o indicador visual das abas)
+    const { data: vinc } = await db.usuarioFazendas.listPorUsuario(m.usuario_id)
     setFazVinc(new Set((vinc || []).map(v => v.fazenda_id)))
-    // permissões
-    const { data: pp } = await supabase
-      .from('usuario_permissoes').select('modulo, pode_editar').eq('usuario_id', m.usuario_id).eq('conta_id', contaAtual.id)
-    const map = {}
-    ;(pp || []).forEach(p => { map[p.modulo] = p.pode_editar })
-    setPerms(map)
+    // fazenda padrão para gerenciar permissões: a fazenda atual do app, senão a primeira da lista
+    const fazendaInicial = fazendas.find(f => f.id === fazendaAtual?.id) || fazendas[0] || null
+    setFazendaGestaoSt(fazendaInicial?.id || null)
+    await carregarPermsFazenda(m.usuario_id, fazendaInicial?.id || null)
   }
 
-  const toggleFazenda = (fid) => {
-    setFazVinc(prev => { const s = new Set(prev); s.has(fid) ? s.delete(fid) : s.add(fid); return s })
+  const mudarFazendaGestao = (novoId) => {
+    if (permsDirty && !confirm('Há alterações de permissões não salvas nesta fazenda. Trocar de fazenda e descartar as alterações?')) return
+    setFazendaGestaoSt(novoId)
+    carregarPermsFazenda(editando, novoId)
   }
-  const setPerm = (mod, val) => setPerms(prev => ({ ...prev, [mod]: val }))
 
-  const salvar = async (m) => {
-    setSalvando(true)
-    try {
-      // fazendas: vincular as marcadas, desvincular as não marcadas
-      for (const f of fazendas) {
-        await supabase.rpc('definir_fazenda_usuario', {
-          p_conta_id: contaAtual.id, p_usuario_id: m, p_fazenda_id: f.id,
-          p_vincular: fazVinc.has(f.id)
-        })
+  // Nível de acesso por módulo: 'sem_acesso' | 'ver' | 'editar'
+  const nivelDoModulo = (mod) => {
+    const p = permsFazenda[mod]
+    if (!p || (!p.pode_ver && !p.pode_editar)) return 'sem_acesso'
+    if (p.pode_ver && !p.pode_editar) return 'ver'
+    return 'editar'
+  }
+  const setNivel = (mod, nivel) => {
+    setPermsFazenda(prev => ({
+      ...prev,
+      [mod]: { pode_ver: nivel !== 'sem_acesso', pode_editar: nivel === 'editar' }
+    }))
+    setPermsDirty(true)
+  }
+
+  const aplicarPermissoesFazenda = async () => {
+    if (!fazendaGestao) { toast('Selecione uma fazenda', 'error'); return }
+    setSalvandoPerms(true)
+    const registros = MODULOS.map(([mod]) => {
+      const p = permsFazenda[mod] || { pode_ver: false, pode_editar: false }
+      return {
+        conta_id:    contaAtual.id,
+        usuario_id:  editando,
+        fazenda_id:  fazendaGestao,
+        modulo:      mod,
+        pode_ver:    p.pode_ver,
+        pode_editar: p.pode_editar,
       }
-      // permissões por módulo
-      for (const [mod] of MODULOS) {
-        await supabase.rpc('definir_permissao', {
-          p_conta_id: contaAtual.id, p_usuario_id: m, p_modulo: mod,
-          p_pode_editar: !!perms[mod]
-        })
-      }
-      toast('Permissões salvas')
-      setEditando(null)
-    } catch (e) {
-      toast('Erro ao salvar', 'error')
-    }
-    setSalvando(false)
+    })
+    const { error } = await db.usuarioPermissoes.upsertVarios(registros)
+    if (error) { toast('Erro ao salvar permissões: ' + error.message, 'error'); setSalvandoPerms(false); return }
+
+    // Sincroniza usuario_fazendas: acesso se algum módulo tem pode_ver, senão remove o vínculo
+    const temAcesso = registros.some(r => r.pode_ver)
+    const { error: errVinc } = await db.usuarioFazendas.definir(contaAtual.id, editando, fazendaGestao, temAcesso)
+    setSalvandoPerms(false)
+    if (errVinc) { toast('Permissões salvas, mas erro ao sincronizar vínculo da fazenda: ' + errVinc.message, 'error'); return }
+
+    setFazVinc(prev => {
+      const s = new Set(prev)
+      temAcesso ? s.add(fazendaGestao) : s.delete(fazendaGestao)
+      return s
+    })
+    setPermsDirty(false)
+    toast('Permissões aplicadas para ' + (fazendas.find(f => f.id === fazendaGestao)?.nome || 'a fazenda'))
   }
 
   const mudarPapel = async (usuario_id, novoPapel) => {
@@ -211,45 +246,64 @@ export default function Usuarios() {
         </div>
       </Modal>
 
-      <Modal open={!!editando} onClose={() => setEditando(null)} title="Permissões do usuário" width={560}>
-        <div style={{ marginBottom:20 }}>
-          <div style={{ fontWeight:600, fontSize:'.85rem', marginBottom:10 }}>Fazendas que pode acessar</div>
-          <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
-            {fazendas.map(f => (
-              <label key={f.id} style={{ display:'flex', alignItems:'center', gap:8, cursor:'pointer' }}>
-                <input type="checkbox" checked={fazVinc.has(f.id)} onChange={() => toggleFazenda(f.id)} />
-                <span style={{ fontSize:'.85rem' }}>{f.nome}</span>
-              </label>
-            ))}
-          </div>
+      <Modal open={!!editando} onClose={() => setEditando(null)} title="Permissões do usuário" width={640}>
+        <p style={{ fontSize:'.78rem', color:'#6B7280', marginTop:-4, marginBottom:14 }}>
+          Escolha uma fazenda e defina o acesso por módulo. O vínculo do operador
+          com a fazenda é atualizado automaticamente ao aplicar.
+        </p>
+
+        <div style={{ marginBottom:16 }}>
+          <div style={{ fontWeight:600, fontSize:'.85rem', marginBottom:8 }}>Fazendas</div>
+          {fazendas.length === 0 ? (
+            <div style={{ fontSize:'.82rem', color:'#9CA3AF' }}>Nenhuma fazenda cadastrada.</div>
+          ) : (
+            <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
+              {fazendas.map(f => (
+                <button key={f.id} type="button"
+                  className={`pill ${fazendaGestao === f.id ? 'active' : ''}`}
+                  onClick={() => mudarFazendaGestao(f.id)}
+                  style={{ display:'flex', alignItems:'center', gap:6 }}>
+                  <span style={{
+                    width:8, height:8, borderRadius:'50%', display:'inline-block',
+                    background: fazVinc.has(f.id) ? '#22C55E' : '#D1D5DB'
+                  }} />
+                  {f.nome}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         <div style={{ marginBottom:20 }}>
-          <div style={{ fontWeight:600, fontSize:'.85rem', marginBottom:10 }}>O que pode fazer em cada módulo</div>
-          <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
-            {MODULOS.map(([key, label]) => (
-              <div key={key} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'6px 0', borderBottom:'.5px solid #F3F4F6' }}>
-                <span style={{ fontSize:'.85rem' }}>{label}</span>
-                <div style={{ display:'flex', gap:6 }}>
-                  <button
-                    className={`btn btn-sm ${!perms[key] ? 'btn-primary' : 'btn-secondary'}`}
-                    onClick={() => setPerm(key, false)}
-                  >Ver</button>
-                  <button
-                    className={`btn btn-sm ${perms[key] ? 'btn-primary' : 'btn-secondary'}`}
-                    onClick={() => setPerm(key, true)}
-                  >Editar</button>
+          <div style={{ fontWeight:600, fontSize:'.85rem', marginBottom:10 }}>
+            O que pode fazer em cada módulo
+            {fazendaGestao && <span style={{ fontWeight:400, color:'#6B7280' }}> — {fazendas.find(f => f.id === fazendaGestao)?.nome}</span>}
+          </div>
+          {carregandoPerms ? (
+            <div style={{ fontSize:'.82rem', color:'#9CA3AF' }}>Carregando permissões...</div>
+          ) : (
+            <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
+              {MODULOS.map(([key, label]) => (
+                <div key={key} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'6px 0', borderBottom:'.5px solid #F3F4F6', flexWrap:'wrap', gap:6 }}>
+                  <span style={{ fontSize:'.85rem' }}>{label}</span>
+                  <div className="pill-group">
+                    <button type="button" className={`pill ${nivelDoModulo(key)==='sem_acesso'?'active':''}`} onClick={() => setNivel(key,'sem_acesso')}>Sem acesso</button>
+                    <button type="button" className={`pill ${nivelDoModulo(key)==='ver'?'active':''}`} onClick={() => setNivel(key,'ver')}>Ver</button>
+                    <button type="button" className={`pill ${nivelDoModulo(key)==='editar'?'active':''}`} onClick={() => setNivel(key,'editar')}>Ver e editar</button>
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
+          )}
+          <div style={{ marginTop:12 }}>
+            <button className="btn btn-primary btn-sm" onClick={aplicarPermissoesFazenda} disabled={salvandoPerms || !fazendaGestao}>
+              {salvandoPerms ? 'Aplicando...' : 'Aplicar'}
+            </button>
           </div>
         </div>
 
         <div className="modal-actions">
-          <button className="btn btn-secondary btn-sm" onClick={() => setEditando(null)}>Cancelar</button>
-          <button className="btn btn-primary btn-sm" onClick={() => salvar(editando)} disabled={salvando}>
-            {salvando ? 'Salvando...' : 'Salvar'}
-          </button>
+          <button className="btn btn-secondary btn-sm" onClick={() => setEditando(null)}>Fechar</button>
         </div>
       </Modal>
     </div>

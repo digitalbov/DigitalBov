@@ -285,6 +285,8 @@ export default function Animais() {
   // Timeline
   const [timeline,        setTimeline]        = useState([])
   const [timelineLoading, setTimelineLoading] = useState(false)
+  // Histórico sanitário
+  const [histSanidade,    setHistSanidade]     = useState([])
   // Notas
   const [notas,           setNotas]           = useState('')
   const [savingNotas,     setSavingNotas]     = useState(false)
@@ -302,6 +304,12 @@ export default function Animais() {
     setNotas(selected.observacoes || '')
     loadTimeline(selected)
   }, [selected?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Carrega histórico sanitário quando muda o animal selecionado
+  useEffect(() => {
+    if (!selected?.id) { setHistSanidade([]); return }
+    db.sanidadeAnimais.listPorAnimal(selected.id).then(({ data }) => setHistSanidade(data || []))
+  }, [selected?.id])
 
   const loadAll = async () => {
     setLoading(true)
@@ -673,6 +681,27 @@ export default function Animais() {
 
           {/* Linha do tempo (dentro do ref para PDF) */}
           <TimelineCard timeline={timeline} loading={timelineLoading} />
+
+          {/* Histórico Sanitário */}
+          <div className="card" style={{ marginTop: 14 }}>
+            <div className="card-title"><i className="ti ti-vaccine" /> Histórico Sanitário</div>
+            {histSanidade.length === 0
+              ? <div style={{ fontSize: '.82rem', color: '#9CA3AF' }}>Nenhum procedimento sanitário registrado para este animal.</div>
+              : histSanidade
+                  .slice()
+                  .sort((x, y) => (y.procedimento?.data || '').localeCompare(x.procedimento?.data || ''))
+                  .map(h => (
+                    <div key={h.id} style={{ padding: '8px 0', borderBottom: '.5px solid #F3F4F6' }}>
+                      <div style={{ fontWeight: 500, fontSize: '.85rem' }}>{h.procedimento?.procedimento}</div>
+                      <div style={{ fontSize: '.75rem', color: '#6B7280' }}>
+                        {h.procedimento?.tipo} · {fmtData(h.procedimento?.data)}
+                        {h.procedimento?.proximo && ` · próximo: ${fmtData(h.procedimento.proximo)}`}
+                      </div>
+                      {h.procedimento?.observacoes && <div style={{ fontSize: '.75rem', color: '#9CA3AF' }}>{h.procedimento.observacoes}</div>}
+                    </div>
+                  ))
+            }
+          </div>
 
           {/* Genealogia */}
           <div className="card" style={{ marginTop: 14 }}>
