@@ -457,6 +457,9 @@ tbody tr:hover td { background: #EAF0FB; transition: background 0.15s; }
 /* ── Bottom navigation (mobile only) ──────────────────────────────── */
 .bottom-nav { display: none; }
 
+/* ── Animais: cards (mobile only) ─────────────────────────────────── */
+.animais-cards-mobile { display: none; }
+
 /* ── Responsive — mobile (≤ 768 px) ─────────────────────────────── */
 @media (max-width: 768px) {
   html { font-size: 14px; }
@@ -495,8 +498,8 @@ tbody tr:hover td { background: #EAF0FB; transition: background 0.15s; }
   .page-date    { display: none !important; }
   .page-ia-badge { display: none !important; }
 
-  /* Page body */
-  .page-body { padding: 12px; }
+  /* Page body — never scroll horizontally; overflowing children (tables) scroll internally via .table-wrap */
+  .page-body { padding: 12px; overflow-x: hidden; }
 
   /* Tables scroll horizontally */
   .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
@@ -606,6 +609,16 @@ tbody tr:hover td { background: #EAF0FB; transition: background 0.15s; }
   .dash-fazenda-nome     { font-size: 1.25rem !important; }
   .dash-rebanho-contador { font-size: 1.5rem !important; }
 
+  /* Dashboard header: stack photo+name and herd counter instead of relying on flex-wrap */
+  .dash-header {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    padding: 16px !important;
+    gap: 12px !important;
+  }
+  .dash-header-left  { width: 100%; }
+  .dash-header-right { width: 100%; text-align: left !important; }
+
   /* Bottom navigation replaces the hamburger on mobile */
   .hamburger-btn { display: none; }
   .bottom-nav {
@@ -653,8 +666,6 @@ tbody tr:hover td { background: #EAF0FB; transition: background 0.15s; }
   .animal-card-sub { font-size: .78rem; color: var(--gray-500); margin-bottom: 4px; }
   .animal-card-badges { display: flex; gap: 4px; flex-wrap: wrap; }
 }
-
-.animais-cards-mobile { display: none; }
 
 .db-gradient-bar { background: var(--db-gradient) !important; }
 .db-gradient-text {

@@ -199,13 +199,13 @@ export default function Dashboard({ perfil }) {
   return (
     <div>
       {/* Saudação */}
-      <div style={{
+      <div className="dash-header" style={{
         background:'linear-gradient(160deg, #2B6CD9 0%, #5B3FBE 55%, #7B2FBE 100%)',
         borderRadius:12, padding:'20px 24px', marginBottom:20,
         display:'flex', flexWrap:'wrap', alignItems:'center', justifyContent:'space-between', gap:16,
         color:'white', position:'relative'
       }}>
-        <div style={{ display:'flex', alignItems:'center', gap:16 }}>
+        <div className="dash-header-left" style={{ display:'flex', alignItems:'center', gap:16, minWidth:0 }}>
           {fazendaAtual?.foto_url ? (
             <img src={fazendaAtual.foto_url}
               onClick={() => podeEditar('dashboard') && fileInputRef.current?.click()}
@@ -223,7 +223,7 @@ export default function Dashboard({ perfil }) {
               </span>
             </div>
           )}
-          <div>
+          <div style={{ minWidth:0 }}>
             <div style={{ fontSize:'.75rem', color:'rgba(255,255,255,.55)', marginBottom:5, letterSpacing:'.02em' }}>
               {dataHoje}
             </div>
@@ -238,7 +238,7 @@ export default function Dashboard({ perfil }) {
             </div>
           </div>
         </div>
-        <div style={{ textAlign:'right' }}>
+        <div className="dash-header-right" style={{ textAlign:'right' }}>
           <div style={{ fontSize:'.78rem', color:'rgba(255,255,255,.6)' }}>Rebanho ativo</div>
           <div className="dash-rebanho-contador" style={{ fontSize:'2rem', fontWeight:700 }}>{filtAnimais.length}</div>
           <div style={{ fontSize:'.72rem', color:'rgba(255,255,255,.5)' }}>animais cadastrados</div>
