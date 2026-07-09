@@ -173,7 +173,7 @@ export default function Usuarios() {
 
   return (
     <div>
-      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
+      <div style={{ display:'flex', flexWrap:'wrap', justifyContent:'space-between', alignItems:'center', gap:10, marginBottom:16 }}>
         <h2 style={{ fontSize:'1.1rem', fontWeight:700, color:'#2B6CD9' }}>Usuários da conta</h2>
         <button className="btn btn-primary btn-sm" onClick={() => setModalNovo(true)}>
           <i className="ti ti-user-plus" /> Adicionar operador
@@ -186,7 +186,7 @@ export default function Usuarios() {
           <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
             {operadores.map(m => (
               <div key={m.usuario_id} style={{
-                display:'flex', alignItems:'center', justifyContent:'space-between',
+                display:'flex', flexWrap:'wrap', alignItems:'center', justifyContent:'space-between', gap:8,
                 padding:'12px 14px', border:'.5px solid #E5E7EB', borderRadius:10
               }}>
                 <div>
@@ -196,7 +196,7 @@ export default function Usuarios() {
                 {m.papel === 'dono' ? (
                   <span style={{ fontSize:'.78rem', color:'#9CA3AF' }}>Dono</span>
                 ) : m.papel === 'admin' ? (
-                  <div style={{ display:'flex', gap:6 }}>
+                  <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
                     <button className="btn btn-secondary btn-sm" onClick={() => mudarPapel(m.usuario_id, 'operador')}>
                       Tornar operador
                     </button>
@@ -206,7 +206,7 @@ export default function Usuarios() {
                     </button>
                   </div>
                 ) : (
-                  <div style={{ display:'flex', gap:6 }}>
+                  <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
                     <button className="btn btn-secondary btn-sm" onClick={() => abrirGestao(m)}>
                       Gerenciar
                     </button>

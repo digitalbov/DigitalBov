@@ -1466,7 +1466,7 @@ function PlanNumeros({ plan, form, setForm, totalHa, resultadoLiquido, cicloAtua
               <div style={{ fontSize:'.72rem', color:'#9CA3AF', marginBottom:4 }}>RESULTADO LÍQUIDO DO CICLO</div>
               <div style={{ fontSize:'1.6rem', fontWeight:700, color:resultadoLiquido>=0?'#2B6CD9':'#E24B4A' }}>{fmtMoeda(resultadoLiquido)}</div>
             </div>
-            <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:12, marginBottom:16 }}>
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(160px, 1fr))', gap:12, marginBottom:16 }}>
               {[
                 { label:'RENT. DA TERRA',       valor:rentTerra,   tip:'Resultado ÷ valor da terra' },
                 { label:'RENT. DO REBANHO',      valor:rentRebanho, tip:'Resultado ÷ valor do rebanho' },

@@ -146,7 +146,7 @@ export default function Sidebar({ user, perfil, mobileOpen, onClose }) {
               onClick={() => setSeletorContaAberto(o => !o)}
               style={{
                 width:'100%', background:'rgba(255,255,255,.06)', border:'1px solid rgba(255,255,255,.14)',
-                borderRadius:10, padding:'8px 10px', cursor:'pointer', color:'white',
+                borderRadius:10, padding:'8px 10px', cursor:'pointer', color:'white', minHeight:44,
                 display:'flex', alignItems:'center', gap:8, fontFamily:'inherit', textAlign:'left'
               }}
             >
@@ -198,7 +198,7 @@ export default function Sidebar({ user, perfil, mobileOpen, onClose }) {
               onClick={() => setSeletorAberto(o => !o)}
               style={{
                 width:'100%', background:'rgba(255,255,255,.1)', border:'1px solid rgba(255,255,255,.18)',
-                borderRadius:10, padding:'8px 10px', cursor:'pointer', color:'white',
+                borderRadius:10, padding:'8px 10px', cursor:'pointer', color:'white', minHeight:44,
                 display:'flex', alignItems:'center', gap:8, fontFamily:'inherit', textAlign:'left'
               }}
             >

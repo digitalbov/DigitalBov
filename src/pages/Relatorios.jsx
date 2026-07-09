@@ -146,7 +146,7 @@ export default function Relatorios() {
           <div ref={resumoRef}>
             <div style={{ background:'#2B6CD9', borderRadius:12, padding:'16px 20px', color:'white', marginBottom:16 }}>
               <PrintHeader titulo="Relatório Geral" />
-              <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:10, marginTop:8 }}>
+              <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(120px, 1fr))', gap:10, marginTop:8 }}>
                 {[
                   { v:ativos.length,   l:'Animais ativos' },
                   { v:matrizes.length, l:'Matrizes' },
@@ -303,7 +303,7 @@ export default function Relatorios() {
                 ? <div style={{ color:'#9CA3AF', fontSize:'.82rem' }}>Nenhum nascimento registrado.</div>
                 : (
                   <>
-                    <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:10, marginBottom:12 }}>
+                    <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(120px, 1fr))', gap:10, marginBottom:12 }}>
                       {[
                         { v:partos.length,                                   l:'Total nascimentos' },
                         { v:partos.filter(p=>p.bezerro?.sexo==='M').length, l:'Machos ♂' },
@@ -363,7 +363,7 @@ export default function Relatorios() {
           <div ref={financeiroRef}>
             <div className="card" style={{ marginBottom:14 }}>
               <PrintHeader titulo="Relatório Financeiro" />
-              <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:10, marginBottom:14 }}>
+              <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(140px, 1fr))', gap:10, marginBottom:14 }}>
                 {[
                   { v:fmtMoeda(rec),  l:'Receitas',  c:'#1E55B0', bg:'#E8F0FC' },
                   { v:fmtMoeda(desp), l:'Despesas',  c:'#791F1F', bg:'#FCEBEB' },

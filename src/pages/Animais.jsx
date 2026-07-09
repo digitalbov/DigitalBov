@@ -765,7 +765,7 @@ export default function Animais() {
           value={search}
           onChange={e => setSearch(e.target.value)}
         />
-        <div style={{ display: 'flex', gap: 8, marginLeft: 'auto' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginLeft: 'auto' }}>
           {podeEditarAnimais && (
             <>
               <button className="btn btn-secondary btn-sm" onClick={() => baixarModeloAnimais()}>
@@ -790,7 +790,8 @@ export default function Animais() {
               sub="Ajuste os filtros ou cadastre um novo animal."
               action={podeEditarAnimais ? <button className="btn btn-primary btn-sm" onClick={openNew}><i className="ti ti-plus" /> Novo animal</button> : undefined} />
           : (
-            <div className="table-wrap">
+            <>
+            <div className="table-wrap animais-tabela-desktop">
               <table>
                 <thead>
                   <tr>
@@ -828,6 +829,45 @@ export default function Animais() {
                 </tbody>
               </table>
             </div>
+
+            <div className="animais-cards-mobile">
+              {filtered.map(a => {
+                const cat = calcCategoriaRebanho(a.data_nascimento, a.sexo, a.sit_reprodutiva, a.is_touro)
+                const cc  = catCor[cat]             || catCor.Vaca
+                const sc  = sitCor[a.situacao]      || sitCor.ativo
+                const rc  = repCor[a.sit_reprodutiva] || repCor.nao_se_aplica
+                const ina = a.situacao !== 'ativo'
+                return (
+                  <div key={a.id} className="animal-card"
+                    style={{ opacity: ina ? .45 : 1 }}
+                    onClick={() => !ina && setSelected(a)}>
+                    <div className="animal-card-avatar"
+                      style={{ background: a.sexo==='F' ? '#FCE7F3' : '#DBEAFE',
+                               color: a.sexo==='F' ? '#DB2777' : '#1E55B0' }}>
+                      {a.sexo==='F' ? '♀' : '♂'}
+                    </div>
+                    <div className="animal-card-body">
+                      <div className="animal-card-top">
+                        <strong>{a.brinco}</strong>
+                        <Badge style={{ background: cc.bg, color: cc.text }}>{cat}</Badge>
+                      </div>
+                      <div className="animal-card-sub">
+                        {idadeFormatada(a.data_nascimento)} · {a.proprietario?.nome?.split(' ')[0] || '—'}
+                        {a.lote?.nome ? ` · ${a.lote.nome}` : ''}
+                      </div>
+                      <div className="animal-card-badges">
+                        {a.sexo === 'F' && a.sit_reprodutiva && (
+                          <Badge style={{ background: rc.bg, color: rc.text }}>{a.sit_reprodutiva?.replace('_', ' ')}</Badge>
+                        )}
+                        <Badge style={{ background: sc.bg, color: sc.text }}>{a.situacao}</Badge>
+                      </div>
+                    </div>
+                    {!ina && <i className="ti ti-chevron-right" style={{ color:'#D1D5DB' }} />}
+                  </div>
+                )
+              })}
+            </div>
+            </>
           )
         }
       </div>
@@ -925,7 +965,7 @@ export default function Animais() {
               )}
             </div>
 
-            <div style={{ display: 'flex', gap: 8, marginTop: 4, paddingTop: 14, borderTop: '.5px solid #E5E7EB' }}>
+            <div className="modal-actions" style={{ marginTop: 4, paddingTop: 14, borderTop: '.5px solid #E5E7EB' }}>
               <button className="btn btn-primary" onClick={salvar} disabled={saving}>
                 {saving
                   ? <><div className="spinner" style={{ width: 14, height: 14 }} /> Salvando...</>

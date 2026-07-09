@@ -1,6 +1,7 @@
 import { useState, Suspense } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
 import Sidebar from './Sidebar'
+import BottomNav from './BottomNav'
 import { Loading } from '../UI'
 
 const PAGE_TITLES = {
@@ -79,6 +80,8 @@ export default function Layout({ user, perfil }) {
           </Suspense>
         </main>
       </div>
+
+      <BottomNav onMais={() => setSidebarOpen(true)} />
     </div>
   )
 }

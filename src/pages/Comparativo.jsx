@@ -274,7 +274,7 @@ export default function Comparativo() {
                   {d.fazenda.localizacao && <div style={{ fontSize:'.75rem', color:'#9CA3AF' }}>{d.fazenda.localizacao}</div>}
                 </div>
 
-                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:12 }}>
+                <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(140px, 1fr))', gap:8, marginBottom:12 }}>
                   {[
                     { l:'Receitas',   v:fmtMoeda(d.receitas),   c:'#1E55B0' },
                     { l:'Despesas',   v:fmtMoeda(d.despesas),   c:'#791F1F' },

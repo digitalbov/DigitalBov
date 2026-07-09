@@ -494,9 +494,9 @@ export default function Reprodutivo() {
       {/* ── Lotes ── */}
       {tab === 0 && !selLote && (
         <div>
-          <div style={{ display:'flex', justifyContent:'space-between', marginBottom:12 }}>
+          <div style={{ display:'flex', flexWrap:'wrap', justifyContent:'space-between', alignItems:'center', gap:8, marginBottom:12 }}>
             <span style={{ fontSize:'.85rem', color:'#6B7280' }}>{lotes.length} lote{lotes.length!==1?'s':''} · Ciclo {ciclo?.nome}</span>
-            <div style={{ display:'flex', gap:8 }}>
+            <div style={{ display:'flex', flexWrap:'wrap', gap:8 }}>
               {podeEditarReprod && (
                 <button className="btn btn-primary btn-sm" onClick={() => { setModal('lote'); setSelBrs([]) }}>
                   <i className="ti ti-plus" /> Novo lote de inseminação
@@ -552,7 +552,7 @@ export default function Reprodutivo() {
       {/* ── Detalhe lote + diagnóstico ── */}
       {tab === 0 && selLote && (
         <div>
-          <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:14 }}>
+          <div style={{ display:'flex', flexWrap:'wrap', alignItems:'center', gap:10, marginBottom:14 }}>
             <button className="btn btn-secondary btn-sm" onClick={() => setSelLote(null)}>
               <i className="ti ti-arrow-left" /> Lotes
             </button>
@@ -1030,7 +1030,7 @@ export default function Reprodutivo() {
             }
           </div>
         </div>
-        <div style={{ display:'flex', gap:8 }}>
+        <div className="modal-actions">
           <button className="btn btn-primary" onClick={salvarLote} disabled={saving}>
             {saving ? 'Registrando...' : <><i className="ti ti-check" /> Registrar lote</>}
           </button>
@@ -1094,7 +1094,7 @@ export default function Reprodutivo() {
             }
           </div>
         </div>
-        <div style={{ display:'flex', gap:8 }}>
+        <div className="modal-actions">
           <button className="btn btn-primary" onClick={adicionarAnimaisLote} disabled={saving}>
             {saving ? 'Adicionando...' : <><i className="ti ti-check" /> Adicionar ao lote</>}
           </button>
@@ -1202,7 +1202,7 @@ export default function Reprodutivo() {
             <input value={form.obs||''} onChange={e=>setForm(p=>({...p,obs:e.target.value}))} placeholder="opcional" />
           </Field>
         </div>
-        <div style={{ display:'flex', gap:8, marginTop:14 }}>
+        <div className="modal-actions" style={{ marginTop:14 }}>
           <button className="btn btn-primary" onClick={salvarParto} disabled={saving}>
             {saving ? 'Registrando...' : <><i className="ti ti-check" /> Registrar e criar animal</>}
           </button>
@@ -1233,7 +1233,7 @@ export default function Reprodutivo() {
             <Field label="Observações">
               <textarea value={editParto.observacoes||''} onChange={e=>setEditParto(p=>({...p,observacoes:e.target.value}))} placeholder="opcional" />
             </Field>
-            <div style={{ display:'flex', gap:8, marginTop:14 }}>
+            <div className="modal-actions" style={{ marginTop:14 }}>
               <button className="btn btn-primary" onClick={salvarEdicaoParto}>
                 <i className="ti ti-check" /> Salvar
               </button>

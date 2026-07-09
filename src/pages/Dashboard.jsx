@@ -202,7 +202,7 @@ export default function Dashboard({ perfil }) {
       <div style={{
         background:'linear-gradient(160deg, #2B6CD9 0%, #5B3FBE 55%, #7B2FBE 100%)',
         borderRadius:12, padding:'20px 24px', marginBottom:20,
-        display:'flex', alignItems:'center', justifyContent:'space-between',
+        display:'flex', flexWrap:'wrap', alignItems:'center', justifyContent:'space-between', gap:16,
         color:'white', position:'relative'
       }}>
         <div style={{ display:'flex', alignItems:'center', gap:16 }}>
@@ -227,7 +227,7 @@ export default function Dashboard({ perfil }) {
             <div style={{ fontSize:'.75rem', color:'rgba(255,255,255,.55)', marginBottom:5, letterSpacing:'.02em' }}>
               {dataHoje}
             </div>
-            <div style={{ fontSize:'1.65rem', fontWeight:700, lineHeight:1.15, letterSpacing:'-.01em' }}>
+            <div className="dash-fazenda-nome" style={{ fontSize:'1.65rem', fontWeight:700, lineHeight:1.15, letterSpacing:'-.01em' }}>
               {fazendaAtual?.nome || 'Fazenda'}
             </div>
             <div style={{ fontSize:'1rem', fontWeight:600, color:'rgba(255,255,255,.85)', marginTop:5 }}>
@@ -240,7 +240,7 @@ export default function Dashboard({ perfil }) {
         </div>
         <div style={{ textAlign:'right' }}>
           <div style={{ fontSize:'.78rem', color:'rgba(255,255,255,.6)' }}>Rebanho ativo</div>
-          <div style={{ fontSize:'2rem', fontWeight:700 }}>{filtAnimais.length}</div>
+          <div className="dash-rebanho-contador" style={{ fontSize:'2rem', fontWeight:700 }}>{filtAnimais.length}</div>
           <div style={{ fontSize:'.72rem', color:'rgba(255,255,255,.5)' }}>animais cadastrados</div>
         </div>
         <input ref={fileInputRef} type="file" accept="image/*"

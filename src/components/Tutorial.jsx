@@ -115,10 +115,16 @@ export default function Tutorial({ onClose, onNaoMostrarMais }) {
 
   return (
     <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.6)', zIndex:9999, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}>
-      <div style={{ background:'white', borderRadius:16, width:'100%', maxWidth:860, height:'88vh', display:'flex', overflow:'hidden', boxShadow:'0 24px 80px rgba(0,0,0,.35)' }}>
+      <style>{`
+        @media (max-width: 768px) {
+          .tutorial-body     { flex-direction: column; }
+          .tutorial-sidebar  { max-height: 160px; border-right: none !important; border-bottom: .5px solid #E5E7EB; }
+        }
+      `}</style>
+      <div className="tutorial-body" style={{ background:'white', borderRadius:16, width:'100%', maxWidth:'min(95vw, 860px)', maxHeight:'90vh', height:'88vh', display:'flex', flexWrap:'wrap', overflow:'hidden', boxShadow:'0 24px 80px rgba(0,0,0,.35)' }}>
 
         {/* Menu lateral de tópicos */}
-        <div style={{ width:230, background:'#F3F4F6', borderRight:'.5px solid #E5E7EB', overflowY:'auto', padding:'12px 0', flexShrink:0 }}>
+        <div className="tutorial-sidebar" style={{ width:'100%', maxWidth:230, flex:'1 1 200px', background:'#F3F4F6', borderRight:'.5px solid #E5E7EB', overflowY:'auto', padding:'12px 0' }}>
           <div style={{ padding:'8px 16px 12px', fontWeight:700, fontSize:'.9rem', color:'#1a1a1a' }}>Tutorial</div>
           {TOPICOS.map((t, i) => (
             <button key={i} onClick={() => setAtual(i)}
@@ -131,7 +137,7 @@ export default function Tutorial({ onClose, onNaoMostrarMais }) {
         </div>
 
         {/* Conteúdo do tópico */}
-        <div style={{ flex:1, display:'flex', flexDirection:'column' }}>
+        <div style={{ flex:'2 1 260px', minWidth:0, display:'flex', flexDirection:'column' }}>
           <div style={{ padding:'24px 28px', overflowY:'auto', flex:1 }}>
             <div style={{ fontSize:'2rem', marginBottom:4 }}>{topico.icon}</div>
             <h2 style={{ fontSize:'1.4rem', fontWeight:700, color:'#1a1a1a', marginBottom:20 }}>{topico.titulo}</h2>
@@ -149,9 +155,9 @@ export default function Tutorial({ onClose, onNaoMostrarMais }) {
           </div>
 
           {/* Rodapé com navegação */}
-          <div style={{ borderTop:'.5px solid #E5E7EB', padding:'12px 20px', display:'flex', alignItems:'center', justifyContent:'space-between', gap:8 }}>
+          <div style={{ borderTop:'.5px solid #E5E7EB', padding:'12px 20px', display:'flex', flexWrap:'wrap', alignItems:'center', justifyContent:'space-between', gap:8 }}>
             <div style={{ fontSize:'.78rem', color:'#9CA3AF' }}>{atual+1} de {TOPICOS.length}</div>
-            <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+            <div style={{ display:'flex', flexWrap:'wrap', gap:8, alignItems:'center' }}>
               {onNaoMostrarMais && (
                 <button onClick={onNaoMostrarMais} style={{ background:'none', border:'none', color:'#6B7280', cursor:'pointer', fontSize:'.8rem', textDecoration:'underline', fontFamily:'inherit' }}>
                   Não mostrar novamente
