@@ -647,8 +647,8 @@ export default function Propriedade() {
           </button>
         )}
         {podeEditarProp && fazendas.length > 0 && (
-          <button className="btn btn-secondary btn-sm" onClick={() => { setSection('fazenda'); setFazendaForm({ nome:fazendaAtual?.nome, localizacao:fazendaAtual?.localizacao, area_total:fazendaAtual?.area_total, area_util:fazendaAtual?.area_util }) }}>
-            <i className="ti ti-settings" /> Configurar fazenda
+          <button className="btn btn-primary btn-sm" onClick={() => openModal('lote')}>
+            <i className="ti ti-plus" /> Novo lote
           </button>
         )}
         {podeEditarProp && fazendas.length > 0 && (
@@ -662,8 +662,8 @@ export default function Propriedade() {
           </button>
         )}
         {podeEditarProp && fazendas.length > 0 && (
-          <button className="btn btn-primary btn-sm" onClick={() => openModal('lote')}>
-            <i className="ti ti-plus" /> Novo lote
+          <button className="btn btn-secondary btn-sm" onClick={() => { setSection('fazenda'); setFazendaForm({ nome:fazendaAtual?.nome, localizacao:fazendaAtual?.localizacao, area_total:fazendaAtual?.area_total, area_util:fazendaAtual?.area_util }) }}>
+            <i className="ti ti-settings" /> Configurar fazenda
           </button>
         )}
       </div>

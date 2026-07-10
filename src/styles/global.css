@@ -460,6 +460,9 @@ tbody tr:hover td { background: #EAF0FB; transition: background 0.15s; }
 /* ── Animais: cards (mobile only) ─────────────────────────────────── */
 .animais-cards-mobile { display: none; }
 
+/* Dashboard "Planejamento" metrics: abbreviated label only shown on mobile (see @media below) */
+.dash-plan-label-abbr { display: none; }
+
 /* ── Responsive — mobile (≤ 768 px) ─────────────────────────────── */
 @media (max-width: 768px) {
   html { font-size: 14px; }
@@ -630,18 +633,23 @@ tbody tr:hover td { background: #EAF0FB; transition: background 0.15s; }
   .dash-plan-label-full { display: none; }
   .dash-plan-label-abbr { display: inline; }
 
-  /* Dashboard "Valor do rebanho": table fits without horizontal scroll */
+  /* Dashboard "Valor do rebanho": table fits without horizontal scroll — no scroll hint needed */
   .dash-valor-table { width: 100%; min-width: 0; font-size: .72rem; }
   .dash-valor-table th, .dash-valor-table td { padding: 4px 6px; }
   .dash-valor-table th:first-child, .dash-valor-table td:first-child {
     max-width: 88px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
+  .dash-valor-table-wrap::before { content: none; display: none; padding: 0; }
 
   /* Dashboard "Financeiro": keep 3 narrow columns instead of stacking */
   .dash-fin-grid { grid-template-columns: repeat(3, 1fr) !important; gap: 6px; }
   .dash-fin-card { padding: 8px 6px !important; }
   .dash-fin-label { font-size: .62rem !important; }
   .dash-fin-value { font-size: .78rem !important; }
+
+  /* Relatórios: tabelas com muitas colunas — fonte/padding menores para caber */
+  .relatorios-page table { font-size: .7rem; }
+  .relatorios-page th, .relatorios-page td { padding: 4px 6px; }
 
   /* Bottom navigation replaces the hamburger on mobile */
   .hamburger-btn { display: none; }
@@ -692,13 +700,10 @@ tbody tr:hover td { background: #EAF0FB; transition: background 0.15s; }
   /* Animais: barra de filtros — busca acima, filtros centralizados */
   .animais-filtros-bar { flex-direction: column; align-items: stretch; }
   .animais-search-input { width: 100% !important; max-width: none !important; order: -1; }
-  .animais-filtros-pills { justify-content: center; width: 100%; }
+  .animais-filtros-pills { justify-content: space-between; width: 100%; }
   .animais-lote-botoes { justify-content: center; width: 100%; margin-left: 0 !important; }
   .animais-btn-lote { font-size: .72rem; padding: 8px 10px; }
 }
-
-/* Dashboard "Planejamento" metrics: abbreviated label only shown on mobile (see @media above) */
-.dash-plan-label-abbr { display: none; }
 
 /* Animais: botões de planilha (download/importar) sempre na mesma linha */
 .animais-lote-btn-group { display: flex; flex-wrap: nowrap; gap: 8px; }

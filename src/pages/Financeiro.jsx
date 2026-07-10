@@ -302,16 +302,18 @@ export default function Financeiro() {
 
   return (
     <div>
-      {/* PDF + Seletor de ciclo — comum a todas as abas */}
-      <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:14, flexWrap:'wrap' }}>
+      {/* Seletor de ciclo (esquerda) + PDF (direita) — comum a todas as abas */}
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:10, marginBottom:14, flexWrap:'wrap' }}>
+        <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+          <span style={{ fontSize:'.82rem', color:'#6B7280', fontWeight:500 }}>Ciclo:</span>
+          <select value={cicloId} onChange={e=>setCicloId(e.target.value)}
+            style={{ width:'auto', fontSize:'.85rem', padding:'5px 10px' }}>
+            {ciclos.map(c => <option key={c.id} value={c.id}>{c.nome}{c.atual?' (atual)':''}</option>)}
+          </select>
+        </div>
         {pdfAtual && (
           <BotaoPDF contentRef={pdfAtual.ref} filename={pdfAtual.filename} titulo={pdfAtual.titulo} />
         )}
-        <span style={{ fontSize:'.82rem', color:'#6B7280', fontWeight:500 }}>Ciclo:</span>
-        <select value={cicloId} onChange={e=>setCicloId(e.target.value)}
-          style={{ width:'auto', fontSize:'.85rem', padding:'5px 10px' }}>
-          {ciclos.map(c => <option key={c.id} value={c.id}>{c.nome}{c.atual?' (atual)':''}</option>)}
-        </select>
       </div>
 
       {cicloVencido && (

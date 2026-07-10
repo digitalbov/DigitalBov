@@ -4,8 +4,8 @@
   "description": "Sistema de Gestão Pecuária - DigitalBov",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#1E4D35",
-  "theme_color": "#1E4D35",
+  "background_color": "#2B6CD9",
+  "theme_color": "#2B6CD9",
   "orientation": "portrait-primary",
   "icons": [
     {"src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable"},

@@ -368,7 +368,7 @@ export default function Dashboard({ perfil }) {
                 Sem dados suficientes (cadastre animais e preços por categoria em Financeiro → Parâmetros)
               </div>
             ) : (
-              <div className="table-wrap">
+              <div className="table-wrap dash-valor-table-wrap">
                 <table className="dash-valor-table">
                   <thead>
                     <tr><th>Categoria</th><th style={{ textAlign:'center' }}>Qtd</th><th style={{ textAlign:'right' }}>Valor estimado</th></tr>

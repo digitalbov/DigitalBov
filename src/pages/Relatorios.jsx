@@ -132,7 +132,7 @@ export default function Relatorios() {
   if (loading) return <Loading />
 
   return (
-    <div>
+    <div className="relatorios-page">
       <div className="tabs-bar">
         {TABS.map((t,i) => (
           <button key={t} className={`tab-btn ${tab===i?'active':''}`} onClick={()=>setTab(i)}>{t}</button>
