@@ -255,17 +255,17 @@ export default function Dashboard({ perfil }) {
       {plan && (
         <div className="card" style={{ marginBottom:16, borderTop:'3px solid #2B6CD9' }}>
           <div className="kpi-label" style={{ marginBottom:2 }}>
-            Ciclo {cicloAno}/{cicloAno+1} — Planejamento
+            <span className="dash-plan-title-bold">Ciclo</span> {cicloAno}/{cicloAno+1} — <span className="dash-plan-title-bold">Planejamento</span>
           </div>
           {plan.dados?.proposito && (
             <div style={{ fontSize:'.88rem', marginBottom:4 }}>
-              <span className="kpi-label" style={{ marginRight:4 }}>Propósito:</span>
-              <span style={{ fontWeight:600, color:'var(--gray-900,#111)' }}>{plan.dados.proposito}</span>
+              <span className="kpi-label dash-plan-title-bold" style={{ marginRight:4 }}>Propósito:</span>
+              <span className="dash-plan-proposito-content" style={{ fontWeight:600, color:'var(--gray-900,#111)' }}>{plan.dados.proposito}</span>
             </div>
           )}
           {plan.dados?.objetivos_longo_prazo && (
             <div style={{ fontSize:'.85rem', marginBottom:10 }}>
-              <span className="kpi-label" style={{ marginRight:4 }}>Objetivo:</span>
+              <span className="kpi-label dash-plan-title-bold" style={{ marginRight:4 }}>Objetivo:</span>
               <span style={{ color:'var(--gray-600,#4B5563)' }}>{plan.dados.objetivos_longo_prazo}</span>
             </div>
           )}

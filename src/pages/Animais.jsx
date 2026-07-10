@@ -261,6 +261,24 @@ function ArvoreGenealogica({ animal, animais, onSelect }) {
   )
 }
 
+// ── Grupo de filtros (rótulo discreto + contêiner sutil) ───────────
+function FiltroGrupo({ label, children }) {
+  return (
+    <div style={{
+      display: 'flex', flexDirection: 'column', gap: 5,
+      background: '#F9FAFB', border: '.5px solid #E5E7EB', borderRadius: 10,
+      padding: '6px 10px'
+    }}>
+      <span style={{ fontSize: '.65rem', fontWeight: 600, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '.04em' }}>
+        {label}
+      </span>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+        {children}
+      </div>
+    </div>
+  )
+}
+
 export default function Animais() {
   const { podeEditar } = usePermissoes()
   const podeEditarAnimais = podeEditar('animais')
@@ -295,6 +313,15 @@ export default function Animais() {
   const [previewImport,   setPreviewImport]   = useState(null) // { validos, erros }
   const [importando,      setImportando]      = useState(false)
   const fileImportRef = useRef(null)
+  // Filtros extras (tabela desktop e mobile)
+  const [filtCategoria,   setFiltCategoria]   = useState('')
+  const [filtRep,         setFiltRep]         = useState('')
+  const [filtLote,        setFiltLote]        = useState('')
+  // Ordenação (tabela desktop)
+  const [ordenacao,       setOrdenacao]       = useState({ campo: 'brinco', dir: 'asc' })
+  // Seleção em lote (tabela desktop)
+  const [selecionados,    setSelecionados]    = useState([])
+  const [excluindoLote,   setExcluindoLote]   = useState(false)
 
   useEffect(() => { loadAll() }, [])
 
@@ -425,23 +452,25 @@ export default function Animais() {
     setSelected(prev => ({ ...prev, observacoes: notas }))
   }
 
-  const excluirAnimal = async (animal) => {
+  // Motivos que impedem a exclusão definitiva de um animal (histórico vinculado)
+  const temVinculos = async (animalId) => {
     const [pes, insem, comoMae, comoBezerro] = await Promise.all([
-      db.pesagens.countByAnimal(animal.id),
-      db.inseminacoes.byAnimal(animal.id),
-      db.partos.byMae(animal.id),
-      db.partos.byBezerro(animal.id),
+      db.pesagens.countByAnimal(animalId),
+      db.inseminacoes.byAnimal(animalId),
+      db.partos.byMae(animalId),
+      db.partos.byBezerro(animalId),
     ])
-    const temPesagem     = (pes?.count       || 0) > 0
-    const temInsem       = (insem?.data?.length   || 0) > 0
-    const temComoMae     = (comoMae?.data?.length || 0) > 0
-    const temComoBezerro = !!comoBezerro?.data
-    if (temPesagem || temInsem || temComoMae || temComoBezerro) {
-      const motivos = []
-      if (temPesagem)     motivos.push('pesagens')
-      if (temInsem)       motivos.push('inseminações')
-      if (temComoMae)     motivos.push('partos como mãe')
-      if (temComoBezerro) motivos.push('nascimento registrado')
+    const motivos = []
+    if ((pes?.count || 0) > 0)            motivos.push('pesagens')
+    if ((insem?.data?.length || 0) > 0)   motivos.push('inseminações')
+    if ((comoMae?.data?.length || 0) > 0) motivos.push('partos como mãe')
+    if (comoBezerro?.data)                motivos.push('nascimento registrado')
+    return motivos
+  }
+
+  const excluirAnimal = async (animal) => {
+    const motivos = await temVinculos(animal.id)
+    if (motivos.length > 0) {
       toast(`Não é possível excluir: o animal tem histórico (${motivos.join(', ')}). Use "vender" ou "marcar como morto" para dar baixa.`, 'error')
       return
     }
@@ -453,11 +482,43 @@ export default function Animais() {
     loadAll()
   }
 
+  const toggleSelecionado = (id) => {
+    setSelecionados(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
+  }
+
+  const toggleSelecionarTodos = () => {
+    const todosMarcados = filtered.length > 0 && filtered.every(a => selecionados.includes(a.id))
+    setSelecionados(todosMarcados ? [] : filtered.map(a => a.id))
+  }
+
+  const excluirSelecionados = async () => {
+    if (selecionados.length === 0) return
+    if (!confirm(`Excluir definitivamente ${selecionados.length} animal(is) selecionado(s)? Esta ação não pode ser desfeita.`)) return
+    setExcluindoLote(true)
+    const animaisSel = animais.filter(a => selecionados.includes(a.id))
+    const resultados  = await Promise.all(animaisSel.map(async a => ({ a, motivos: await temVinculos(a.id) })))
+    const bloqueados  = resultados.filter(r => r.motivos.length > 0).map(r => r.a.brinco)
+    const liberados   = resultados.filter(r => r.motivos.length === 0).map(r => r.a)
+    if (liberados.length > 0) {
+      await Promise.all(liberados.map(a => db.animais.delete(a.id)))
+    }
+    setExcluindoLote(false)
+    setSelecionados([])
+    const partes = []
+    if (liberados.length  > 0) partes.push(`${liberados.length} animais excluídos`)
+    if (bloqueados.length > 0) partes.push(`${bloqueados.length} não puderam ser excluídos por terem histórico: ${bloqueados.join(', ')}`)
+    toast(partes.join('. ') || 'Nenhum animal excluído.', bloqueados.length > 0 && liberados.length === 0 ? 'error' : 'success')
+    loadAll()
+  }
+
   // Filtros
   const filtered = sortBrinco(animais.filter(a => {
     if (filtSit  && a.situacao         !== filtSit)  return false
     if (filtProp && a.proprietario_id  !== filtProp) return false
     if (filtSexo && a.sexo             !== filtSexo) return false
+    if (filtCategoria && calcCategoriaRebanho(a.data_nascimento, a.sexo, a.sit_reprodutiva, a.is_touro) !== filtCategoria) return false
+    if (filtRep      && a.sit_reprodutiva !== filtRep)  return false
+    if (filtLote     && a.lote_id         !== filtLote) return false
     if (search   && !a.brinco.toLowerCase().includes(search.toLowerCase()) &&
         !calcCategoria(a.data_nascimento, a.sexo).toLowerCase().includes(search.toLowerCase())) return false
     return true
@@ -465,6 +526,47 @@ export default function Animais() {
 
   const ativos   = animais.filter(a => a.situacao === 'ativo').length
   const inativos = animais.length - ativos
+
+  // Opções distintas para os novos filtros
+  const categoriasDisponiveis = [...new Set(
+    animais.map(a => calcCategoriaRebanho(a.data_nascimento, a.sexo, a.sit_reprodutiva, a.is_touro))
+  )].sort()
+  const repsDisponiveis = [...new Set(animais.map(a => a.sit_reprodutiva).filter(Boolean))]
+
+  // Ordenação (tabela desktop apenas — os cards mobile continuam na ordem de sortBrinco)
+  const compararCampo = (a, b, campo) => {
+    switch (campo) {
+      case 'categoria':
+        return calcCategoriaRebanho(a.data_nascimento, a.sexo, a.sit_reprodutiva, a.is_touro)
+          .localeCompare(calcCategoriaRebanho(b.data_nascimento, b.sexo, b.sit_reprodutiva, b.is_touro))
+      case 'proprietario':
+        return (a.proprietario?.nome || '').localeCompare(b.proprietario?.nome || '')
+      case 'rep':
+        return (a.sit_reprodutiva || '').localeCompare(b.sit_reprodutiva || '')
+      case 'situacao':
+        return (a.situacao || '').localeCompare(b.situacao || '')
+      case 'lote':
+        return (a.lote?.nome || '').localeCompare(b.lote?.nome || '')
+      case 'idade':
+        return (a.data_nascimento || '').localeCompare(b.data_nascimento || '')
+      case 'brinco':
+      default:
+        return a.brinco.localeCompare(b.brinco, undefined, { numeric: true })
+    }
+  }
+
+  const ordenarPor = (campo) => {
+    setOrdenacao(prev => prev.campo === campo ? { campo, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { campo, dir: 'asc' })
+  }
+
+  const filteredOrdenados = [...filtered].sort((a, b) => {
+    const cmp = compararCampo(a, b, ordenacao.campo)
+    return ordenacao.dir === 'asc' ? cmp : -cmp
+  })
+
+  const IndicadorOrdenacao = ({ campo }) => (
+    ordenacao.campo === campo ? <span style={{ marginLeft: 3 }}>{ordenacao.dir === 'asc' ? '▲' : '▼'}</span> : null
+  )
 
   const openNew = () => {
     setEditData({
@@ -741,32 +843,57 @@ export default function Animais() {
         padding: '12px 14px', marginBottom: 12,
         display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center'
       }}>
-        <input
-          className="animais-search-input"
-          style={{ flex: 1, minWidth: 130, maxWidth: 200 }}
-          placeholder="🔍 Buscar brinco..."
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-        />
-        <div className="animais-filtros-pills" style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
-          <div className="pill-group">
-            <button className={`pill ${filtSit === 'ativo' ? 'active' : ''}`}    onClick={() => setFiltSit('ativo')}>Ativos ({ativos})</button>
+        <div className="animais-filtros-pills" style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'flex-start' }}>
+          <FiltroGrupo label="Situação">
             <button className={`pill ${filtSit === '' ? 'active' : ''}`}         onClick={() => setFiltSit('')}>Todos ({animais.length})</button>
+            <button className={`pill ${filtSit === 'ativo' ? 'active' : ''}`}    onClick={() => setFiltSit('ativo')}>Ativos ({ativos})</button>
             <button className={`pill ${filtSit !== 'ativo' && filtSit !== '' ? 'active' : ''}`} onClick={() => setFiltSit('vendido')}>Inativos ({inativos})</button>
-          </div>
-          <div className="pill-group">
+          </FiltroGrupo>
+
+          <FiltroGrupo label="Proprietários">
             <button className={`pill ${!filtProp ? 'active' : ''}`}              onClick={() => setFiltProp('')}>Todos</button>
             {props.map(p => (
               <button key={p.id} className={`pill ${filtProp === p.id ? 'active' : ''}`} onClick={() => setFiltProp(p.id)}>
                 {p.nome.split(' ')[0]}
               </button>
             ))}
-          </div>
-          <div className="pill-group">
+          </FiltroGrupo>
+
+          <FiltroGrupo label="Sexo">
             <button className={`pill ${!filtSexo ? 'active' : ''}`}   onClick={() => setFiltSexo('')}>♀♂</button>
             <button className={`pill ${filtSexo === 'F' ? 'active' : ''}`} onClick={() => setFiltSexo('F')}>♀ Fêmeas</button>
             <button className={`pill ${filtSexo === 'M' ? 'active' : ''}`} onClick={() => setFiltSexo('M')}>♂ Machos</button>
-          </div>
+          </FiltroGrupo>
+
+          <FiltroGrupo label="Reprodutivo">
+            <button className={`pill ${!filtRep ? 'active' : ''}`} onClick={() => setFiltRep('')}>Todas</button>
+            {repsDisponiveis.map(r => (
+              <button key={r} className={`pill ${filtRep === r ? 'active' : ''}`} onClick={() => setFiltRep(r)}>
+                {r.replace('_', ' ')}
+              </button>
+            ))}
+          </FiltroGrupo>
+
+          <FiltroGrupo label="Categoria / Lote">
+            <select value={filtCategoria} onChange={e => setFiltCategoria(e.target.value)}
+              style={{ width: 'auto', fontSize: '.8rem', padding: '6px 10px' }}>
+              <option value="">Todas as categorias</option>
+              {categoriasDisponiveis.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+            <select value={filtLote} onChange={e => setFiltLote(e.target.value)}
+              style={{ width: 'auto', fontSize: '.8rem', padding: '6px 10px' }}>
+              <option value="">Todos os lotes</option>
+              {lotes.map(l => <option key={l.id} value={l.id}>{l.nome}</option>)}
+            </select>
+          </FiltroGrupo>
+
+          <input
+            className="animais-search-input"
+            style={{ flex: 1, minWidth: 130, maxWidth: 200 }}
+            placeholder="🔍 Buscar brinco..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+          />
         </div>
         <div className="animais-lote-botoes" style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginLeft: 'auto', alignItems: 'center' }}>
           {podeEditarAnimais && (
@@ -796,17 +923,43 @@ export default function Animais() {
               action={podeEditarAnimais ? <button className="btn btn-primary btn-sm" onClick={openNew}><i className="ti ti-plus" /> Novo animal</button> : undefined} />
           : (
             <>
+            {selecionados.length > 0 && (
+              <div className="animais-tabela-desktop" style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                background: '#FEE2E2', border: '.5px solid #FCA5A5', borderRadius: 10,
+                padding: '8px 14px', marginBottom: 10
+              }}>
+                <span style={{ fontSize: '.85rem', color: '#7F1D1D', fontWeight: 500 }}>
+                  {selecionados.length} selecionado(s)
+                </span>
+                <button className="btn btn-sm" style={{ background: '#DC2626', color: 'white' }}
+                  onClick={excluirSelecionados} disabled={excluindoLote}>
+                  <i className="ti ti-trash" /> {excluindoLote ? 'Excluindo...' : 'Excluir selecionados'}
+                </button>
+              </div>
+            )}
             <div className="table-wrap animais-tabela-desktop">
               <table>
                 <thead>
                   <tr>
-                    <th>Brinco</th><th>Sx</th><th>Categoria</th><th>Idade</th>
-                    <th>Proprietário</th><th>Rep.</th><th>Situação</th><th>Lote</th>
+                    <th style={{ width: 32 }}>
+                      <input type="checkbox"
+                        checked={filtered.length > 0 && filtered.every(a => selecionados.includes(a.id))}
+                        onChange={toggleSelecionarTodos} />
+                    </th>
+                    <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => ordenarPor('brinco')}>Brinco<IndicadorOrdenacao campo="brinco" /></th>
+                    <th>Sx</th>
+                    <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => ordenarPor('categoria')}>Categoria<IndicadorOrdenacao campo="categoria" /></th>
+                    <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => ordenarPor('idade')}>Idade<IndicadorOrdenacao campo="idade" /></th>
+                    <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => ordenarPor('proprietario')}>Proprietário<IndicadorOrdenacao campo="proprietario" /></th>
+                    <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => ordenarPor('rep')}>Rep.<IndicadorOrdenacao campo="rep" /></th>
+                    <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => ordenarPor('situacao')}>Situação<IndicadorOrdenacao campo="situacao" /></th>
+                    <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => ordenarPor('lote')}>Lote<IndicadorOrdenacao campo="lote" /></th>
                     <th style={{ width: 32 }}></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map(a => {
+                  {filteredOrdenados.map(a => {
                     const cat = calcCategoriaRebanho(a.data_nascimento, a.sexo, a.sit_reprodutiva, a.is_touro)
                     const cc  = catCor[cat]             || catCor.Vaca
                     const sc  = sitCor[a.situacao]      || sitCor.ativo
@@ -814,8 +967,17 @@ export default function Animais() {
                     const ina = a.situacao !== 'ativo'
                     return (
                       <tr key={a.id} style={{ opacity: ina ? .45 : 1, cursor: ina ? 'default' : 'pointer' }}
-                        onClick={() => !ina && setSelected(a)}
+                        onClick={() => {
+                          if (ina) return
+                          setSelected(a)
+                          document.querySelector('.page-body')?.scrollTo({ top: 0, behavior: 'smooth' })
+                        }}
                       >
+                        <td onClick={e => e.stopPropagation()}>
+                          <input type="checkbox" checked={selecionados.includes(a.id)}
+                            onClick={e => e.stopPropagation()}
+                            onChange={() => toggleSelecionado(a.id)} />
+                        </td>
                         <td><strong>{a.brinco}</strong></td>
                         <td style={{ textAlign: 'center', fontSize: 15 }}>{a.sexo === 'F' ? '♀' : '♂'}</td>
                         <td><Badge style={{ background: cc.bg, color: cc.text }}>{cat}</Badge></td>
