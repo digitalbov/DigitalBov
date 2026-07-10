@@ -188,16 +188,18 @@ export default function Sanidade() {
       {/* ── Registros ── */}
       {tab === 0 && (
         <div>
-          <div style={{ display:'flex', justifyContent:'space-between', marginBottom:12 }}>
-            <span style={{ fontSize:'.85rem', color:'#6B7280' }}>{dados.length} procedimentos</span>
-            <div style={{ display:'flex', gap:8 }}>
-              {podeEditarSanidade && (
+          <div style={{ marginBottom:12 }}>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+              <span style={{ fontSize:'.85rem', color:'#6B7280' }}>{dados.length} procedimentos</span>
+              <BotaoPDF contentRef={refReg} filename="sanidade-registros" titulo="Sanidade: Registros" />
+            </div>
+            {podeEditarSanidade && (
+              <div style={{ display:'flex', justifyContent:'flex-end', marginTop:8 }}>
                 <button className="btn btn-primary btn-sm" onClick={() => { resetFormSelecao(); setForm({ tipo:'Vacina' }); setModal(true) }}>
                   <i className="ti ti-plus" /> Novo procedimento
                 </button>
-              )}
-              <BotaoPDF contentRef={refReg} filename="sanidade-registros" titulo="Sanidade: Registros" />
-            </div>
+              </div>
+            )}
           </div>
           <div ref={refReg}>
           {dados.length === 0

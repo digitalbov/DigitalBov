@@ -144,7 +144,7 @@ export default function Relatorios() {
         <div>
           <PDFButton tabIdx={0} />
           <div ref={resumoRef}>
-            <div style={{ background:'#2B6CD9', borderRadius:12, padding:'16px 20px', color:'white', marginBottom:16 }}>
+            <div style={{ background:'var(--gray-100)', border:'.5px solid var(--gray-200)', borderRadius:12, padding:'16px 20px', color:'var(--gray-900)', marginBottom:16 }}>
               <PrintHeader titulo="Relatório Geral" />
               <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(120px, 1fr))', gap:10, marginTop:8 }}>
                 {[
@@ -153,9 +153,9 @@ export default function Relatorios() {
                   { v:partos.length,   l:'Nascimentos' },
                   { v:'92,6 ha',       l:'Área útil' },
                 ].map(k => (
-                  <div key={k.l} style={{ background:'rgba(255,255,255,.12)', borderRadius:8, padding:'10px 12px', textAlign:'center' }}>
-                    <div style={{ fontSize:'1.4rem', fontWeight:700 }}>{k.v}</div>
-                    <div style={{ fontSize:'.72rem', color:'rgba(255,255,255,.7)', marginTop:2 }}>{k.l}</div>
+                  <div key={k.l} style={{ background:'white', border:'.5px solid var(--gray-200)', borderRadius:8, padding:'10px 12px', textAlign:'center' }}>
+                    <div style={{ fontSize:'1.4rem', fontWeight:700, color:'#2B6CD9' }}>{k.v}</div>
+                    <div style={{ fontSize:'.72rem', color:'var(--gray-500)', marginTop:2 }}>{k.l}</div>
                   </div>
                 ))}
               </div>

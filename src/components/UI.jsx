@@ -38,6 +38,27 @@ export function Loading({ text = 'Carregando...' }) {
   )
 }
 
+// ── Loading de tela cheia (splash de boot do app) ──────────────────
+export function FullLoading({ text = 'Carregando...' }) {
+  return (
+    <div style={{
+      position:'fixed', inset:0, zIndex:9999,
+      height:'100vh', display:'flex', alignItems:'center',
+      justifyContent:'center', flexDirection:'column', gap:12,
+      background:'#2B6CD9'
+    }}>
+      <img src="/metalico.png" style={{ width:256, height:256, objectFit:'contain', marginBottom:8 }} alt="DigitalBov" />
+      <div style={{ color:'white', fontWeight:600, fontSize:'1.1rem' }}>DigitalBov</div>
+      <div style={{ color:'rgba(255,255,255,.6)', fontSize:'.85rem' }}>{text}</div>
+      <div style={{
+        width:40, height:40, border:'3px solid rgba(255,255,255,.2)',
+        borderTop:'3px solid white', borderRadius:'50%',
+        animation:'spin .7s linear infinite', marginTop:8
+      }} />
+    </div>
+  )
+}
+
 // ── Empty state ───────────────────────────────────────────────────
 export function EmptyState({ icon = '📋', title, sub, action }) {
   return (

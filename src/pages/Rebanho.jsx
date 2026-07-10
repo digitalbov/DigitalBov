@@ -101,6 +101,15 @@ export function Rebanho() {
   if (loading) return <Loading />
   if (loadError) return <ErroCarregamento onRetry={loadAll} />
 
+  const PDF_CONFIG_R = [
+    { ref: refVisao,   filename:'rebanho-visao-geral', titulo:'Rebanho: Visão Geral' },
+    { ref: refIndices, filename:'rebanho-indices',      titulo:'Rebanho: Índices' },
+    { ref: refComp,    filename:'rebanho-comparativo',  titulo:'Rebanho: Comparativo' },
+    { ref: refHist,    filename:'rebanho-historico',    titulo:'Rebanho: Histórico' },
+    { ref: refValor,   filename:'rebanho-valor',        titulo:'Rebanho: Valor do Rebanho' },
+  ]
+  const pdfAtualR = PDF_CONFIG_R[tab]
+
   return (
     <div>
       <div className="tabs-bar">
@@ -109,7 +118,7 @@ export function Rebanho() {
         ))}
       </div>
 
-      <div style={{ marginBottom:12 }}>
+      <div style={{ marginBottom:12, display:'flex', justifyContent:'space-between', flexWrap:'wrap', gap:8 }}>
         <div className="pill-group">
           <button className={`pill ${!filtProp?'active':''}`} onClick={()=>setFiltProp('')}>Todos</button>
           {props.map(p => (
@@ -118,13 +127,11 @@ export function Rebanho() {
             </button>
           ))}
         </div>
+        <BotaoPDF contentRef={pdfAtualR.ref} filename={pdfAtualR.filename} titulo={pdfAtualR.titulo} />
       </div>
 
       {tab === 0 && (
         <div>
-          <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:8 }}>
-            <BotaoPDF contentRef={refVisao} filename="rebanho-visao-geral" titulo="Rebanho: Visão Geral" />
-          </div>
           <div ref={refVisao}>
           <div className="kpi-grid">
             {[
@@ -180,9 +187,6 @@ export function Rebanho() {
 
       {tab === 1 && (
         <div>
-          <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:8 }}>
-            <BotaoPDF contentRef={refIndices} filename="rebanho-indices" titulo="Rebanho: Índices" />
-          </div>
           <div ref={refIndices}>
           <div className="sl">Índices reprodutivos — ciclo atual</div>
           <div className="grid-3" style={{marginBottom:16}}>
@@ -204,9 +208,6 @@ export function Rebanho() {
 
       {tab === 2 && (
         <div>
-          <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:8 }}>
-            <BotaoPDF contentRef={refComp} filename="rebanho-comparativo" titulo="Rebanho: Comparativo" />
-          </div>
           <div ref={refComp}>
           <div className="card">
           <div className="card-title"><i className="ti ti-columns"/> Comparativo de ciclos</div>
@@ -222,9 +223,6 @@ export function Rebanho() {
 
       {tab === 3 && (
         <div>
-          <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:8 }}>
-            <BotaoPDF contentRef={refHist} filename="rebanho-historico" titulo="Rebanho: Histórico" />
-          </div>
           <div ref={refHist}>
           <div className="card">
           <div className="card-title"><i className="ti ti-trending-up"/> Evolução do rebanho</div>
@@ -244,7 +242,6 @@ export function Rebanho() {
             <button className="btn btn-secondary btn-sm" onClick={() => navigate('/financeiro', { state: { tab: 4 } })}>
               <i className="ti ti-settings" /> Ajustar preços (Parâmetros)
             </button>
-            <BotaoPDF contentRef={refValor} filename="rebanho-valor" titulo="Rebanho: Valor do Rebanho" />
           </div>
           <div ref={refValor}>
           <div style={{ marginBottom:14 }}>

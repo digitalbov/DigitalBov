@@ -634,14 +634,39 @@ export default function Propriedade() {
         />
       )}
 
-      {/* ── Botão Nova fazenda (admin) ───────────────────────── */}
-      {ehAdmin && (
-        <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:16 }}>
+      {/* ── Header do módulo: nome da fazenda + barra de ações ── */}
+      {fazendas.length > 0 && (
+        <div style={{ textAlign:'center', marginBottom:8 }}>
+          <h2 style={{ fontSize:'1.3rem', fontWeight:700, color:'#1a1a1a' }}>{fazendaAtual?.nome}</h2>
+        </div>
+      )}
+      <div style={{ display:'flex', justifyContent:'center', flexWrap:'wrap', gap:8, marginBottom:20 }}>
+        {ehAdmin && (
           <button className="btn btn-primary btn-sm" onClick={() => openModal('nova-faz')}>
             <i className="ti ti-plus" /> Nova fazenda
           </button>
-        </div>
-      )}
+        )}
+        {podeEditarProp && fazendas.length > 0 && (
+          <button className="btn btn-secondary btn-sm" onClick={() => { setSection('fazenda'); setFazendaForm({ nome:fazendaAtual?.nome, localizacao:fazendaAtual?.localizacao, area_total:fazendaAtual?.area_total, area_util:fazendaAtual?.area_util }) }}>
+            <i className="ti ti-settings" /> Configurar fazenda
+          </button>
+        )}
+        {podeEditarProp && fazendas.length > 0 && (
+          <button className="btn btn-primary btn-sm" onClick={() => openModal('prop')}>
+            <i className="ti ti-plus" /> Novo proprietário
+          </button>
+        )}
+        {podeEditarProp && fazendas.length > 0 && (
+          <button className="btn btn-primary btn-sm" onClick={() => openModal('piq')}>
+            <i className="ti ti-plus" /> Novo piquete
+          </button>
+        )}
+        {podeEditarProp && fazendas.length > 0 && (
+          <button className="btn btn-primary btn-sm" onClick={() => openModal('lote')}>
+            <i className="ti ti-plus" /> Novo lote
+          </button>
+        )}
+      </div>
 
       {fazendas.length === 0 && (
         <div style={{ textAlign:'center', padding:'40px 16px' }}>
@@ -662,17 +687,7 @@ export default function Propriedade() {
       {/* ══ RESUMO ═══════════════════════════════════════════════ */}
       {section === 'resumo' && fazendas.length > 0 && (
         <div>
-          <div style={{ marginBottom:20, display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
-            <div>
-              <h3 style={{ fontSize:'1rem', fontWeight:600, color:'#374151', marginBottom:4 }}>Propriedade — {fazendaAtual?.nome}</h3>
-              <p style={{ fontSize:'.83rem', color:'#6B7280' }}>Selecione uma seção para gerenciar.</p>
-            </div>
-            {podeEditarProp && (
-              <button className="btn btn-secondary btn-sm" onClick={() => { setSection('fazenda'); setFazendaForm({ nome:fazendaAtual?.nome, localizacao:fazendaAtual?.localizacao, area_total:fazendaAtual?.area_total, area_util:fazendaAtual?.area_util }) }}>
-                <i className="ti ti-settings" /> Configurar fazenda
-              </button>
-            )}
-          </div>
+          <p style={{ fontSize:'.83rem', color:'#6B7280', marginBottom:20 }}>Selecione uma seção para gerenciar.</p>
 
           <div className="grid-4" style={{ marginBottom:24 }}>
             {[
@@ -723,7 +738,7 @@ export default function Propriedade() {
       {/* ══ PROPRIETÁRIOS ════════════════════════════════════════ */}
       {section === 'props' && (
         <div>
-          <SecHeader title="Proprietários" icon="ti-users" onNew={podeEditarProp ? () => openModal('prop') : undefined} newLabel="Novo proprietário" />
+          <SecHeader title="Proprietários" icon="ti-users" />
           {props.length === 0
             ? <EmptyState icon="👤" title="Nenhum proprietário" sub="Clique em Novo proprietário para começar" />
             : props.map(p => (
@@ -753,7 +768,7 @@ export default function Propriedade() {
       {/* ══ PIQUETES ═════════════════════════════════════════════ */}
       {section === 'piqs' && (
         <div>
-          <SecHeader title={`Piquetes — ${totalHa.toFixed(1)} ha`} icon="ti-map" onNew={podeEditarProp ? () => openModal('piq') : undefined} newLabel="Novo piquete" />
+          <SecHeader title={`Piquetes — ${totalHa.toFixed(1)} ha`} icon="ti-map" />
           {piqs.length > 0 && <MapaPiquetes piqs={piqs} />}
           {piqs.length === 0
             ? <EmptyState icon="🌿" title="Nenhum piquete cadastrado" sub="Clique em Novo piquete para começar" />
@@ -795,7 +810,7 @@ export default function Propriedade() {
       {/* ══ LOTES ════════════════════════════════════════════════ */}
       {section === 'lotes' && (
         <div>
-          <SecHeader title="Lotes" icon="ti-layers" onNew={podeEditarProp ? () => openModal('lote') : undefined} newLabel="Novo lote" />
+          <SecHeader title="Lotes" icon="ti-layers" />
           {lotes.length === 0
             ? <EmptyState icon="📦" title="Nenhum lote cadastrado" sub="Clique em Novo lote para começar" />
             : lotes.map(l => (

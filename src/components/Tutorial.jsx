@@ -11,7 +11,7 @@ const TOPICOS = [
     ]
   },
   {
-    icon: '📱', titulo: 'Instalar no Celular',
+    icon: '📱', titulo: 'Instalar no Celular', compacto: true,
     itens: [
       ['📲', 'Instale como aplicativo', 'O DigitalBov funciona como um app no seu celular, com ícone na tela inicial e acesso rápido, sem precisar baixar de nenhuma loja.'],
       ['🤖', 'No Android (Chrome)', 'Abra o site no Chrome, toque no menu (três pontinhos) no canto superior direito e escolha "Instalar aplicativo" ou "Adicionar à tela inicial".'],
@@ -146,7 +146,7 @@ export default function Tutorial({ onClose, onNaoMostrarMais }) {
         </div>
 
         {/* Conteúdo do tópico */}
-        <div style={{ flex:1, minWidth:0, display:'flex', flexDirection:'column' }}>
+        <div style={{ flex:1, minWidth:0, minHeight:0, display:'flex', flexDirection:'column' }}>
           {/* Menu de tópicos — mobile (dropdown) */}
           <div className="tutorial-menu-mobile" style={{ padding:'12px 16px', borderBottom:'.5px solid #E5E7EB', flexShrink:0 }}>
             <select
@@ -160,16 +160,16 @@ export default function Tutorial({ onClose, onNaoMostrarMais }) {
             </select>
           </div>
 
-          <div className="tutorial-content-body" style={{ padding:'24px 28px', overflowY:'auto', flex:1 }}>
-            <div style={{ fontSize:'2rem', marginBottom:4 }}>{topico.icon}</div>
-            <h2 style={{ fontSize:'1.4rem', fontWeight:700, color:'#1a1a1a', marginBottom:20 }}>{topico.titulo}</h2>
-            <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+          <div className="tutorial-content-body" style={{ padding:'24px 28px', overflowY:'auto', flex:1, minHeight:0 }}>
+            <div style={{ fontSize: topico.compacto ? '1.6rem' : '2rem', marginBottom:4 }}>{topico.icon}</div>
+            <h2 style={{ fontSize: topico.compacto ? '1.15rem' : '1.4rem', fontWeight:700, color:'#1a1a1a', marginBottom: topico.compacto ? 14 : 20 }}>{topico.titulo}</h2>
+            <div style={{ display:'flex', flexDirection:'column', gap: topico.compacto ? 10 : 14 }}>
               {topico.itens.map(([ic, tit, desc]) => (
                 <div key={tit} style={{ display:'flex', gap:12, alignItems:'flex-start' }}>
-                  <span style={{ fontSize:'1.4rem', flexShrink:0 }}>{ic}</span>
+                  <span style={{ fontSize: topico.compacto ? '1.15rem' : '1.4rem', flexShrink:0 }}>{ic}</span>
                   <div>
-                    <div style={{ fontWeight:600, color:'#1a1a1a', fontSize:'.92rem' }}>{tit}</div>
-                    <div style={{ color:'#6B7280', fontSize:'.85rem', lineHeight:1.5 }}>{desc}</div>
+                    <div style={{ fontWeight:600, color:'#1a1a1a', fontSize: topico.compacto ? '.86rem' : '.92rem' }}>{tit}</div>
+                    <div style={{ color:'#6B7280', fontSize: topico.compacto ? '.78rem' : '.85rem', lineHeight: topico.compacto ? 1.4 : 1.5 }}>{desc}</div>
                   </div>
                 </div>
               ))}

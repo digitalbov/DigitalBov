@@ -4,7 +4,7 @@ import { auth, supabase } from './lib/supabase'
 import { FazendaProvider, useFazenda } from './lib/FazendaContext'
 import { ContaProvider, useConta } from './lib/ContaContext'
 import { PermissoesProvider, usePermissoes } from './lib/PermissoesContext'
-import { ToastContainer, toast } from './components/UI'
+import { ToastContainer, toast, FullLoading } from './components/UI'
 import InstallPrompt from './components/InstallPrompt'
 import Layout          from './components/layout/Layout'
 import Login           from './components/auth/Login'
@@ -38,27 +38,6 @@ const TablerLink = () => {
     }
   }, [])
   return null
-}
-
-// ── Loading de tela cheia ─────────────────────────────────────────
-function FullLoading({ text = 'Carregando...' }) {
-  return (
-    <div style={{
-      height:'100vh', display:'flex', alignItems:'center',
-      justifyContent:'center', flexDirection:'column', gap:12,
-      background:'#2B6CD9'
-    }}>
-      <img src="/metalico.png" style={{ width:256, height:256, objectFit:'contain', marginBottom:8 }} alt="DigitalBov" />
-      <div style={{ color:'white', fontWeight:600, fontSize:'1.1rem' }}>DigitalBov</div>
-      <div style={{ color:'rgba(255,255,255,.6)', fontSize:'.85rem' }}>{text}</div>
-      <div style={{
-        width:40, height:40, border:'3px solid rgba(255,255,255,.2)',
-        borderTop:'3px solid white', borderRadius:'50%',
-        animation:'spin .7s linear infinite', marginTop:8
-      }} />
-      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
-    </div>
-  )
 }
 
 // ── Onboarding: cria só a conta via RPC ────────────────────────────

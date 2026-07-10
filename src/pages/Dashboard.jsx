@@ -2,7 +2,7 @@
 import { useNavigate } from 'react-router-dom'
 import { supabase, db } from '../lib/supabase'
 import { calcCategoria, calcCategoriaRebanho, fmtMoeda, valorPropLanc } from '../lib/helpers'
-import { Loading, AlertBox, IndexCard, ErroCarregamento } from '../components/UI'
+import { Loading, FullLoading, AlertBox, IndexCard, ErroCarregamento } from '../components/UI'
 import { useFazenda } from '../lib/FazendaContext'
 import { usePermissoes } from '../lib/PermissoesContext'
 
@@ -31,6 +31,7 @@ export default function Dashboard({ perfil }) {
   const [filtProp,   setFiltProp]   = useState(0)
   const [props,      setProps]      = useState([])
   const [catPrecos,  setCatPrecos]  = useState([])
+  const primeiroCarregamento = useRef(true)
 
   useEffect(() => { loadData() }, [fazendaAtual?.id]) // eslint-disable-line
 
@@ -74,6 +75,7 @@ export default function Dashboard({ perfil }) {
       setLoadError(true)
     } finally {
       setLoading(false)
+      primeiroCarregamento.current = false
     }
   }
 
@@ -169,7 +171,9 @@ export default function Dashboard({ perfil }) {
     setEnviandoFoto(false)
   }
 
-  if (loading) return <Loading text="Carregando dashboard..." />
+  if (loading) return primeiroCarregamento.current
+    ? <FullLoading text="Carregando dashboard..." />
+    : <Loading text="Carregando dashboard..." />
   if (loadError) return <ErroCarregamento onRetry={loadData} />
 
   if (fazendas.length === 0) {
@@ -238,7 +242,7 @@ export default function Dashboard({ perfil }) {
             </div>
           </div>
         </div>
-        <div className="dash-header-right" style={{ textAlign:'right' }}>
+        <div className="dash-header-right dash-rebanho-info" style={{ textAlign:'right' }}>
           <div style={{ fontSize:'.78rem', color:'rgba(255,255,255,.6)' }}>Rebanho ativo</div>
           <div className="dash-rebanho-contador" style={{ fontSize:'2rem', fontWeight:700 }}>{filtAnimais.length}</div>
           <div style={{ fontSize:'.72rem', color:'rgba(255,255,255,.5)' }}>animais cadastrados</div>
@@ -266,15 +270,44 @@ export default function Dashboard({ perfil }) {
             </div>
           )}
           <div style={{ display:'flex', flexWrap:'wrap', gap:16 }}>
-            <div>
-              <div className="kpi-label">Resultado do ciclo</div>
-              <div className="kpi-value" style={{ fontSize:'1.1rem', color:'#1E55B0' }}>
-                {typeof resu==='number'&&!isNaN(resu) ? fmtMoeda(resu) : '—'}
+            <div className="dash-plan-metrics">
+              <div className="dash-plan-item">
+                <div className="kpi-label">
+                  <span className="dash-plan-label-full">Resultado do ciclo</span>
+                  <span className="dash-plan-label-abbr">Result. ciclo</span>
+                </div>
+                <div className="kpi-value dash-plan-value" style={{ fontSize:'1.1rem', color:'#1E55B0' }}>
+                  {typeof resu==='number'&&!isNaN(resu) ? fmtMoeda(resu) : '—'}
+                </div>
               </div>
+              {rentTerra != null && (
+                <div className="dash-plan-item">
+                  <div className="kpi-label">
+                    <span className="dash-plan-label-full">Rent. Terra</span>
+                    <span className="dash-plan-label-abbr">R. Terra</span>
+                  </div>
+                  <div className="kpi-value dash-plan-value" style={{ fontSize:'1.1rem' }}>{rentTerra.toFixed(2)}%</div>
+                </div>
+              )}
+              {rentRebanho != null && (
+                <div className="dash-plan-item">
+                  <div className="kpi-label">
+                    <span className="dash-plan-label-full">Rent. Rebanho</span>
+                    <span className="dash-plan-label-abbr">R. Rebanho</span>
+                  </div>
+                  <div className="kpi-value dash-plan-value" style={{ fontSize:'1.1rem' }}>{rentRebanho.toFixed(2)}%</div>
+                </div>
+              )}
+              {rentTotal != null && (
+                <div className="dash-plan-item">
+                  <div className="kpi-label">
+                    <span className="dash-plan-label-full">Rent. Propriedade</span>
+                    <span className="dash-plan-label-abbr">R. Prop.</span>
+                  </div>
+                  <div className="kpi-value dash-plan-value" style={{ fontSize:'1.1rem' }}>{rentTotal.toFixed(2)}%</div>
+                </div>
+              )}
             </div>
-            {rentTerra   != null && <div><div className="kpi-label">Rent. Terra</div><div className="kpi-value" style={{ fontSize:'1.1rem' }}>{rentTerra.toFixed(2)}%</div></div>}
-            {rentRebanho != null && <div><div className="kpi-label">Rent. Rebanho</div><div className="kpi-value" style={{ fontSize:'1.1rem' }}>{rentRebanho.toFixed(2)}%</div></div>}
-            {rentTotal   != null && <div><div className="kpi-label">Rent. Propriedade</div><div className="kpi-value" style={{ fontSize:'1.1rem' }}>{rentTotal.toFixed(2)}%</div></div>}
             {acoesCiclo.length > 0 && (
               <div>
                 <div className="kpi-label">Ações concluídas</div>
@@ -336,7 +369,7 @@ export default function Dashboard({ perfil }) {
               </div>
             ) : (
               <div className="table-wrap">
-                <table>
+                <table className="dash-valor-table">
                   <thead>
                     <tr><th>Categoria</th><th style={{ textAlign:'center' }}>Qtd</th><th style={{ textAlign:'right' }}>Valor estimado</th></tr>
                   </thead>
@@ -400,15 +433,15 @@ export default function Dashboard({ perfil }) {
 
           {/* Financeiro resumo */}
           <div className="sl">Financeiro — {ciclo?.nome}</div>
-          <div className="grid-3">
+          <div className="grid-3 dash-fin-grid">
             {[
               { label:'Receitas',  value:fmtMoeda(rec),  color:'#1E55B0' },
               { label:'Despesas',  value:fmtMoeda(desp), color:'#791F1F' },
               { label:'Resultado', value:fmtMoeda(resu), color: resu>=0?'#2B6CD9':'#791F1F' },
             ].map(f => (
-              <div key={f.label} className="card" style={{ padding:'10px 12px' }}>
-                <div style={{ fontSize:'.72rem', color:'#6B7280' }}>{f.label}</div>
-                <div style={{ fontSize:'.95rem', fontWeight:600, color:f.color, marginTop:3 }}>{f.value}</div>
+              <div key={f.label} className="card dash-fin-card" style={{ padding:'10px 12px' }}>
+                <div className="dash-fin-label" style={{ fontSize:'.72rem', color:'#6B7280' }}>{f.label}</div>
+                <div className="dash-fin-value" style={{ fontSize:'.95rem', fontWeight:600, color:f.color, marginTop:3 }}>{f.value}</div>
               </div>
             ))}
           </div>

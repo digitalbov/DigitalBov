@@ -736,44 +736,49 @@ export default function Animais() {
   // ── Lista ─────────────────────────────────────────────────────────
   const lista = !selected ? (
     <div>
-      <div style={{
+      <div className="animais-filtros-bar" style={{
         background: 'white', border: '.5px solid #E5E7EB', borderRadius: 12,
         padding: '12px 14px', marginBottom: 12,
         display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center'
       }}>
-        <div className="pill-group">
-          <button className={`pill ${filtSit === 'ativo' ? 'active' : ''}`}    onClick={() => setFiltSit('ativo')}>Ativos ({ativos})</button>
-          <button className={`pill ${filtSit === '' ? 'active' : ''}`}         onClick={() => setFiltSit('')}>Todos ({animais.length})</button>
-          <button className={`pill ${filtSit !== 'ativo' && filtSit !== '' ? 'active' : ''}`} onClick={() => setFiltSit('vendido')}>Inativos ({inativos})</button>
-        </div>
-        <div className="pill-group">
-          <button className={`pill ${!filtProp ? 'active' : ''}`}              onClick={() => setFiltProp('')}>Todos</button>
-          {props.map(p => (
-            <button key={p.id} className={`pill ${filtProp === p.id ? 'active' : ''}`} onClick={() => setFiltProp(p.id)}>
-              {p.nome.split(' ')[0]}
-            </button>
-          ))}
-        </div>
-        <div className="pill-group">
-          <button className={`pill ${!filtSexo ? 'active' : ''}`}   onClick={() => setFiltSexo('')}>♀♂</button>
-          <button className={`pill ${filtSexo === 'F' ? 'active' : ''}`} onClick={() => setFiltSexo('F')}>♀ Fêmeas</button>
-          <button className={`pill ${filtSexo === 'M' ? 'active' : ''}`} onClick={() => setFiltSexo('M')}>♂ Machos</button>
-        </div>
         <input
+          className="animais-search-input"
           style={{ flex: 1, minWidth: 130, maxWidth: 200 }}
           placeholder="🔍 Buscar brinco..."
           value={search}
           onChange={e => setSearch(e.target.value)}
         />
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginLeft: 'auto' }}>
+        <div className="animais-filtros-pills" style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
+          <div className="pill-group">
+            <button className={`pill ${filtSit === 'ativo' ? 'active' : ''}`}    onClick={() => setFiltSit('ativo')}>Ativos ({ativos})</button>
+            <button className={`pill ${filtSit === '' ? 'active' : ''}`}         onClick={() => setFiltSit('')}>Todos ({animais.length})</button>
+            <button className={`pill ${filtSit !== 'ativo' && filtSit !== '' ? 'active' : ''}`} onClick={() => setFiltSit('vendido')}>Inativos ({inativos})</button>
+          </div>
+          <div className="pill-group">
+            <button className={`pill ${!filtProp ? 'active' : ''}`}              onClick={() => setFiltProp('')}>Todos</button>
+            {props.map(p => (
+              <button key={p.id} className={`pill ${filtProp === p.id ? 'active' : ''}`} onClick={() => setFiltProp(p.id)}>
+                {p.nome.split(' ')[0]}
+              </button>
+            ))}
+          </div>
+          <div className="pill-group">
+            <button className={`pill ${!filtSexo ? 'active' : ''}`}   onClick={() => setFiltSexo('')}>♀♂</button>
+            <button className={`pill ${filtSexo === 'F' ? 'active' : ''}`} onClick={() => setFiltSexo('F')}>♀ Fêmeas</button>
+            <button className={`pill ${filtSexo === 'M' ? 'active' : ''}`} onClick={() => setFiltSexo('M')}>♂ Machos</button>
+          </div>
+        </div>
+        <div className="animais-lote-botoes" style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginLeft: 'auto', alignItems: 'center' }}>
           {podeEditarAnimais && (
             <>
-              <button className="btn btn-secondary btn-sm" onClick={() => baixarModeloAnimais()}>
-                <i className="ti ti-download" /> Planilha de cadastro em lote
-              </button>
-              <button className="btn btn-secondary btn-sm" onClick={() => fileImportRef.current?.click()}>
-                <i className="ti ti-upload" /> Importar planilha de cadastro em lote
-              </button>
+              <div className="animais-lote-btn-group">
+                <button className="btn btn-secondary btn-sm animais-btn-lote" onClick={() => baixarModeloAnimais()}>
+                  <i className="ti ti-download" /> Plan. cadastro lote
+                </button>
+                <button className="btn btn-secondary btn-sm animais-btn-lote" onClick={() => fileImportRef.current?.click()}>
+                  <i className="ti ti-upload" /> Importar plan. cad. lote
+                </button>
+              </div>
               <input ref={fileImportRef} type="file" accept=".xlsx,.xls" style={{display:'none'}} onChange={onEscolherArquivo} />
               <button className="btn btn-primary btn-sm" onClick={openNew}>
                 <i className="ti ti-plus" /> Novo animal
@@ -833,9 +838,7 @@ export default function Animais() {
             <div className="animais-cards-mobile">
               {filtered.map(a => {
                 const cat = calcCategoriaRebanho(a.data_nascimento, a.sexo, a.sit_reprodutiva, a.is_touro)
-                const cc  = catCor[cat]             || catCor.Vaca
-                const sc  = sitCor[a.situacao]      || sitCor.ativo
-                const rc  = repCor[a.sit_reprodutiva] || repCor.nao_se_aplica
+                const cc  = catCor[cat] || catCor.Vaca
                 const ina = a.situacao !== 'ativo'
                 return (
                   <div key={a.id} className="animal-card"
@@ -850,16 +853,10 @@ export default function Animais() {
                       <div className="animal-card-top">
                         <strong>{a.brinco}</strong>
                         <Badge style={{ background: cc.bg, color: cc.text }}>{cat}</Badge>
-                      </div>
-                      <div className="animal-card-sub">
-                        {idadeFormatada(a.data_nascimento)} · {a.proprietario?.nome?.split(' ')[0] || '—'}
-                        {a.lote?.nome ? ` · ${a.lote.nome}` : ''}
-                      </div>
-                      <div className="animal-card-badges">
-                        {a.sexo === 'F' && a.sit_reprodutiva && (
-                          <Badge style={{ background: rc.bg, color: rc.text }}>{a.sit_reprodutiva?.replace('_', ' ')}</Badge>
-                        )}
-                        <Badge style={{ background: sc.bg, color: sc.text }}>{a.situacao}</Badge>
+                        <span className="animal-card-meta">
+                          {idadeFormatada(a.data_nascimento)} · {a.proprietario?.nome?.split(' ')[0] || '—'}
+                          {a.lote?.nome ? ` · ${a.lote.nome}` : ''}
+                        </span>
                       </div>
                     </div>
                     {!ina && <i className="ti ti-chevron-right" style={{ color:'#D1D5DB' }} />}

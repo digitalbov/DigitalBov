@@ -291,10 +291,22 @@ export default function Financeiro() {
   if (loading) return <Loading />
   if (loadError) return <ErroCarregamento onRetry={loadBase} />
 
+  const PDF_CONFIG = [
+    { ref: refResumo,     filename:'financeiro-resumo',      titulo:'Financeiro: Resumo' },
+    { ref: refLancs,      filename:'financeiro-lancamentos', titulo:'Financeiro: Lançamentos' },
+    { ref: refTransacs,   filename:'financeiro-transacoes',  titulo:'Financeiro: Compra & Venda' },
+    { ref: refResultados, filename:'financeiro-resultados',  titulo:'Financeiro: Resultados' },
+    { ref: refParams,     filename:'financeiro-parametros',  titulo:'Financeiro: Parâmetros' },
+  ]
+  const pdfAtual = PDF_CONFIG[tab]
+
   return (
     <div>
-      {/* Seletor de ciclo */}
-      <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:14 }}>
+      {/* PDF + Seletor de ciclo — comum a todas as abas */}
+      <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:14, flexWrap:'wrap' }}>
+        {pdfAtual && (
+          <BotaoPDF contentRef={pdfAtual.ref} filename={pdfAtual.filename} titulo={pdfAtual.titulo} />
+        )}
         <span style={{ fontSize:'.82rem', color:'#6B7280', fontWeight:500 }}>Ciclo:</span>
         <select value={cicloId} onChange={e=>setCicloId(e.target.value)}
           style={{ width:'auto', fontSize:'.85rem', padding:'5px 10px' }}>
@@ -316,16 +328,13 @@ export default function Financeiro() {
       {/* ── Resumo ── */}
       {tab===0 && (
         <div>
-          <div style={{ display:'flex', justifyContent:'space-between', flexWrap:'wrap', gap:8, marginBottom:8 }}>
-            <div className="pill-group">
-              <button className={`pill ${filtProp===''?'active':''}`} onClick={() => setFiltProp('')}>Todos os proprietários</button>
-              {props.map(p => (
-                <button key={p.id} className={`pill ${filtProp===p.id?'active':''}`} onClick={() => setFiltProp(p.id)}>
-                  {p.nome.split(' ')[0]}
-                </button>
-              ))}
-            </div>
-            <BotaoPDF contentRef={refResumo} filename="financeiro-resumo" titulo="Financeiro: Resumo" />
+          <div className="pill-group" style={{ marginBottom:8 }}>
+            <button className={`pill ${filtProp===''?'active':''}`} onClick={() => setFiltProp('')}>Todos os proprietários</button>
+            {props.map(p => (
+              <button key={p.id} className={`pill ${filtProp===p.id?'active':''}`} onClick={() => setFiltProp(p.id)}>
+                {p.nome.split(' ')[0]}
+              </button>
+            ))}
           </div>
           <div ref={refResumo}>
           <div className="kpi-grid">
@@ -403,14 +412,11 @@ export default function Financeiro() {
                 ))}
               </div>
             </div>
-            <div style={{ display:'flex', gap:8 }}>
-              {podeEditarFinanceiro && (
-                <button className="btn btn-primary btn-sm" onClick={abrirModalLanc}>
-                  <i className="ti ti-plus"/> Novo lançamento
-                </button>
-              )}
-              <BotaoPDF contentRef={refLancs} filename="financeiro-lancamentos" titulo="Financeiro: Lançamentos" />
-            </div>
+            {podeEditarFinanceiro && (
+              <button className="btn btn-primary btn-sm" onClick={abrirModalLanc}>
+                <i className="ti ti-plus"/> Novo lançamento
+              </button>
+            )}
           </div>
           <div ref={refLancs}>
           {lancsFiltrados.length===0
@@ -474,14 +480,11 @@ export default function Financeiro() {
         <div>
           <div style={{display:'flex',justifyContent:'space-between',marginBottom:12}}>
             <span style={{fontSize:'.85rem',color:'#6B7280'}}>{transacs.length} transações</span>
-            <div style={{ display:'flex', gap:8 }}>
-              {podeEditarFinanceiro && (
-                <button className="btn btn-primary btn-sm" onClick={()=>setModal('transac')}>
-                  <i className="ti ti-plus"/> Registrar transação
-                </button>
-              )}
-              <BotaoPDF contentRef={refTransacs} filename="financeiro-transacoes" titulo="Financeiro: Compra & Venda" />
-            </div>
+            {podeEditarFinanceiro && (
+              <button className="btn btn-primary btn-sm" onClick={()=>setModal('transac')}>
+                <i className="ti ti-plus"/> Registrar transação
+              </button>
+            )}
           </div>
           <div ref={refTransacs}>
           {transacs.length===0
@@ -519,16 +522,13 @@ export default function Financeiro() {
       {/* ── Resultados ── */}
       {tab===3 && (
         <div>
-          <div style={{ display:'flex', justifyContent:'space-between', flexWrap:'wrap', gap:8, marginBottom:8 }}>
-            <div className="pill-group">
-              <button className={`pill ${filtProp===''?'active':''}`} onClick={() => setFiltProp('')}>Todos os proprietários</button>
-              {props.map(p => (
-                <button key={p.id} className={`pill ${filtProp===p.id?'active':''}`} onClick={() => setFiltProp(p.id)}>
-                  {p.nome.split(' ')[0]}
-                </button>
-              ))}
-            </div>
-            <BotaoPDF contentRef={refResultados} filename="financeiro-resultados" titulo="Financeiro: Resultados" />
+          <div className="pill-group" style={{ marginBottom:8 }}>
+            <button className={`pill ${filtProp===''?'active':''}`} onClick={() => setFiltProp('')}>Todos os proprietários</button>
+            {props.map(p => (
+              <button key={p.id} className={`pill ${filtProp===p.id?'active':''}`} onClick={() => setFiltProp(p.id)}>
+                {p.nome.split(' ')[0]}
+              </button>
+            ))}
           </div>
           <div ref={refResultados}>
           <div className="card" style={{marginBottom:12}}>
@@ -560,9 +560,6 @@ export default function Financeiro() {
       {/* ── Parâmetros ── */}
       {tab===4 && (
         <div>
-          <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:8 }}>
-            <BotaoPDF contentRef={refParams} filename="financeiro-parametros" titulo="Financeiro: Parâmetros" />
-          </div>
           <div ref={refParams}>
           <div className="card">
           <div className="card-title"><i className="ti ti-adjustments"/> Parâmetros de preço por categoria</div>
