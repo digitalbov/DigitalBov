@@ -31,6 +31,7 @@ export default function Dashboard({ perfil }) {
   const [filtProp,   setFiltProp]   = useState(0)
   const [props,      setProps]      = useState([])
   const [catPrecos,  setCatPrecos]  = useState([])
+  const [lotesInsem, setLotesInsem] = useState([])
   const primeiroCarregamento = useRef(true)
 
   useEffect(() => { loadData() }, [fazendaAtual?.id]) // eslint-disable-line
@@ -59,12 +60,14 @@ export default function Dashboard({ perfil }) {
       setPlan(planData)
       setCatPrecos(rcp.data || [])
       if (cicloData) {
-        const [{ data: lData }, { data: tData }] = await Promise.all([
+        const [{ data: lData }, { data: tData }, { data: liData }] = await Promise.all([
           db.lancamentos.list(cicloData.id),
           db.transacoes.list(cicloData.id),
+          db.lotesInseminacao.list(cicloData.id),
         ])
         setLancamentos(lData || [])
         setTransacoes(tData || [])
+        setLotesInsem(liData || [])
       }
       if (planData) {
         const { data: aData } = await db.planejamentoAcoes.list(planData.id)
@@ -134,8 +137,10 @@ export default function Dashboard({ perfil }) {
     return c === 'Vaca' || c === 'Vaca Madura'
   }).length
 
-  const prenhas = filtAnimais.filter(a => a.sit_reprodutiva === 'prenha').length
-  const txPrenhez = matrizes > 0 ? Math.round((prenhas / matrizes) * 100) : 0
+  // Taxa de prenhez: mesma lógica do Reprodutivo — prenhas / inseminadas no ciclo atual
+  const kpiIns = lotesInsem.reduce((s, l) => s + (l.inseminacoes?.length || 0), 0)
+  const kpiPrn = lotesInsem.reduce((s, l) => s + (l.inseminacoes?.filter(i => i.diagnostico === 'P').length || 0), 0)
+  const txPrenhez = kpiIns > 0 ? Math.round((kpiPrn / kpiIns) * 100) : null
 
   // Valor do rebanho (resumo)
   const valorRows = CATEGORIAS_VALOR.map(cat => {
@@ -404,8 +409,8 @@ export default function Dashboard({ perfil }) {
           {/* Índices reprodutivos */}
           <div className="sl">Índices reprodutivos — ciclo atual</div>
           <div className="grid-3" style={{ marginBottom:12 }}>
-            <IndexCard value={txPrenhez+'%'} label="Taxa de prenhez"  meta="85%" ok={txPrenhez>=85} />
-            <IndexCard value={prenhas}        label="Prenhas"          color="#2B6CD9" />
+            <IndexCard value={txPrenhez !== null ? txPrenhez+'%' : '—'} label="Taxa de prenhez"  meta="85%" ok={txPrenhez !== null && txPrenhez>=85} />
+            <IndexCard value={kpiIns > 0 ? kpiPrn : '—'} label="Prenhas"          color="#2B6CD9" />
             <IndexCard value={matrizes}       label="Matrizes"         color="#2B6CD9" />
           </div>
 
@@ -450,7 +455,7 @@ export default function Dashboard({ perfil }) {
 
       {/* Alertas */}
       <div className="sl">Alertas do sistema</div>
-      {txPrenhez < 85 && txPrenhez > 0 && (
+      {txPrenhez !== null && txPrenhez < 85 && (
         <AlertBox type="amber" title="Taxa de prenhez abaixo da meta"
           body={`${txPrenhez}% · Meta >85% · Atenção no próximo protocolo IATF`} />
       )}

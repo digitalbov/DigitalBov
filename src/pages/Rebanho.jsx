@@ -35,6 +35,9 @@ export function Rebanho() {
   const [loadError,    setLoadError]    = useState(false)
   const [catPrecos,    setCatPrecos]    = useState([])
   const [selProps,     setSelProps]     = useState([])
+  const [ciclo,        setCiclo]        = useState(null)
+  const [lotesInsem,   setLotesInsem]   = useState([])
+  const [pesagensPorAnimal, setPesagensPorAnimal] = useState({})
 
   useEffect(() => { loadAll() }, [])
 
@@ -42,16 +45,31 @@ export function Rebanho() {
     setLoading(true)
     setLoadError(false)
     try {
-      const [ra, rp, rc] = await Promise.all([
+      const [ra, rp, rc, rciclo] = await Promise.all([
         db.animais.list(),
         db.proprietarios.list(),
-        db.categoriasPreco.list()
+        db.categoriasPreco.list(),
+        db.ciclos.current(),
       ])
-      const propsData = rp.data || []
-      setAnimais(ra.data || [])
+      const propsData   = rp.data || []
+      const animaisData = ra.data || []
+      const cicloData   = rciclo.data
+      setAnimais(animaisData)
       setProps(propsData)
       setCatPrecos(rc.data || [])
+      setCiclo(cicloData)
       setSelProps(prev => prev.length === 0 ? propsData.map(p => p.id) : prev)
+
+      setLotesInsem(cicloData ? (await db.lotesInseminacao.list(cicloData.id)).data || [] : [])
+
+      // Pesagens dos terneiros/terneiras ativos, para o GMD
+      const terneirosAtivos = animaisData.filter(a =>
+        a.situacao === 'ativo' && ['Terneiro','Terneira'].includes(calcCategoria(a.data_nascimento, a.sexo))
+      )
+      const pesagensRes = await Promise.all(terneirosAtivos.map(t => db.pesagens.list(t.id)))
+      const pesagensMap = {}
+      terneirosAtivos.forEach((t, idx) => { pesagensMap[t.id] = pesagensRes[idx].data || [] })
+      setPesagensPorAnimal(pesagensMap)
     } catch (e) {
       console.error('[Rebanho] erro ao carregar:', e)
       setLoadError(true)
@@ -69,8 +87,33 @@ export function Rebanho() {
   )
   const fem    = ativos.filter(a => a.sexo === 'F')
   const matrizes = ativos.filter(a => ['Vaca','Vaca Madura'].includes(calcCategoria(a.data_nascimento, a.sexo)))
-  const prenhas  = ativos.filter(a => a.sit_reprodutiva === 'prenha').length
-  const txPren   = pct(prenhas, matrizes.length)
+
+  // Índices reprodutivos do ciclo atual (mesma lógica do Reprodutivo/Dashboard):
+  // prenhas diagnosticadas / inseminadas no ciclo — não usa matrizes por idade nem sit_reprodutiva atual
+  const kpiIns = lotesInsem.reduce((s, l) => s + (l.inseminacoes?.length || 0), 0)
+  const kpiPrn = lotesInsem.reduce((s, l) => s + (l.inseminacoes?.filter(i => i.diagnostico === 'P').length || 0), 0)
+  const txPren = kpiIns > 0 ? Math.round(kpiPrn / kpiIns * 100) + '%' : '—'
+
+  // GMD de terneiros/terneiras ativos: (peso mais recente - peso inicial) / dias entre as pesagens
+  const terneiros = ativos.filter(a => ['Terneiro','Terneira'].includes(calcCategoria(a.data_nascimento, a.sexo)))
+  const calcGMD = (pesagensAnimal) => {
+    if (!pesagensAnimal || pesagensAnimal.length < 2) return null
+    const ordenadas = [...pesagensAnimal].sort((a, b) => (a.data || '').localeCompare(b.data || ''))
+    const primeira = ordenadas[0]
+    const ultima   = ordenadas[ordenadas.length - 1]
+    const dias = Math.round((new Date(ultima.data) - new Date(primeira.data)) / 86400000)
+    if (dias <= 0) return null
+    const ganho = parseFloat(ultima.peso_kg) - parseFloat(primeira.peso_kg)
+    return Number.isFinite(ganho) ? ganho / dias : null
+  }
+  const gmdTerneiros = terneiros
+    .map(t => ({ sexo: t.sexo, gmd: calcGMD(pesagensPorAnimal[t.id]) }))
+    .filter(t => t.gmd !== null && Number.isFinite(t.gmd))
+  const mediaGMD = (lista) => lista.length > 0 ? lista.reduce((s, v) => s + v, 0) / lista.length : null
+  const fmtGMD   = (v) => v === null ? '—' : `${v.toFixed(2).replace('.', ',')} kg/dia`
+  const gmdTotal  = mediaGMD(gmdTerneiros.map(t => t.gmd))
+  const gmdFemeas = mediaGMD(gmdTerneiros.filter(t => t.sexo === 'F').map(t => t.gmd))
+  const gmdMachos = mediaGMD(gmdTerneiros.filter(t => t.sexo === 'M').map(t => t.gmd))
 
   const catMap = {}
   ativos.forEach(a => {
@@ -188,11 +231,18 @@ export function Rebanho() {
       {tab === 1 && (
         <div>
           <div ref={refIndices}>
-          <div className="sl">Índices reprodutivos — ciclo atual</div>
+          <div className="sl">Índices reprodutivos — ciclo atual {ciclo?.nome ? `(${ciclo.nome})` : ''}</div>
           <div className="grid-3" style={{marginBottom:16}}>
-            <IndexCard value={txPren}  label="Taxa de prenhez"  meta="≥85%"  ok={prenhas/Math.max(1,matrizes.length)>=0.85}/>
-            <IndexCard value={pct(prenhas,fem.length)} label="% fêmeas prenhas" color="#2B6CD9"/>
-            <IndexCard value="0,82" label="GMD terneiros kg/dia" meta="≥0,80" ok={true}/>
+            <IndexCard value={txPren} label="Taxa de prenhez" meta="≥85%" ok={kpiIns > 0 && (kpiPrn / kpiIns) >= 0.85}/>
+            <IndexCard value={kpiIns} label="Inseminadas no ciclo" color="#2B6CD9"/>
+            <IndexCard value={kpiPrn} label="Prenhas no ciclo" color="#2B6CD9"/>
+          </div>
+
+          <div className="sl">GMD terneiros (0–12 meses)</div>
+          <div className="grid-3" style={{marginBottom:16}}>
+            <IndexCard value={fmtGMD(gmdTotal)}  label="GMD total"  meta="≥0,80 kg/dia" ok={gmdTotal !== null && gmdTotal >= 0.80}/>
+            <IndexCard value={fmtGMD(gmdFemeas)} label="GMD fêmeas" color="#DB2777"/>
+            <IndexCard value={fmtGMD(gmdMachos)} label="GMD machos" color="#1E55B0"/>
           </div>
           <div className="card">
             <div className="card-title"><i className="ti ti-chart-line"/> Evolução dos índices</div>

@@ -369,6 +369,11 @@ export default function Animais() {
       db.partos.byBezerro(animal.id)
     ])
 
+    if (rPes.error)         console.error('[Timeline] Erro pesagens:', rPes.error)
+    if (rIns.error)         console.error('[Timeline] Erro inseminacoes:', rIns.error)
+    if (rPartosMae.error)   console.error('[Timeline] Erro partos (como mãe):', rPartosMae.error)
+    if (rPartoBezerro.error) console.error('[Timeline] Erro parto (como bezerro):', rPartoBezerro.error)
+
     const eventos = []
 
     // Nascimento

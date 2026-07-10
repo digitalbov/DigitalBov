@@ -11,6 +11,7 @@ import {
 } from 'recharts'
 
 const TABS = ['Lotes de Inseminação','Nascimentos','Índices']
+const GESTACAO_ANGUS_DIAS = 283
 
 export default function Reprodutivo() {
   const { podeEditar } = usePermissoes()
@@ -33,11 +34,14 @@ export default function Reprodutivo() {
   const [modal,   setModal]  = useState(null)
   const [form,    setForm]   = useState({})
   const [selBrs,  setSelBrs] = useState([])
+  const [loteEdit, setLoteEdit] = useState(null)
   const [lotesSistema, setLotesSistema] = useState([])
   const [filtroLoteInsem, setFiltroLoteInsem] = useState('')
   const [selBrsAdd, setSelBrsAdd] = useState([])
   const [saving,  setSaving] = useState(false)
   const [selLote,     setSelLote]    = useState(null)
+  const [selInsem,    setSelInsem]   = useState([])
+  const [removendoLote, setRemovendoLote] = useState(false)
   const [todosLotes,  setTodosLotes] = useState([])
   const [todosPartos, setTodosPartos]= useState([])
   const [loadingIdx,  setLoadingIdx] = useState(false)
@@ -56,6 +60,7 @@ export default function Reprodutivo() {
   const [editParto,     setEditParto]     = useState(null)
 
   useEffect(() => { loadAll() }, [])
+  useEffect(() => { setSelInsem([]) }, [selLote?.id])
   useEffect(() => { if (tab === 2) loadIndices() }, [tab])
   useEffect(() => {
     if (tab === 1 && cicloNascId && partosNasc === null) loadPartosNasc(cicloNascId)
@@ -154,7 +159,7 @@ export default function Reprodutivo() {
     const loteEnc = lotesDaMae.sort((a, b) => (b.data||'').localeCompare(a.data||''))[0]
     if (!loteEnc?.data) return '—'
     const d = new Date(loteEnc.data + 'T12:00:00')
-    d.setDate(d.getDate() + 283)
+    d.setDate(d.getDate() + GESTACAO_ANGUS_DIAS)
     return d.toLocaleDateString('pt-BR')
   }
 
@@ -162,8 +167,20 @@ export default function Reprodutivo() {
     prev.includes(br) ? prev.filter(b => b !== br) : [...prev, br]
   )
 
-  // Salvar novo lote
+  // Salvar lote (cria novo ou edita data/touro/protocolo de um existente)
   const salvarLote = async () => {
+    if (loteEdit) {
+      if (!form.touro) { toast('Preencha o touro.', 'error'); return }
+      setSaving(true)
+      const payload = { data: form.data, touro: form.touro, protocolo: form.protocolo || '' }
+      const { error } = await db.lotesInseminacao.update(loteEdit.id, payload)
+      setSaving(false)
+      if (error) { toast('Erro ao atualizar lote: ' + error.message, 'error'); return }
+      toast('Lote atualizado!')
+      setModal(null); setLoteEdit(null); setForm({}); loadAll()
+      return
+    }
+
     if (!form.data || !form.touro || selBrs.length === 0) {
       toast('Preencha data, touro e selecione animais.', 'error'); return
     }
@@ -238,6 +255,28 @@ export default function Reprodutivo() {
     const { error } = await supabase.from('inseminacoes').delete().eq('id', ins.id)
     if (error) { toast('Erro ao remover: ' + error.message, 'error'); return }
     toast('Animal removido do lote.')
+    await loadAll(false)
+  }
+
+  const toggleSelInsem = (id) => setSelInsem(prev =>
+    prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+  )
+
+  const toggleSelInsemTodos = () => {
+    const todosMarcados = selLote?.inseminacoes?.length > 0 && selLote.inseminacoes.every(i => selInsem.includes(i.id))
+    setSelInsem(todosMarcados ? [] : (selLote?.inseminacoes || []).map(i => i.id))
+  }
+
+  // Remover várias inseminações do lote de uma vez (com ou sem diagnóstico)
+  const removerInsemSelecionados = async () => {
+    if (selInsem.length === 0) return
+    if (!confirm(`Remover ${selInsem.length} animais do lote? (inclui animais já diagnosticados, se houver — o diagnóstico deles será perdido)`)) return
+    setRemovendoLote(true)
+    const { error } = await supabase.from('inseminacoes').delete().in('id', selInsem)
+    setRemovendoLote(false)
+    if (error) { toast('Erro ao remover: ' + error.message, 'error'); return }
+    toast(`${selInsem.length} animais removidos do lote.`)
+    setSelInsem([])
     await loadAll(false)
   }
 
@@ -416,14 +455,32 @@ export default function Reprodutivo() {
   const kpiNasc = todosPartos.filter(p =>
     lotesCicloAtual.some(l => l.inseminacoes?.some(i => i.animal_id === p.mae_id))
   ).length
-  const lotesSortedByData = [...lotesCicloAtual].sort((a, b) => (a.data||'').localeCompare(b.data||''))
-  const kpiIntervalo = (() => {
-    if (lotesSortedByData.length < 2) return '—'
-    let tot = 0
-    for (let i = 1; i < lotesSortedByData.length; i++)
-      tot += Math.round((new Date(lotesSortedByData[i].data) - new Date(lotesSortedByData[i-1].data)) / 86400000)
-    return `${Math.round(tot / (lotesSortedByData.length - 1))} dias`
+  // Intervalo entre partos: para cada mãe com 2+ partos, mede o intervalo entre
+  // partos consecutivos; só considera intervalos plausíveis para bovinos (300–700 dias)
+  const INTERVALO_PARTOS_MIN_DIAS = 300
+  const INTERVALO_PARTOS_MAX_DIAS = 700
+  const intervalosPartosValidos = (() => {
+    const partosPorMae = {}
+    todosPartos.forEach(p => {
+      if (!p.mae_id || !p.data_parto) return
+      partosPorMae[p.mae_id] = partosPorMae[p.mae_id] || []
+      partosPorMae[p.mae_id].push(p.data_parto)
+    })
+    const intervalos = []
+    Object.values(partosPorMae).forEach(datas => {
+      const ordenadas = datas.slice().sort()
+      for (let i = 1; i < ordenadas.length; i++) {
+        const dias = Math.round((new Date(ordenadas[i]) - new Date(ordenadas[i-1])) / 86400000)
+        if (Number.isFinite(dias) && dias >= INTERVALO_PARTOS_MIN_DIAS && dias <= INTERVALO_PARTOS_MAX_DIAS) {
+          intervalos.push(dias)
+        }
+      }
+    })
+    return intervalos
   })()
+  const kpiIntervalo = intervalosPartosValidos.length === 0
+    ? '—'
+    : `${Math.round(intervalosPartosValidos.reduce((s, d) => s + d, 0) / intervalosPartosValidos.length)} dias`
 
   const cicloMapIdx = new Map()
   todosLotes.forEach(l => { if (l.ciclo) cicloMapIdx.set(l.ciclo_id, l.ciclo) })
@@ -483,6 +540,13 @@ export default function Reprodutivo() {
     .map(t => ({ ...t, txPrenhez: t.totalIns > 0 ? Math.round(t.totalPrn/t.totalIns*100) : 0 }))
     .sort((a, b) => b.txPrenhez - a.txPrenhez)
 
+  // Previsão de parto do lote selecionado (data da inseminação + gestação padrão)
+  const previsaoPartoLote = selLote?.data ? (() => {
+    const d = new Date(selLote.data + 'T12:00:00')
+    d.setDate(d.getDate() + GESTACAO_ANGUS_DIAS)
+    return d
+  })() : null
+
   return (
     <div>
       <div className="tabs-bar">
@@ -498,7 +562,7 @@ export default function Reprodutivo() {
             <span style={{ fontSize:'.85rem', color:'#6B7280' }}>{lotes.length} lote{lotes.length!==1?'s':''} · Ciclo {ciclo?.nome}</span>
             <div style={{ display:'flex', flexWrap:'wrap', gap:8 }}>
               {podeEditarReprod && (
-                <button className="btn btn-primary btn-sm" onClick={() => { setModal('lote'); setSelBrs([]) }}>
+                <button className="btn btn-primary btn-sm" onClick={() => { setLoteEdit(null); setForm({}); setModal('lote'); setSelBrs([]) }}>
                   <i className="ti ti-plus" /> Novo lote de inseminação
                 </button>
               )}
@@ -508,7 +572,7 @@ export default function Reprodutivo() {
           <div ref={refLotes}>
           {lotes.length === 0
             ? <EmptyState icon="💉" title="Nenhum lote registrado" sub="Registre o primeiro lote de inseminação do ciclo."
-                action={podeEditarReprod ? <button className="btn btn-primary btn-sm" onClick={()=>{setModal('lote');setSelBrs([])}}><i className="ti ti-plus"/>Novo lote</button> : undefined} />
+                action={podeEditarReprod ? <button className="btn btn-primary btn-sm" onClick={()=>{setLoteEdit(null);setForm({});setModal('lote');setSelBrs([])}}><i className="ti ti-plus"/>Novo lote</button> : undefined} />
             : lotes.map(l => {
               const ins   = l.inseminacoes || []
               const prn   = ins.filter(i=>i.diagnostico==='P').length
@@ -558,6 +622,15 @@ export default function Reprodutivo() {
             </button>
             <span style={{ fontWeight:500 }}>Lote {selLote.numero} — {selLote.touro} · {fmtData(selLote.data)}</span>
             {podeEditarReprod && (
+              <button className="btn btn-secondary btn-sm" onClick={() => {
+                setLoteEdit(selLote)
+                setForm({ data: selLote.data, touro: selLote.touro, protocolo: selLote.protocolo || '' })
+                setModal('lote')
+              }}>
+                <i className="ti ti-edit" /> Editar
+              </button>
+            )}
+            {podeEditarReprod && (
               <button className="btn btn-secondary btn-sm" onClick={() => { setSelBrsAdd([]); setFiltroLoteInsem(''); setModal('addAnimaisLote') }}>
                 <i className="ti ti-plus" /> Adicionar animais
               </button>
@@ -587,6 +660,29 @@ export default function Reprodutivo() {
               <i className="ti ti-microphone" style={{ fontSize:12, marginRight:4 }} />
               Fale assim: <b>"zero três prenha"</b> ou <b>"doze vazia"</b> — primeiro o número do brinco, depois o resultado
             </div>
+            {selInsem.length > 0 && (
+              <div style={{
+                display:'flex', alignItems:'center', justifyContent:'space-between',
+                background:'#FEE2E2', border:'.5px solid #FCA5A5', borderRadius:10,
+                padding:'8px 14px', marginBottom:10
+              }}>
+                <span style={{ fontSize:'.85rem', color:'#7F1D1D', fontWeight:500 }}>
+                  {selInsem.length} selecionado(s)
+                </span>
+                <button className="btn btn-sm" style={{ background:'#DC2626', color:'white' }}
+                  onClick={removerInsemSelecionados} disabled={removendoLote}>
+                  <i className="ti ti-trash" /> {removendoLote ? 'Removendo...' : 'Remover selecionados'}
+                </button>
+              </div>
+            )}
+            {podeEditarReprod && selLote.inseminacoes?.length > 0 && (
+              <div style={{ display:'flex', alignItems:'center', gap:8, padding:'4px 0 8px', borderBottom:'.5px solid #F3F4F6' }}>
+                <input type="checkbox"
+                  checked={selLote.inseminacoes.length > 0 && selLote.inseminacoes.every(i => selInsem.includes(i.id))}
+                  onChange={toggleSelInsemTodos} />
+                <span style={{ fontSize:'.78rem', color:'#6B7280' }}>Marcar/desmarcar todos</span>
+              </div>
+            )}
             {selLote.inseminacoes?.map(ins => {
               const br = ins.animal?.brinco || '?'
               const d  = ins.diagnostico
@@ -595,7 +691,21 @@ export default function Reprodutivo() {
                   display:'flex', alignItems:'center', justifyContent:'space-between',
                   padding:'8px 0', borderBottom:'.5px solid #F3F4F6'
                 }}>
-                  <span style={{ fontWeight:500, minWidth:50 }}>{br}</span>
+                  <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                    {podeEditarReprod && (
+                      <input type="checkbox" checked={selInsem.includes(ins.id)}
+                        onClick={e => e.stopPropagation()}
+                        onChange={() => toggleSelInsem(ins.id)} />
+                    )}
+                    <div>
+                      <span style={{ fontWeight:500, minWidth:50, display:'inline-block' }}>{br}</span>
+                      {d === 'P' && selLote.data && (
+                        <div style={{ fontSize:'.72rem', color:'#1E55B0', marginTop:2 }}>
+                          Prenha · Parto previsto: {fmtData(previsaoPartoLote)}
+                        </div>
+                      )}
+                    </div>
+                  </div>
                   <div style={{ display:'flex', gap:6 }}>
                     {podeEditarReprod && (
                       <button
@@ -791,7 +901,7 @@ export default function Reprodutivo() {
                   { icon:'ti-rosette',       l:'Taxa de prenhez', v: kpiIns > 0 ? `${Math.round(kpiPrn/kpiIns*100)}%` : '—',        c:'#2B6CD9', meta:'meta ≥85%' },
                   { icon:'ti-baby-carriage', l:'Nascimentos',     v: kpiNasc,                                                        c:'#0C447C' },
                   { icon:'ti-trending-up',   l:'Taxa de parição', v: kpiPrn > 0 ? `${Math.round(kpiNasc/kpiPrn*100)}%` : '—',       c:'#2B6CD9', meta:'meta ≥80%' },
-                  { icon:'ti-clock',         l:'Intervalo médio', v: kpiIntervalo,                                                   c:'#633806' },
+                  { icon:'ti-clock',         l:'Intervalo médio', v: kpiIntervalo,                                                   c:'#633806', meta: kpiIntervalo === '—' ? 'sem dados suficientes' : undefined },
                 ].map(k => (
                   <div key={k.l} style={{ background:'white', border:'.5px solid #E5E7EB', borderRadius:12, padding:'12px 14px' }}>
                     <i className={`ti ${k.icon}`} style={{ fontSize:'1.1rem', color:k.c, marginBottom:6, display:'block' }} />
@@ -957,11 +1067,13 @@ export default function Reprodutivo() {
         </div>
       )}
 
-      {/* ── Modal novo lote ── */}
-      <Modal open={modal==='lote'} onClose={()=>setModal(null)} title="Novo lote de inseminação" width={600}>
+      {/* ── Modal novo lote / editar lote ── */}
+      <Modal open={modal==='lote'} onClose={()=>{ setModal(null); setLoteEdit(null) }}
+        title={loteEdit ? 'Editar lote de inseminação' : 'Novo lote de inseminação'} width={600}>
         <div className="grid-form">
           <Field label="Data da inseminação" required>
-            <input type="date" value={form.data||''} onChange={e=>setForm(p=>({...p,data:e.target.value}))} />
+            <input type="date" value={form.data||''}
+              onChange={e=>setForm(p=>({...p,data:e.target.value}))} />
           </Field>
           <Field label="Touro / Sêmen" required>
             <input value={form.touro||''} onChange={e=>setForm(p=>({...p,touro:e.target.value}))} placeholder="Nome do touro" />
@@ -970,6 +1082,7 @@ export default function Reprodutivo() {
             <input value={form.protocolo||''} onChange={e=>setForm(p=>({...p,protocolo:e.target.value}))} placeholder="ex: IATF P4" />
           </Field>
         </div>
+        {!loteEdit && (
         <div style={{ marginBottom:10 }}>
           <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
             <label>Animais do lote ({selBrs.length} selecionados)</label>
@@ -1030,11 +1143,15 @@ export default function Reprodutivo() {
             }
           </div>
         </div>
+        )}
         <div className="modal-actions">
           <button className="btn btn-primary" onClick={salvarLote} disabled={saving}>
-            {saving ? 'Registrando...' : <><i className="ti ti-check" /> Registrar lote</>}
+            {saving
+              ? (loteEdit ? 'Salvando...' : 'Registrando...')
+              : <><i className="ti ti-check" /> {loteEdit ? 'Salvar alterações' : 'Registrar lote'}</>
+            }
           </button>
-          <button className="btn btn-secondary" onClick={()=>setModal(null)}>Cancelar</button>
+          <button className="btn btn-secondary" onClick={()=>{ setModal(null); setLoteEdit(null) }}>Cancelar</button>
         </div>
       </Modal>
 

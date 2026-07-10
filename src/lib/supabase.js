@@ -135,7 +135,7 @@ export const db = {
       { ...data, conta_id: cid(), fazenda_id: fid() },
       { onConflict: 'lote_inseminacao_id,animal_id', ignoreDuplicates: false }
     ).select(),
-    byAnimal: (animalId)  => T('inseminacoes').select('*, lote:lotes_inseminacao(numero,touro,data)').eq('animal_id', animalId).order('created_at', { ascending: true }),
+    byAnimal: (animalId)  => T('inseminacoes').select('*, lote:lotes_inseminacao(numero,touro,data)').eq('animal_id', animalId).order('criado_em', { ascending: true }),
   },
 
   partos: {
