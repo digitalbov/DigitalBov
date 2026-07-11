@@ -1,7 +1,8 @@
 ﻿import { useState, useEffect, useRef } from 'react'
 import { db } from '../lib/supabase'
 import { fmtData } from '../lib/helpers'
-import { Loading, BotaoPDF, EmptyState, ErroCarregamento } from '../components/UI'
+import { Loading, BotaoPDF, EmptyState, ErroCarregamento, SeletorCicloLocal } from '../components/UI'
+import { useCiclo } from '../lib/CicloContext'
 import { addDays, parseISO, differenceInDays } from 'date-fns'
 
 // ── Urgência ──────────────────────────────────────────────────────
@@ -107,6 +108,12 @@ export default function Calendario() {
   const [vazias,    setVazias]   = useState([])
   const [filtTipo,  setFiltTipo] = useState('todos')
 
+  const { ciclos, cicloSelecionado, dentroDoCiclo } = useCiclo()
+  // Seletor de ciclo LOCAL desta tela — inicia (e reseta, a cada montagem da
+  // tela) no ciclo GLOBAL selecionado no menu lateral, não no ciclo atual.
+  const [cicloLocal, setCicloLocal] = useState(null)
+  useEffect(() => { if (cicloSelecionado && !cicloLocal) setCicloLocal(cicloSelecionado) }, [cicloSelecionado]) // eslint-disable-line
+
   useEffect(() => { loadData() }, [])
 
   const loadData = async () => {
@@ -127,10 +134,8 @@ export default function Calendario() {
         catch { return null }
       }
 
-      const { data: ciclo } = await db.ciclos.current()
-
       const [rLotes, rSanidade, rEstoque, rAnimais] = await Promise.all([
-        ciclo ? db.lotesInseminacao.list(ciclo.id) : { data: [] },
+        db.lotesInseminacao.listAll(),
         db.sanidade.list(),
         db.estoque.list(),
         db.animais.list({ situacao: 'ativo' })
@@ -203,22 +208,29 @@ export default function Calendario() {
   if (loading) return <Loading />
   if (loadError) return <ErroCarregamento onRetry={loadData} />
 
+  // Eventos dentro do ciclo local selecionado
+  const eventosCiclo = eventos.filter(e => cicloLocal && dentroDoCiclo(e.data, cicloLocal))
+
   // Filtros aplicados
-  const filtrados = filtTipo === 'todos' ? eventos : eventos.filter(e => e.tipo === filtTipo)
+  const filtrados = filtTipo === 'todos' ? eventosCiclo : eventosCiclo.filter(e => e.tipo === filtTipo)
   const overdue   = filtrados.filter(e => e.dias !== null && e.dias < 0)
   const upcoming  = filtrados.filter(e => e.dias === null || e.dias >= 0)
   const mostrarVazias = filtTipo === 'todos' || filtTipo === 'reproducao'
 
-  // KPIs (sempre sobre o total, independente do filtro)
-  const kpiAtrasados = eventos.filter(e => e.dias !== null && e.dias < 0).length
-  const kpiSemana    = eventos.filter(e => e.dias !== null && e.dias >= 0 && e.dias <= 7).length
-  const kpiMes       = eventos.filter(e => e.dias !== null && e.dias > 7 && e.dias <= 30).length
-  const kpiTotal     = eventos.length + vazias.length
+  // KPIs (sempre sobre o total do ciclo, independente do filtro de tipo)
+  const kpiAtrasados = eventosCiclo.filter(e => e.dias !== null && e.dias < 0).length
+  const kpiSemana    = eventosCiclo.filter(e => e.dias !== null && e.dias >= 0 && e.dias <= 7).length
+  const kpiMes       = eventosCiclo.filter(e => e.dias !== null && e.dias > 7 && e.dias <= 30).length
+  const kpiTotal     = eventosCiclo.length + vazias.length
 
   const totalVisiveis = filtrados.length + (mostrarVazias ? vazias.length : 0)
 
   return (
     <div>
+      <div style={{ marginBottom:14 }}>
+        <SeletorCicloLocal cicloLocal={cicloLocal} setCicloLocal={setCicloLocal} ciclos={ciclos} />
+      </div>
+
       {/* ── KPI cards ── */}
       <div className="kpi-grid" style={{ marginBottom: 16 }}>
         {[

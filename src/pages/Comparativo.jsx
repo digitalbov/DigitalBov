@@ -1,8 +1,9 @@
 ﻿import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { useFazenda } from '../lib/FazendaContext'
+import { useCiclo } from '../lib/CicloContext'
 import { fmtMoeda, calcCategoria } from '../lib/helpers'
-import { Loading, EmptyState } from '../components/UI'
+import { Loading, EmptyState, SeletorCicloLocal } from '../components/UI'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   Legend, ResponsiveContainer
@@ -10,34 +11,54 @@ import {
 
 export default function Comparativo() {
   const { fazendas } = useFazenda()
+  const { ciclos, cicloSelecionado } = useCiclo()
   const [tab,     setTab]     = useState('financeiro')
   const [dados,   setDados]   = useState([])
   const [loading, setLoading] = useState(true)
 
+  // Seletor de ciclo LOCAL desta tela — inicia (e reseta, a cada montagem da
+  // tela) no ciclo GLOBAL selecionado no menu lateral. Como cada fazenda tem
+  // seus próprios registros de ciclos_financeiros, o alinhamento entre
+  // fazendas é feito pelo NOME do ciclo (ex: "2025/26"), não pelo id.
+  const [cicloLocal, setCicloLocal] = useState(null)
+  useEffect(() => { if (cicloSelecionado && !cicloLocal) setCicloLocal(cicloSelecionado) }, [cicloSelecionado]) // eslint-disable-line
+
   useEffect(() => {
-    if (fazendas.length < 2) { setLoading(false); return }
+    if (fazendas.length < 2 || !cicloLocal) { setLoading(false); return }
     loadComparativo()
-  }, [fazendas.length]) // eslint-disable-line
+  }, [fazendas.length, cicloLocal?.nome]) // eslint-disable-line
 
   const loadComparativo = async () => {
     setLoading(true)
-    const resultados = await Promise.all(fazendas.map(f => carregarFazenda(f)))
+    console.log('[Comparativo] fazendas.length =', fazendas.length, '| fazendas:', fazendas.map(f => ({ nome: f.nome, id: f.id })))
+    console.log('[Comparativo] cicloLocal selecionado:', cicloLocal?.nome, cicloLocal)
+    const resultados = await Promise.all(fazendas.map(f => carregarFazenda(f, cicloLocal.nome)))
+    console.log('[Comparativo] resultado final (1 objeto por fazenda):', resultados)
     setDados(resultados)
     setLoading(false)
   }
 
-  const carregarFazenda = async (fazenda) => {
+  const carregarFazenda = async (fazenda, nomeCiclo) => {
     const fid = fazenda.id
+    console.log(`[Comparativo] → "${fazenda.nome}" (fazenda_id=${fid}): buscando ciclo com nome="${nomeCiclo}"`)
 
     const [rAnimais, rCiclo, rPiqs] = await Promise.all([
       supabase.from('animais').select('*').eq('fazenda_id', fid).eq('situacao', 'ativo'),
-      supabase.from('ciclos_financeiros').select('*').eq('fazenda_id', fid).eq('atual', true).maybeSingle(),
+      supabase.from('ciclos_financeiros').select('*').eq('fazenda_id', fid).eq('nome', nomeCiclo).maybeSingle(),
       supabase.from('piquetes').select('area_ha').eq('fazenda_id', fid),
     ])
+
+    if (rAnimais.error) console.error(`[Comparativo] "${fazenda.nome}": erro ao buscar animais:`, rAnimais.error)
+    if (rCiclo.error)   console.error(`[Comparativo] "${fazenda.nome}": erro ao buscar ciclo "${nomeCiclo}":`, rCiclo.error)
+    if (rPiqs.error)    console.error(`[Comparativo] "${fazenda.nome}": erro ao buscar piquetes:`, rPiqs.error)
 
     const animais = rAnimais.data || []
     const ciclo   = rCiclo.data
     const piqs    = rPiqs.data || []
+
+    console.log(`[Comparativo] "${fazenda.nome}": ciclo resolvido =`,
+      ciclo ? { id: ciclo.id, nome: ciclo.nome, fazenda_id: ciclo.fazenda_id, inicio: ciclo.inicio, fim: ciclo.fim } : null,
+      ciclo ? '' : `← NENHUM ciclo chamado "${nomeCiclo}" encontrado para fazenda_id=${fid}`)
 
     let lancamentos = [], transacoes = []
     if (ciclo) {
@@ -45,8 +66,13 @@ export default function Comparativo() {
         supabase.from('lancamentos_financeiros').select('tipo,valor').eq('ciclo_id', ciclo.id).eq('fazenda_id', fid),
         supabase.from('transacoes_animais').select('tipo,valor').eq('ciclo_id', ciclo.id).eq('fazenda_id', fid),
       ])
+      if (rL.error) console.error(`[Comparativo] "${fazenda.nome}": erro ao buscar lancamentos_financeiros:`, rL.error)
+      if (rT.error) console.error(`[Comparativo] "${fazenda.nome}": erro ao buscar transacoes_animais:`, rT.error)
       lancamentos = rL.data || []
       transacoes  = rT.data || []
+      console.log(`[Comparativo] "${fazenda.nome}": ${lancamentos.length} lançamentos + ${transacoes.length} transações no ciclo "${ciclo.nome}" (ciclo_id=${ciclo.id})`)
+    } else {
+      console.warn(`[Comparativo] "${fazenda.nome}": sem ciclo "${nomeCiclo}" → receitas/despesas ficarão em zero para esta fazenda`)
     }
 
     const todasReceitas = [...lancamentos.filter(l=>l.tipo==='R'), ...transacoes.filter(t=>t.tipo==='V')]
@@ -119,6 +145,10 @@ export default function Comparativo() {
 
   return (
     <div>
+      <div style={{ marginBottom:14 }}>
+        <SeletorCicloLocal cicloLocal={cicloLocal} setCicloLocal={setCicloLocal} ciclos={ciclos} />
+      </div>
+
       {/* Resumo consolidado */}
       <div className="grid-4" style={{ marginBottom:24 }}>
         {[

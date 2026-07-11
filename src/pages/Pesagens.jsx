@@ -1,8 +1,9 @@
 ﻿import { useState, useEffect, useRef } from 'react'
 import { db } from '../lib/supabase'
 import { usePermissoes } from '../lib/PermissoesContext'
+import { useCiclo, statusCiclo } from '../lib/CicloContext'
 import { fmtData, calcGMD, fmtPeso } from '../lib/helpers'
-import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, IndexCard, BotaoPDF, Confirm, ErroCarregamento } from '../components/UI'
+import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, IndexCard, BotaoPDF, Confirm, ErroCarregamento, BannerCicloEncerrado, SeletorCicloLocal } from '../components/UI'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 
 const TABS  = ['Registrar','Por Animal','Desempenho','Projeção']
@@ -16,6 +17,14 @@ export default function Pesagens() {
 
   const { podeEditar } = usePermissoes()
   const podeEditarPesagens = podeEditar('pesagens')
+  const { ciclos, cicloSelecionado, dentroDoCiclo, cicloDaData, dataEhEditavel } = useCiclo()
+
+  // Seletor de ciclo LOCAL desta tela — inicia (e reseta, a cada montagem da
+  // tela) no ciclo GLOBAL selecionado no menu lateral, não no ciclo atual.
+  const [cicloLocal, setCicloLocal] = useState(null)
+  useEffect(() => { if (cicloSelecionado && !cicloLocal) setCicloLocal(cicloSelecionado) }, [cicloSelecionado]) // eslint-disable-line
+  const statusCicloLocal = statusCiclo(cicloLocal)
+  const podeEditarPesagensCiclo = podeEditarPesagens && (statusCicloLocal === 'atual' || statusCicloLocal === 'carencia')
 
   const [tab,     setTab]    = useState(0)
   const [animais, setAnimais]= useState([])
@@ -50,8 +59,16 @@ export default function Pesagens() {
   }
 
   const salvar = async () => {
+    if (!podeEditarPesagensCiclo) return
     if (!form.animal_id || !form.data || !form.peso_kg || !form.tipo) {
       toast('Preencha todos os campos.','error'); return
+    }
+    if (!dataEhEditavel(form.data)) {
+      const c = cicloDaData(form.data)
+      toast(c
+        ? 'Não é possível lançar nesta data: ela está fora do ciclo atual (ou em um ciclo já encerrado).'
+        : 'Data fora de qualquer ciclo cadastrado.', 'error')
+      return
     }
     setSaving(true)
     const { error } = await db.pesagens.insert({
@@ -68,6 +85,7 @@ export default function Pesagens() {
   }
 
   const excluir = async (id) => {
+    if (!podeEditarPesagensCiclo) return
     const { error } = await db.pesagens.delete(id)
     if (error) { toast('Erro ao excluir: ' + error.message, 'error'); return }
     toast('Pesagem removida.')
@@ -116,11 +134,22 @@ export default function Pesagens() {
 
   const mediaGMD = gmds.length ? (gmds.reduce((s,x)=>s+x.gmd,0)/gmds.length).toFixed(3) : '—'
 
+  // Filtra a lista de registros (aba Registrar) pelo ciclo local. As demais
+  // abas (Por Animal, Desempenho, Projeção) usam o histórico completo, pois
+  // o cálculo de GMD/projeção depende de pesagens de qualquer época.
+  const pesagensFiltradas = pesagens.filter(p => cicloLocal && dentroDoCiclo(p.data, cicloLocal))
+
   if (loading) return <Loading />
   if (loadError) return <ErroCarregamento onRetry={loadAll} />
 
   return (
     <div>
+      <div style={{ marginBottom:14 }}>
+        <SeletorCicloLocal cicloLocal={cicloLocal} setCicloLocal={setCicloLocal} ciclos={ciclos} />
+      </div>
+
+      <BannerCicloEncerrado ciclo={cicloLocal} />
+
       <div className="tabs-bar">
         {TABS.map((t,i) => (
           <button key={t} className={`tab-btn ${tab===i?'active':''}`} onClick={()=>setTab(i)}>{t}</button>
@@ -131,9 +160,9 @@ export default function Pesagens() {
       {tab === 0 && (
         <div>
           <div style={{ display:'flex', justifyContent:'space-between', marginBottom:12 }}>
-            <span style={{ fontSize:'.85rem', color:'#6B7280' }}>{pesagens.length} pesagens em {animaisComPeso.length} animais</span>
+            <span style={{ fontSize:'.85rem', color:'#6B7280' }}>{pesagensFiltradas.length} pesagens neste ciclo · {animaisComPeso.length} animais no histórico</span>
             <div style={{ display:'flex', gap:8 }}>
-              {podeEditarPesagens && (
+              {podeEditarPesagensCiclo && (
                 <button className="btn btn-primary btn-sm" onClick={() => { setForm({ tipo:'intermediaria', data: new Date().toISOString().split('T')[0] }); setModal(true) }}>
                   <i className="ti ti-plus" /> Registrar pesagem
                 </button>
@@ -142,9 +171,9 @@ export default function Pesagens() {
             </div>
           </div>
           <div ref={refReg}>
-          {pesagens.length === 0
-            ? <EmptyState icon="⚖️" title="Nenhuma pesagem registrada"
-                action={podeEditarPesagens ? <button className="btn btn-primary btn-sm" onClick={()=>{setForm({tipo:'intermediaria',data:new Date().toISOString().split('T')[0]});setModal(true)}}><i className="ti ti-plus"/>Registrar</button> : undefined}/>
+          {pesagensFiltradas.length === 0
+            ? <EmptyState icon="⚖️" title="Nenhuma pesagem registrada neste ciclo"
+                action={podeEditarPesagensCiclo ? <button className="btn btn-primary btn-sm" onClick={()=>{setForm({tipo:'intermediaria',data:new Date().toISOString().split('T')[0]});setModal(true)}}><i className="ti ti-plus"/>Registrar</button> : undefined}/>
             : (
               <div className="table-wrap">
                 <table>
@@ -152,7 +181,7 @@ export default function Pesagens() {
                     <tr><th>Brinco</th><th>Data</th><th>Tipo</th><th style={{textAlign:'right'}}>Peso</th><th></th></tr>
                   </thead>
                   <tbody>
-                    {pesagens.slice(0,30).map(p => {
+                    {pesagensFiltradas.slice(0,30).map(p => {
                       const a = animais.find(x => x.id === p.animal_id)
                       return (
                         <tr key={p.id}>
@@ -161,7 +190,7 @@ export default function Pesagens() {
                           <td><Badge color="gray">{p.tipo}</Badge></td>
                           <td style={{ textAlign:'right', fontWeight:500 }}>{fmtPeso(p.peso_kg)}</td>
                           <td>
-                            {podeEditarPesagens && (
+                            {podeEditarPesagensCiclo && (
                               <button className="btn-icon" onClick={() => setConfirmDel(p.id)}>
                                 <i className="ti ti-trash" style={{fontSize:13}}/>
                               </button>

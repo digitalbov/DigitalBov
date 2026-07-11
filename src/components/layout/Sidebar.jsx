@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import { auth, supabase } from '../../lib/supabase'
 import { useFazenda } from '../../lib/FazendaContext'
 import { useConta } from '../../lib/ContaContext'
+import { useCiclo, statusCiclo, STATUS_CICLO_LABEL } from '../../lib/CicloContext'
 import { usePermissoes } from '../../lib/PermissoesContext'
 import OnboardingWizard from '../OnboardingWizard'
 import Tutorial from '../Tutorial'
@@ -46,10 +47,12 @@ export default function Sidebar({ user, perfil, mobileOpen, onClose }) {
   const location  = useLocation()
   const { fazendas, fazendaAtual, setFazendaAtual, carregarFazendas } = useFazenda()
   const { contas, contaAtual, setContaAtual } = useConta()
+  const { ciclos, cicloSelecionado, setCicloSelecionado, statusCicloSelecionado } = useCiclo()
   const { podeVer } = usePermissoes()
   const ehAdmin = contaAtual?.papel === 'dono' || contaAtual?.papel === 'admin'
   const [seletorAberto, setSeletorAberto] = useState(false)
   const [seletorContaAberto, setSeletorContaAberto] = useState(false)
+  const [seletorCicloAberto, setSeletorCicloAberto] = useState(false)
   const [modalNova, setModalNova] = useState(false)
   const [novaForm, setNovaForm] = useState({ nome:'', localizacao:'' })
   const [salvandoNova, setSalvandoNova] = useState(false)
@@ -251,6 +254,62 @@ export default function Sidebar({ user, perfil, mobileOpen, onClose }) {
                     <span style={{ fontSize:'.83rem' }}>Nova fazenda</span>
                   </button>
                 )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Seletor de Ciclo */}
+        {cicloSelecionado && (
+          <div style={{ padding:'6px 12px', marginBottom:8, position:'relative' }}>
+            <button
+              onClick={() => setSeletorCicloAberto(o => !o)}
+              style={{
+                width:'100%', background:'rgba(255,255,255,.06)', border:'1px solid rgba(255,255,255,.14)',
+                borderRadius:10, padding:'8px 10px', cursor:'pointer', color:'white', minHeight:44,
+                display:'flex', alignItems:'center', gap:8, fontFamily:'inherit', textAlign:'left'
+              }}
+            >
+              <i className="ti ti-calendar-event" style={{ fontSize:14, flexShrink:0 }} />
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ fontSize:'.65rem', color:'rgba(255,255,255,.55)' }}>
+                  Ciclo
+                </div>
+                <div style={{ fontSize:'.78rem', fontWeight:600, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                  {cicloSelecionado.nome} ({STATUS_CICLO_LABEL[statusCicloSelecionado]})
+                </div>
+              </div>
+              <i className={`ti ti-chevron-${seletorCicloAberto?'up':'down'}`} style={{ fontSize:12, flexShrink:0 }} />
+            </button>
+
+            {seletorCicloAberto && (
+              <div style={{
+                position:'absolute', top:'100%', left:12, right:12, zIndex:100,
+                background:'white', borderRadius:10, boxShadow:'0 8px 24px rgba(0,0,0,.18)',
+                border:'1px solid #E5E7EB', overflow:'hidden', marginTop:4, maxHeight:280, overflowY:'auto'
+              }}>
+                {ciclos.map(c => {
+                  const st = statusCiclo(c)
+                  return (
+                    <button
+                      key={c.id}
+                      onClick={() => { setCicloSelecionado(c); setSeletorCicloAberto(false) }}
+                      style={{
+                        width:'100%', padding:'10px 14px', background: c.id===cicloSelecionado.id ? '#E8F0FC' : 'white',
+                        border:'none', cursor:'pointer', textAlign:'left', fontFamily:'inherit',
+                        borderBottom:'1px solid #F3F4F6', display:'flex', alignItems:'center', gap:8
+                      }}
+                    >
+                      <i className="ti ti-calendar-event" style={{ color:'#2B6CD9', fontSize:14 }} />
+                      <div>
+                        <div style={{ fontSize:'.83rem', fontWeight:c.id===cicloSelecionado.id?600:400, color:'#111827' }}>
+                          {c.nome} <span style={{ fontSize:'.7rem', color:'#6B7280', fontWeight:400 }}>({STATUS_CICLO_LABEL[st]})</span>
+                        </div>
+                      </div>
+                      {c.id===cicloSelecionado.id && <i className="ti ti-check" style={{ marginLeft:'auto', color:'#2B6CD9', fontSize:14 }} />}
+                    </button>
+                  )
+                })}
               </div>
             )}
           </div>

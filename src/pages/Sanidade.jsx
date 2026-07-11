@@ -3,8 +3,9 @@ import { db } from '../lib/supabase'
 import { usePermissoes } from '../lib/PermissoesContext'
 import { useConta } from '../lib/ContaContext'
 import { useFazenda } from '../lib/FazendaContext'
+import { useCiclo, statusCiclo } from '../lib/CicloContext'
 import { fmtData, diasDesde, calcCategoriaRebanho } from '../lib/helpers'
-import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, AlertBox, BotaoPDF, Confirm, ErroCarregamento } from '../components/UI'
+import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, AlertBox, BotaoPDF, Confirm, ErroCarregamento, BannerCicloEncerrado, SeletorCicloLocal } from '../components/UI'
 
 const TABS   = ['Registros','Alertas','Histórico']
 const TIPOS  = ['Vacina','Vermifugação','Ectoparasita','Medicação','Exame']
@@ -27,6 +28,14 @@ export default function Sanidade() {
   const podeEditarSanidade = podeEditar('sanidade')
   const { contaAtual }   = useConta()
   const { fazendaAtual } = useFazenda()
+  const { ciclos, cicloSelecionado, dentroDoCiclo, cicloDaData, dataEhEditavel } = useCiclo()
+
+  // Seletor de ciclo LOCAL desta tela — inicia (e reseta, a cada montagem da
+  // tela) no ciclo GLOBAL selecionado no menu lateral, não no ciclo atual.
+  const [cicloLocal, setCicloLocal] = useState(null)
+  useEffect(() => { if (cicloSelecionado && !cicloLocal) setCicloLocal(cicloSelecionado) }, [cicloSelecionado]) // eslint-disable-line
+  const statusCicloLocal = statusCiclo(cicloLocal)
+  const podeEditarSanidadeCiclo = podeEditarSanidade && (statusCicloLocal === 'atual' || statusCicloLocal === 'carencia')
 
   const [tab,      setTab]     = useState(0)
   const [dados,    setDados]   = useState([])
@@ -105,8 +114,16 @@ export default function Sanidade() {
   })
 
   const salvar = async () => {
+    if (!podeEditarSanidadeCiclo) return
     if (!form.data || !form.tipo || !form.procedimento) {
       toast('Preencha data, tipo e procedimento.', 'error'); return
+    }
+    if (!dataEhEditavel(form.data)) {
+      const c = cicloDaData(form.data)
+      toast(c
+        ? 'Não é possível lançar nesta data: ela está fora do ciclo atual (ou em um ciclo já encerrado).'
+        : 'Data fora de qualquer ciclo cadastrado.', 'error')
+      return
     }
     setSaving(true)
     const lote_descricao = modoSelecao === 'individual'
@@ -151,6 +168,7 @@ export default function Sanidade() {
   }
 
   const excluir = async (id) => {
+    if (!podeEditarSanidadeCiclo) return
     const { error } = await db.sanidade.delete(id)
     if (error) { toast('Erro ao excluir: ' + error.message, 'error'); return }
     toast('Registro removido.')
@@ -174,11 +192,21 @@ export default function Sanidade() {
   const vencidos = dados.filter(d => d.proximo && new Date(d.proximo + 'T12:00:00') < hoje)
   const proximos = dados.filter(d => d.proximo && new Date(d.proximo + 'T12:00:00') >= hoje && new Date(d.proximo + 'T12:00:00') <= em30)
 
+  // Filtra os registros (Registros/Histórico) pelo ciclo local; Alertas mostra
+  // sempre tudo, pois trata de vencimentos futuros, não do período de registro.
+  const dadosFiltrados = dados.filter(d => cicloLocal && dentroDoCiclo(d.data, cicloLocal))
+
   if (loading) return <Loading />
   if (loadError) return <ErroCarregamento onRetry={load} />
 
   return (
     <div>
+      <div style={{ marginBottom:14 }}>
+        <SeletorCicloLocal cicloLocal={cicloLocal} setCicloLocal={setCicloLocal} ciclos={ciclos} />
+      </div>
+
+      <BannerCicloEncerrado ciclo={cicloLocal} />
+
       <div className="tabs-bar">
         {TABS.map((t, i) => (
           <button key={t} className={`tab-btn ${tab === i ? 'active' : ''}`} onClick={() => setTab(i)}>{t}</button>
@@ -189,11 +217,11 @@ export default function Sanidade() {
       {tab === 0 && (
         <div>
           <div className="sanidade-reg-header">
-            <span className="sanidade-reg-count">{dados.length} procedimentos</span>
+            <span className="sanidade-reg-count">{dadosFiltrados.length} procedimentos</span>
             <div className="sanidade-reg-pdf">
               <BotaoPDF contentRef={refReg} filename="sanidade-registros" titulo="Sanidade: Registros" />
             </div>
-            {podeEditarSanidade && (
+            {podeEditarSanidadeCiclo && (
               <div className="sanidade-reg-novo">
                 <button className="btn btn-primary btn-sm" onClick={() => { resetFormSelecao(); setForm({ tipo:'Vacina' }); setModal(true) }}>
                   <i className="ti ti-plus" /> Novo procedimento
@@ -202,9 +230,9 @@ export default function Sanidade() {
             )}
           </div>
           <div ref={refReg}>
-          {dados.length === 0
-            ? <EmptyState icon="💉" title="Nenhum procedimento registrado"
-                action={podeEditarSanidade ? <button className="btn btn-primary btn-sm" onClick={()=>{resetFormSelecao();setForm({tipo:'Vacina'});setModal(true)}}><i className="ti ti-plus"/>Registrar</button> : undefined}/>
+          {dadosFiltrados.length === 0
+            ? <EmptyState icon="💉" title="Nenhum procedimento registrado neste ciclo"
+                action={podeEditarSanidadeCiclo ? <button className="btn btn-primary btn-sm" onClick={()=>{resetFormSelecao();setForm({tipo:'Vacina'});setModal(true)}}><i className="ti ti-plus"/>Registrar</button> : undefined}/>
             : (
               <div className="table-wrap">
                 <table>
@@ -212,7 +240,7 @@ export default function Sanidade() {
                     <tr><th>Data</th><th>Tipo</th><th>Procedimento</th><th>Grupo/Lote</th><th>Qt</th><th>Próximo</th><th>Custo</th><th></th></tr>
                   </thead>
                   <tbody>
-                    {dados.map(d => {
+                    {dadosFiltrados.map(d => {
                       const prx = d.proximo ? new Date(d.proximo + 'T12:00:00') : null
                       const venc = prx && prx < hoje
                       return (
@@ -230,7 +258,7 @@ export default function Sanidade() {
                             {d.custo > 0 ? `R$ ${parseFloat(d.custo).toFixed(2)}` : '—'}
                           </td>
                           <td>
-                            {podeEditarSanidade && (
+                            {podeEditarSanidadeCiclo && (
                               <button className="btn-icon" onClick={() => setConfirmDel(d.id)}>
                                 <i className="ti ti-trash" style={{ fontSize:13 }} />
                               </button>

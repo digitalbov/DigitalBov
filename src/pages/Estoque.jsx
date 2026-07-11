@@ -1,8 +1,9 @@
 ﻿import { useState, useEffect, useRef } from 'react'
 import { db } from '../lib/supabase'
 import { usePermissoes } from '../lib/PermissoesContext'
+import { useCiclo, statusCiclo } from '../lib/CicloContext'
 import { fmtData } from '../lib/helpers'
-import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, AlertBox, BotaoPDF, Confirm, ErroCarregamento } from '../components/UI'
+import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, AlertBox, BotaoPDF, Confirm, ErroCarregamento, BannerCicloEncerrado, SeletorCicloLocal } from '../components/UI'
 
 const TABS = ['Inventário','Movimentar','Alertas']
 const CATS = ['Medicamento','Vacina','Sêmen','Suplemento','Ração','Outro']
@@ -22,6 +23,16 @@ export default function Estoque() {
 
   const { podeEditar } = usePermissoes()
   const podeEditarEstoque = podeEditar('estoque')
+  const { ciclos, cicloSelecionado, dentroDoCiclo, cicloDaData, dataEhEditavel } = useCiclo()
+
+  // Seletor de ciclo LOCAL desta tela — inicia (e reseta, a cada montagem da
+  // tela) no ciclo GLOBAL selecionado no menu lateral, não no ciclo atual.
+  // Só afeta a listagem de MOVIMENTAÇÕES (têm data); os itens são saldo atual
+  // e ficam sempre visíveis/edítáveis conforme a permissão do módulo.
+  const [cicloLocal, setCicloLocal] = useState(null)
+  useEffect(() => { if (cicloSelecionado && !cicloLocal) setCicloLocal(cicloSelecionado) }, [cicloSelecionado]) // eslint-disable-line
+  const statusCicloLocal = statusCiclo(cicloLocal)
+  const podeEditarMovCiclo = podeEditarEstoque && (statusCicloLocal === 'atual' || statusCicloLocal === 'carencia')
 
   const [tab,     setTab]    = useState(0)
   const [itens,   setItens]  = useState([])
@@ -80,8 +91,16 @@ export default function Estoque() {
   }
 
   const salvarMov = async () => {
+    if (!podeEditarMovCiclo) return
     if (!form.item_id || !form.tipo || !form.quantidade || !form.data) {
       toast('Preencha todos os campos.', 'error'); return
+    }
+    if (!dataEhEditavel(form.data)) {
+      const c = cicloDaData(form.data)
+      toast(c
+        ? 'Não é possível lançar nesta data: ela está fora do ciclo atual (ou em um ciclo já encerrado).'
+        : 'Data fora de qualquer ciclo cadastrado.', 'error')
+      return
     }
     setSaving(true)
     const item = itens.find(i => i.id === form.item_id)
@@ -130,11 +149,18 @@ export default function Estoque() {
   const totalAlertas = baixo.length + alertasValidade.length
   const catList = [...new Set(itens.map(i => i.categoria))].sort()
 
+  // Movimentações filtradas pelo ciclo local (itens de estoque não são filtrados: são saldo atual)
+  const movsFiltrados = movs.filter(m => cicloLocal && dentroDoCiclo(m.data, cicloLocal))
+
   if (loading) return <Loading />
   if (loadError) return <ErroCarregamento onRetry={loadAll} />
 
   return (
     <div>
+      <div style={{ marginBottom:14 }}>
+        <SeletorCicloLocal cicloLocal={cicloLocal} setCicloLocal={setCicloLocal} ciclos={ciclos} />
+      </div>
+
       <div className="tabs-bar">
         {TABS.map((t, i) => (
           <button key={t} className={`tab-btn ${tab === i ? 'active' : ''}`} onClick={() => setTab(i)}>
@@ -233,10 +259,11 @@ export default function Estoque() {
       {/* ── Movimentar ── */}
       {tab === 1 && (
         <div>
+          <BannerCicloEncerrado ciclo={cicloLocal} />
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
-            <span style={{ fontSize: '.85rem', color: '#6B7280' }}>{movs.length} movimentações</span>
+            <span style={{ fontSize: '.85rem', color: '#6B7280' }}>{movsFiltrados.length} movimentações neste ciclo</span>
             <div style={{ display: 'flex', gap: 8 }}>
-              {podeEditarEstoque && (
+              {podeEditarMovCiclo && (
                 <button className="btn btn-primary btn-sm" onClick={() => { setForm({ tipo: 'S', data: new Date().toISOString().split('T')[0] }); setModal('mov') }}>
                   <i className="ti ti-plus" /> Movimentar
                 </button>
@@ -245,14 +272,14 @@ export default function Estoque() {
             </div>
           </div>
           <div ref={refMov}>
-            {movs.length === 0
-              ? <EmptyState icon="📋" title="Nenhuma movimentação" />
+            {movsFiltrados.length === 0
+              ? <EmptyState icon="📋" title="Nenhuma movimentação neste ciclo" />
               : (
                 <div className="table-wrap">
                   <table>
                     <thead><tr><th>Data</th><th>Tipo</th><th>Item</th><th style={{ textAlign: 'right' }}>Qtde</th><th>Motivo</th></tr></thead>
                     <tbody>
-                      {movs.map(m => (
+                      {movsFiltrados.map(m => (
                         <tr key={m.id}>
                           <td>{fmtData(m.data)}</td>
                           <td><Badge color={m.tipo === 'E' ? 'green' : 'amber'}>{m.tipo === 'E' ? 'Entrada' : 'Saída'}</Badge></td>

@@ -1,5 +1,6 @@
 ﻿import { useState, useCallback } from 'react'
 import { useFazenda } from '../lib/FazendaContext'
+import { useCiclo, statusCiclo, STATUS_CICLO_LABEL } from '../lib/CicloContext'
 
 // ── Toast notification system ─────────────────────────────────────
 let toastFn = null
@@ -281,6 +282,39 @@ export function AlertBox({ type = 'green', icon, title, body }) {
         {title && <div className="alert-title">{title}</div>}
         {body  && <div className="alert-body">{body}</div>}
       </div>
+    </div>
+  )
+}
+
+// ── Banner de ciclo encerrado (somente leitura) ────────────────────
+// Sem prop `ciclo`, usa o ciclo GLOBAL selecionado (menu lateral). Passe
+// `ciclo` para refletir um seletor LOCAL de tela (independente do global).
+export function BannerCicloEncerrado({ ciclo } = {}) {
+  const { cicloSelecionado } = useCiclo()
+  const c = ciclo !== undefined ? ciclo : cicloSelecionado
+  if (!c) return null
+  const st = statusCiclo(c)
+  if (st === 'atual' || st === 'carencia') return null
+  return (
+    <AlertBox type="amber" icon="ti-lock" title="Somente leitura"
+      body={`Você está visualizando o ciclo ${c.nome}, que está encerrado. Os dados são somente para consulta e não podem ser editados.`} />
+  )
+}
+
+// ── Seletor de ciclo LOCAL de tela ──────────────────────────────────
+// Independente do seletor global do menu lateral: cada tela mantém seu
+// próprio estado (cicloLocal) e passa ciclos + setter aqui.
+export function SeletorCicloLocal({ cicloLocal, setCicloLocal, ciclos }) {
+  if (!ciclos?.length) return null
+  return (
+    <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+      <span style={{ fontSize:'.82rem', color:'#6B7280', fontWeight:500 }}>Ciclo:</span>
+      <select value={cicloLocal?.id || ''} onChange={e => setCicloLocal(ciclos.find(c => c.id === e.target.value) || null)}
+        style={{ width:'auto', fontSize:'.85rem', padding:'5px 10px' }}>
+        {ciclos.map(c => (
+          <option key={c.id} value={c.id}>{c.nome} ({STATUS_CICLO_LABEL[statusCiclo(c)]})</option>
+        ))}
+      </select>
     </div>
   )
 }

@@ -5,10 +5,11 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { db } from '../lib/supabase'
 import { calcCategoria, calcCategoriaRebanho, pct, fmtMoeda } from '../lib/helpers'
-import { Loading, IndexCard, BotaoPDF, ErroCarregamento } from '../components/UI'
+import { Loading, IndexCard, BotaoPDF, ErroCarregamento, SeletorCicloLocal, Badge, EmptyState } from '../components/UI'
+import { useCiclo } from '../lib/CicloContext'
 import {
   BarChart, Bar, XAxis, YAxis,
-  CartesianGrid, Tooltip, ResponsiveContainer
+  CartesianGrid, Tooltip, Legend, ResponsiveContainer
 } from 'recharts'
 
 const TABS_R = ['Visão Geral','Índices','Comparativo','Histórico','Valor do Rebanho']
@@ -35,32 +36,70 @@ export function Rebanho() {
   const [loadError,    setLoadError]    = useState(false)
   const [catPrecos,    setCatPrecos]    = useState([])
   const [selProps,     setSelProps]     = useState([])
-  const [ciclo,        setCiclo]        = useState(null)
-  const [lotesInsem,   setLotesInsem]   = useState([])
+  const [todosLotesInsem, setTodosLotesInsem] = useState([])
   const [pesagensPorAnimal, setPesagensPorAnimal] = useState({})
 
+  const { ciclos, cicloSelecionado, cicloAtual } = useCiclo()
+  // Seletor de ciclo LOCAL da aba Índices — inicia (e reseta, a cada montagem
+  // da tela) no ciclo GLOBAL selecionado no menu lateral, não no ciclo atual.
+  const [cicloLocal, setCicloLocal] = useState(null)
+  useEffect(() => { if (cicloSelecionado && !cicloLocal) setCicloLocal(cicloSelecionado) }, [cicloSelecionado]) // eslint-disable-line
+  const lotesInsem = todosLotesInsem.filter(l => l.ciclo_id === cicloLocal?.id)
+
+  // Dados de TODOS os ciclos (partos, lançamentos, transações) — usados nas
+  // abas "Comparativo" e "Histórico", que comparam a fazenda inteira ciclo a
+  // ciclo (não dependem do seletor de ciclo local).
+  const [partosTodos,       setPartosTodos]       = useState([])
+  const [lancsPorCiclo,     setLancsPorCiclo]     = useState({})
+  const [transacsPorCiclo,  setTransacsPorCiclo]  = useState({})
+  const [loadingCiclos,     setLoadingCiclos]     = useState(false)
+
   useEffect(() => { loadAll() }, [])
+  useEffect(() => { if (ciclos.length > 0) loadDadosPorCiclo() }, [ciclos.length]) // eslint-disable-line
+
+  const loadDadosPorCiclo = async () => {
+    setLoadingCiclos(true)
+    try {
+      const [rPartos, pares] = await Promise.all([
+        db.partos.listAll(),
+        Promise.all(ciclos.map(async c => {
+          const [rl, rt] = await Promise.all([db.lancamentos.list(c.id), db.transacoes.list(c.id)])
+          if (rl.error) console.error(`[Rebanho] erro ao buscar lançamentos do ciclo ${c.nome}:`, rl.error)
+          if (rt.error) console.error(`[Rebanho] erro ao buscar transações do ciclo ${c.nome}:`, rt.error)
+          return [c.id, rl.data || [], rt.data || []]
+        }))
+      ])
+      if (rPartos.error) console.error('[Rebanho] erro ao buscar partos:', rPartos.error)
+      setPartosTodos(rPartos.data || [])
+      setLancsPorCiclo(Object.fromEntries(pares.map(([id, lancs]) => [id, lancs])))
+      setTransacsPorCiclo(Object.fromEntries(pares.map(([id, , transacs]) => [id, transacs])))
+    } catch (e) {
+      console.error('[Rebanho] erro ao carregar dados por ciclo:', e)
+    } finally {
+      setLoadingCiclos(false)
+    }
+  }
 
   const loadAll = async () => {
     setLoading(true)
     setLoadError(false)
     try {
-      const [ra, rp, rc, rciclo] = await Promise.all([
+      const [ra, rp, rc, rli] = await Promise.all([
         db.animais.list(),
         db.proprietarios.list(),
         db.categoriasPreco.list(),
-        db.ciclos.current(),
+        db.lotesInseminacao.listAll(),
       ])
       const propsData   = rp.data || []
       const animaisData = ra.data || []
-      const cicloData   = rciclo.data
       setAnimais(animaisData)
       setProps(propsData)
       setCatPrecos(rc.data || [])
-      setCiclo(cicloData)
+      setTodosLotesInsem(rli.data || [])
       setSelProps(prev => prev.length === 0 ? propsData.map(p => p.id) : prev)
 
-      setLotesInsem(cicloData ? (await db.lotesInseminacao.list(cicloData.id)).data || [] : [])
+      if (ra.error)  console.error('[Rebanho] erro ao buscar animais:', ra.error)
+      if (rli.error) console.error('[Rebanho] erro ao buscar lotes de inseminação:', rli.error)
 
       // Pesagens dos terneiros/terneiras ativos, para o GMD
       const terneirosAtivos = animaisData.filter(a =>
@@ -141,6 +180,35 @@ export function Rebanho() {
   const totalGeral = valorRows.reduce((s, r) => s + r.total, 0)
   const valorGeral = valorRows.reduce((s, r) => s + r.valor, 0)
 
+  // Dados para as abas "Comparativo" e "Histórico" — todos os ciclos da
+  // fazenda, ordenados cronologicamente (mais antigo → mais recente)
+  const ciclosOrdenados = [...ciclos].sort((a, b) => (a.inicio || '').localeCompare(b.inicio || ''))
+
+  const statsPorCiclo = ciclosOrdenados.map(c => {
+    const lotesDoCiclo = todosLotesInsem.filter(l => l.ciclo_id === c.id)
+    const inseminacoes = lotesDoCiclo.reduce((s, l) => s + (l.inseminacoes?.length || 0), 0)
+    const prenhas      = lotesDoCiclo.reduce((s, l) => s + (l.inseminacoes?.filter(i => i.diagnostico === 'P').length || 0), 0)
+    const txPrenhez    = inseminacoes > 0 ? Math.round(prenhas / inseminacoes * 100) : null
+    const nascimentos  = partosTodos.filter(p => p.ciclo_id === c.id).length
+    const lancs        = lancsPorCiclo[c.id] || []
+    const transacs     = transacsPorCiclo[c.id] || []
+    const receitas     = lancs.filter(l => l.tipo === 'R').reduce((s, l) => s + Number(l.valor), 0)
+                       + transacs.filter(t => t.tipo === 'V').reduce((s, t) => s + Number(t.valor_total), 0)
+    const despesas     = lancs.filter(l => l.tipo === 'D').reduce((s, l) => s + Number(l.valor), 0)
+                       + transacs.filter(t => t.tipo === 'C').reduce((s, t) => s + Number(t.valor_total), 0)
+    const resultado    = receitas - despesas
+    const vendas       = transacs.filter(t => t.tipo === 'V').reduce((s, t) => s + (parseInt(t.quantidade) || 0), 0)
+    const compras      = transacs.filter(t => t.tipo === 'C').reduce((s, t) => s + (parseInt(t.quantidade) || 0), 0)
+    return { ciclo: c, inseminacoes, prenhas, txPrenhez, nascimentos, receitas, despesas, resultado, vendas, compras }
+  })
+
+  const evolucaoData = statsPorCiclo.map(s => ({
+    nome: s.ciclo.nome,
+    Nascimentos: s.nascimentos,
+    Vendas: s.vendas,
+    Compras: s.compras,
+  }))
+
   if (loading) return <Loading />
   if (loadError) return <ErroCarregamento onRetry={loadAll} />
 
@@ -161,14 +229,19 @@ export function Rebanho() {
         ))}
       </div>
 
-      <div style={{ marginBottom:12, display:'flex', justifyContent:'space-between', flexWrap:'wrap', gap:8 }}>
-        <div className="pill-group">
-          <button className={`pill ${!filtProp?'active':''}`} onClick={()=>setFiltProp('')}>Todos</button>
-          {props.map(p => (
-            <button key={p.id} className={`pill ${filtProp===p.id?'active':''}`} onClick={()=>setFiltProp(p.id)}>
-              {p.nome.split(' ')[0]}
-            </button>
-          ))}
+      <div style={{ marginBottom:12, display:'flex', justifyContent:'space-between', flexWrap:'wrap', gap:8, alignItems:'center' }}>
+        <div style={{ display:'flex', flexWrap:'wrap', gap:8, alignItems:'center' }}>
+          <div className="pill-group">
+            <button className={`pill ${!filtProp?'active':''}`} onClick={()=>setFiltProp('')}>Todos</button>
+            {props.map(p => (
+              <button key={p.id} className={`pill ${filtProp===p.id?'active':''}`} onClick={()=>setFiltProp(p.id)}>
+                {p.nome.split(' ')[0]}
+              </button>
+            ))}
+          </div>
+          {tab === 1 && (
+            <SeletorCicloLocal cicloLocal={cicloLocal} setCicloLocal={setCicloLocal} ciclos={ciclos} />
+          )}
         </div>
         <BotaoPDF contentRef={pdfAtualR.ref} filename={pdfAtualR.filename} titulo={pdfAtualR.titulo} />
       </div>
@@ -231,7 +304,7 @@ export function Rebanho() {
       {tab === 1 && (
         <div>
           <div ref={refIndices}>
-          <div className="sl">Índices reprodutivos — ciclo atual {ciclo?.nome ? `(${ciclo.nome})` : ''}</div>
+          <div className="sl">Índices reprodutivos</div>
           <div className="grid-3" style={{marginBottom:16}}>
             <IndexCard value={txPren} label="Taxa de prenhez" meta="≥85%" ok={kpiIns > 0 && (kpiPrn / kpiIns) >= 0.85}/>
             <IndexCard value={kpiIns} label="Inseminadas no ciclo" color="#2B6CD9"/>
@@ -261,11 +334,62 @@ export function Rebanho() {
           <div ref={refComp}>
           <div className="card">
           <div className="card-title"><i className="ti ti-columns"/> Comparativo de ciclos</div>
-          <div style={{ padding:'24px 0', textAlign:'center', color:'#9CA3AF', fontSize:'.85rem', lineHeight:1.6 }}>
-            <i className="ti ti-database" style={{ fontSize:32, display:'block', marginBottom:10, opacity:.4 }}/>
-            Os dados comparativos entre ciclos serão exibidos aqui<br/>
-            conforme os ciclos forem sendo encerrados e registrados no sistema.
-          </div>
+          {loadingCiclos ? <Loading /> : ciclosOrdenados.length === 0 ? (
+            <EmptyState icon="📊" title="Nenhum ciclo cadastrado" sub="Cadastre um ciclo em Financeiro para ver o comparativo." />
+          ) : (
+            <div className="table-wrap" style={{border:'none'}}>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Indicador</th>
+                    {statsPorCiclo.map(s => (
+                      <th key={s.ciclo.id} style={{ textAlign:'right', fontWeight: s.ciclo.id===cicloAtual?.id?700:600 }}>
+                        {s.ciclo.nome}{s.ciclo.id===cicloAtual?.id && <Badge color="purple" style={{marginLeft:6}}>atual</Badge>}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>Inseminações</td>
+                    {statsPorCiclo.map(s => <td key={s.ciclo.id} style={{textAlign:'right'}}>{s.inseminacoes || '—'}</td>)}
+                  </tr>
+                  <tr>
+                    <td>Prenhas</td>
+                    {statsPorCiclo.map(s => <td key={s.ciclo.id} style={{textAlign:'right',color:'#1E55B0'}}>{s.prenhas || '—'}</td>)}
+                  </tr>
+                  <tr>
+                    <td>Taxa de prenhez</td>
+                    {statsPorCiclo.map(s => (
+                      <td key={s.ciclo.id} style={{textAlign:'right',fontWeight:500,color:s.txPrenhez>=85?'#1E55B0':s.txPrenhez!=null?'#BA7517':'#9CA3AF'}}>
+                        {s.txPrenhez !== null ? `${s.txPrenhez}%` : '—'}
+                      </td>
+                    ))}
+                  </tr>
+                  <tr>
+                    <td>Nascimentos</td>
+                    {statsPorCiclo.map(s => <td key={s.ciclo.id} style={{textAlign:'right'}}>{s.nascimentos || '—'}</td>)}
+                  </tr>
+                  <tr className="tr-total">
+                    <td>Receitas</td>
+                    {statsPorCiclo.map(s => <td key={s.ciclo.id} style={{textAlign:'right',color:'#1E55B0'}}>{fmtMoeda(s.receitas)}</td>)}
+                  </tr>
+                  <tr>
+                    <td>Despesas</td>
+                    {statsPorCiclo.map(s => <td key={s.ciclo.id} style={{textAlign:'right',color:'#791F1F'}}>{fmtMoeda(s.despesas)}</td>)}
+                  </tr>
+                  <tr className="tr-total">
+                    <td>Resultado</td>
+                    {statsPorCiclo.map(s => (
+                      <td key={s.ciclo.id} style={{textAlign:'right',fontWeight:600,color:s.resultado>=0?'#1E55B0':'#791F1F'}}>
+                        {fmtMoeda(s.resultado)}
+                      </td>
+                    ))}
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          )}
           </div>
           </div>{/* end refComp */}
         </div>
@@ -274,14 +398,64 @@ export function Rebanho() {
       {tab === 3 && (
         <div>
           <div ref={refHist}>
-          <div className="card">
-          <div className="card-title"><i className="ti ti-trending-up"/> Evolução do rebanho</div>
-          <div style={{ padding:'24px 0', textAlign:'center', color:'#9CA3AF', fontSize:'.85rem', lineHeight:1.6 }}>
-            <i className="ti ti-trending-up" style={{ fontSize:32, display:'block', marginBottom:10, opacity:.4 }}/>
-            O histórico de evolução do rebanho será construído automaticamente<br/>
-            ao longo dos ciclos.
+          <div className="card" style={{marginBottom:12}}>
+          <div className="card-title"><i className="ti ti-trending-up"/> Evolução do rebanho por ciclo</div>
+          {loadingCiclos ? <Loading /> : ciclosOrdenados.length === 0 ? (
+            <EmptyState icon="📈" title="Nenhum ciclo cadastrado" sub="Cadastre um ciclo em Financeiro para ver a evolução." />
+          ) : (
+            <>
+              <ResponsiveContainer width="100%" height={260}>
+                <BarChart data={evolucaoData} margin={{top:4,right:16,bottom:4,left:0}}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" />
+                  <XAxis dataKey="nome" tick={{fontSize:11}} />
+                  <YAxis tick={{fontSize:11}} allowDecimals={false} />
+                  <Tooltip />
+                  <Legend />
+                  <Bar dataKey="Nascimentos" fill="#4ADE80" radius={[4,4,0,0]} />
+                  <Bar dataKey="Vendas"      fill="#60A5FA" radius={[4,4,0,0]} />
+                  <Bar dataKey="Compras"     fill="#F59E0B" radius={[4,4,0,0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </>
+          )}
           </div>
-          </div>
+          {!loadingCiclos && ciclosOrdenados.length > 0 && (
+            <div className="card">
+              <div className="card-title"><i className="ti ti-table"/> Resumo por ciclo</div>
+              <div className="table-wrap" style={{border:'none'}}>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Ciclo</th>
+                      <th style={{textAlign:'right'}}>Nascimentos</th>
+                      <th style={{textAlign:'right'}}>Vendas</th>
+                      <th style={{textAlign:'right'}}>Compras</th>
+                      <th style={{textAlign:'right'}}>Variação líquida</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {statsPorCiclo.map(s => {
+                      const variacaoLiquida = s.nascimentos - s.vendas
+                      return (
+                        <tr key={s.ciclo.id} style={{fontWeight: s.ciclo.id===cicloAtual?.id?600:400}}>
+                          <td>{s.ciclo.nome}{s.ciclo.id===cicloAtual?.id && <Badge color="purple" style={{marginLeft:6}}>atual</Badge>}</td>
+                          <td style={{textAlign:'right'}}>{s.nascimentos}</td>
+                          <td style={{textAlign:'right'}}>{s.vendas}</td>
+                          <td style={{textAlign:'right'}}>{s.compras}</td>
+                          <td style={{textAlign:'right',color:variacaoLiquida>=0?'#1E55B0':'#791F1F'}}>
+                            {variacaoLiquida>=0?'+':''}{variacaoLiquida}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <p style={{fontSize:'.72rem',color:'#9CA3AF',marginTop:8}}>
+                Variação líquida = nascimentos − vendas no ciclo (estimativa, já que não há um snapshot histórico do total de animais por ciclo).
+              </p>
+            </div>
+          )}
           </div>{/* end refHist */}
         </div>
       )}

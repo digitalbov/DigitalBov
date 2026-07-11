@@ -4,6 +4,7 @@ import { supabase, db } from '../lib/supabase'
 import { calcCategoria, calcCategoriaRebanho, fmtMoeda, valorPropLanc } from '../lib/helpers'
 import { Loading, FullLoading, AlertBox, IndexCard, ErroCarregamento } from '../components/UI'
 import { useFazenda } from '../lib/FazendaContext'
+import { useCiclo } from '../lib/CicloContext'
 import { usePermissoes } from '../lib/PermissoesContext'
 
 const CATEGORIAS_VALOR = [
@@ -16,13 +17,13 @@ const CATEGORIAS_VALOR = [
 export default function Dashboard({ perfil }) {
   const navigate = useNavigate()
   const { fazendaAtual, fazendas } = useFazenda()
+  const { cicloSelecionado } = useCiclo()
   const { podeEditar } = usePermissoes()
   const fileInputRef = useRef(null)
   const [enviandoFoto, setEnviandoFoto] = useState(false)
   const [animais,    setAnimais]    = useState([])
   const [lancamentos,setLancamentos]= useState([])
   const [transacoes, setTransacoes] = useState([])
-  const [ciclo,      setCiclo]      = useState(null)
   const [piqs,       setPiqs]       = useState([])
   const [plan,       setPlan]       = useState(null)
   const [acoes,      setAcoes]      = useState([])
@@ -34,36 +35,33 @@ export default function Dashboard({ perfil }) {
   const [lotesInsem, setLotesInsem] = useState([])
   const primeiroCarregamento = useRef(true)
 
-  useEffect(() => { loadData() }, [fazendaAtual?.id]) // eslint-disable-line
+  useEffect(() => { loadData() }, [fazendaAtual?.id, cicloSelecionado?.id]) // eslint-disable-line
 
   const loadData = async () => {
     setLoading(true)
     setLoadError(false)
     try {
-      const [ra, rc, rp, rpiq, rplan, rcp] = await Promise.all([
+      const [ra, rp, rpiq, rplan, rcp] = await Promise.all([
         db.animais.list({ situacao:'ativo' }),
-        db.ciclos.current(),
         db.proprietarios.list(),
         db.piquetes.list(),
         db.planejamentos.get(),
         db.categoriasPreco.list(),
       ])
       const animList  = ra.data   || []
-      const cicloData = rc.data
       const propList  = rp.data   || []
       const piqList   = rpiq.data || []
       const planData  = rplan.data
       setAnimais(animList)
-      setCiclo(cicloData)
       setProps(propList)
       setPiqs(piqList)
       setPlan(planData)
       setCatPrecos(rcp.data || [])
-      if (cicloData) {
+      if (cicloSelecionado) {
         const [{ data: lData }, { data: tData }, { data: liData }] = await Promise.all([
-          db.lancamentos.list(cicloData.id),
-          db.transacoes.list(cicloData.id),
-          db.lotesInseminacao.list(cicloData.id),
+          db.lancamentos.list(cicloSelecionado.id),
+          db.transacoes.list(cicloSelecionado.id),
+          db.lotesInseminacao.list(cicloSelecionado.id),
         ])
         setLancamentos(lData || [])
         setTransacoes(tData || [])
@@ -240,7 +238,7 @@ export default function Dashboard({ perfil }) {
               {fazendaAtual?.nome || 'Fazenda'}
             </div>
             <div style={{ fontSize:'1rem', fontWeight:600, color:'rgba(255,255,255,.85)', marginTop:5 }}>
-              Ciclo {ciclo?.nome || '2025/26'}
+              Ciclo {cicloSelecionado?.nome || '2025/26'}
             </div>
             <div style={{ fontSize:'.8rem', color:'rgba(255,255,255,.55)', marginTop:3 }}>
               {greeting}, {nomeUsuario}! 👋
@@ -437,7 +435,7 @@ export default function Dashboard({ perfil }) {
           </div>
 
           {/* Financeiro resumo */}
-          <div className="sl">Financeiro — {ciclo?.nome}</div>
+          <div className="sl">Financeiro — {cicloSelecionado?.nome}</div>
           <div className="grid-3 dash-fin-grid">
             {[
               { label:'Receitas',  value:fmtMoeda(rec),  color:'#1E55B0' },
@@ -464,7 +462,7 @@ export default function Dashboard({ perfil }) {
           body={`Resultado negativo de ${fmtMoeda(Math.abs(resu))}`} />
       )}
       <AlertBox type="green" title="Sistema operacional"
-        body={`${filtAnimais.length} animais ativos · Ciclo ${ciclo?.nome || '2025/26'} em andamento`} />
+        body={`${filtAnimais.length} animais ativos · Ciclo ${cicloSelecionado?.nome || '2025/26'} em andamento`} />
     </div>
   )
 }

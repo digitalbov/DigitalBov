@@ -205,6 +205,11 @@ export const db = {
 
   ciclos: {
     list:    ()     => T('ciclos_financeiros').select('*').order('inicio', { ascending: false }),
+    listByFazenda: (fazendaId) => {
+      let q = supabase.from('ciclos_financeiros').select('*').eq('fazenda_id', fazendaId).order('inicio', { ascending: false })
+      if (cid()) q = q.eq('conta_id', cid())
+      return q
+    },
     current: ()     => T('ciclos_financeiros').select('*').eq('atual', true).maybeSingle(),
     insert:  (data) => T('ciclos_financeiros').insertOne(data).select().single(),
     deactivateAll: () => {

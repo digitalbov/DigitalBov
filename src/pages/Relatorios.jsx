@@ -1,8 +1,9 @@
 ﻿import { useState, useEffect, useRef } from 'react'
 import { db } from '../lib/supabase'
 import { calcCategoria, calcCategoriaRebanho, fmtData, fmtMoeda, pct } from '../lib/helpers'
-import { Loading, Badge, AlertBox, toast } from '../components/UI'
+import { Loading, Badge, AlertBox, toast, SeletorCicloLocal } from '../components/UI'
 import { useFazenda } from '../lib/FazendaContext'
+import { useCiclo } from '../lib/CicloContext'
 
 const TABS = ['Resumo Geral','Reprodução','Financeiro']
 const CATS_REL = [
@@ -17,7 +18,6 @@ const TITULOS_PDF = ['Relatório Geral', 'Painel Reprodutivo', 'Gestão Financei
 export default function Relatorios() {
   const [tab,       setTab]      = useState(0)
   const [animais,   setAnimais]  = useState([])
-  const [ciclo,     setCiclo]    = useState(null)
   const [lancs,     setLancs]    = useState([])
   const [lotes,     setLotes]    = useState([])
   const [partos,    setPartos]   = useState([])
@@ -27,35 +27,39 @@ export default function Relatorios() {
   const [loading,   setLoading]  = useState(true)
   const [generating,setGenerating]=useState(false)
   const { fazendaAtual } = useFazenda()
+  const { ciclos, cicloSelecionado } = useCiclo()
+
+  // Seletor de ciclo LOCAL desta tela — inicia (e reseta, a cada montagem da
+  // tela) no ciclo GLOBAL selecionado no menu lateral, não no ciclo atual.
+  const [cicloLocal, setCicloLocal] = useState(null)
+  useEffect(() => { if (cicloSelecionado && !cicloLocal) setCicloLocal(cicloSelecionado) }, [cicloSelecionado]) // eslint-disable-line
+
   const resumoRef      = useRef(null)
   const reproducaoRef  = useRef(null)
   const financeiroRef  = useRef(null)
   const tabRefs        = [resumoRef, reproducaoRef, financeiroRef]
   const hoje = new Date().toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric'})
 
-  useEffect(() => { loadAll() }, [])
+  useEffect(() => { loadAll() }, [cicloLocal?.id]) // eslint-disable-line
 
   const loadAll = async () => {
     setLoading(true)
-    const [ra, rc, rs, rp, rcp] = await Promise.all([
+    const [ra, rs, rp, rcp] = await Promise.all([
       db.animais.list(),
-      db.ciclos.current(),
       db.sanidade.list(),
       db.proprietarios.list(),
       db.categoriasPreco.list()
     ])
     const animList  = ra.data || []
-    const cicloData = rc.data
     setAnimais(animList)
-    setCiclo(cicloData)
     setSanidade(rs.data  || [])
     setProps(rp.data     || [])
     setCatPrecos(rcp.data|| [])
-    if (cicloData) {
+    if (cicloLocal) {
       const [rl, rli, rpt] = await Promise.all([
-        db.lancamentos.list(cicloData.id),
-        db.lotesInseminacao.list(cicloData.id),
-        db.partos.list(cicloData.id)
+        db.lancamentos.list(cicloLocal.id),
+        db.lotesInseminacao.list(cicloLocal.id),
+        db.partos.list(cicloLocal.id)
       ])
       setLancs(rl.data   || [])
       setLotes(rli.data  || [])
@@ -125,7 +129,7 @@ export default function Relatorios() {
   const PrintHeader = ({ titulo }) => (
     <div style={{ textAlign:'center', padding:'16px 0 12px', borderBottom:'.5px solid #E5E7EB', marginBottom:16 }}>
       <div style={{ fontSize:'1.1rem', fontWeight:700, color:'#111' }}>DigitalBov</div>
-      <div style={{ fontSize:'.85rem', color:'#6B7280', marginTop:2 }}>{titulo} · Ciclo {ciclo?.nome||'—'} · Gerado em {hoje}</div>
+      <div style={{ fontSize:'.85rem', color:'#6B7280', marginTop:2 }}>{titulo} · Ciclo {cicloLocal?.nome||'—'} · Gerado em {hoje}</div>
     </div>
   )
 
@@ -133,6 +137,10 @@ export default function Relatorios() {
 
   return (
     <div className="relatorios-page">
+      <div style={{ marginBottom:14 }}>
+        <SeletorCicloLocal cicloLocal={cicloLocal} setCicloLocal={setCicloLocal} ciclos={ciclos} />
+      </div>
+
       <div className="tabs-bar">
         {TABS.map((t,i) => (
           <button key={t} className={`tab-btn ${tab===i?'active':''}`} onClick={()=>setTab(i)}>{t}</button>
@@ -246,7 +254,7 @@ export default function Relatorios() {
                 body={`${vencSan} procedimento(s) com data de reforço vencida. Verifique o módulo Sanidade.`}/>
             )}
             <AlertBox type="green" title="Sistema operacional"
-              body={`${ativos.length} animais ativos · ${inativos.length} inativos no histórico · Ciclo ${ciclo?.nome} em andamento`}/>
+              body={`${ativos.length} animais ativos · ${inativos.length} inativos no histórico · Ciclo ${cicloLocal?.nome} em andamento`}/>
           </div>
         </div>
       )}
@@ -284,7 +292,7 @@ export default function Relatorios() {
                           )
                         })}
                         <tr className="tr-total">
-                          <td colSpan={3}>Total ciclo {ciclo?.nome}</td>
+                          <td colSpan={3}>Total ciclo {cicloLocal?.nome}</td>
                           <td>{totalIns}</td>
                           <td style={{color:'#1E55B0'}}>{totalPrn}</td>
                           <td>{pct(totalPrn,totalIns)}</td>
@@ -298,7 +306,7 @@ export default function Relatorios() {
             </div>
 
             <div className="card" style={{ marginBottom:14 }}>
-              <div className="sl" style={{ marginBottom:12 }}>Nascimentos — ciclo {ciclo?.nome}</div>
+              <div className="sl" style={{ marginBottom:12 }}>Nascimentos — ciclo {cicloLocal?.nome}</div>
               {partos.length === 0
                 ? <div style={{ color:'#9CA3AF', fontSize:'.82rem' }}>Nenhum nascimento registrado.</div>
                 : (
@@ -336,7 +344,7 @@ export default function Relatorios() {
             </div>
 
             <div className="card">
-              <div className="sl" style={{ marginBottom:12 }}>Índices reprodutivos — ciclo {ciclo?.nome}</div>
+              <div className="sl" style={{ marginBottom:12 }}>Índices reprodutivos — ciclo {cicloLocal?.nome}</div>
               {[
                 { l:'Taxa de prenhez',     v:pct(totalPrn,totalIns),          meta:'≥85%', ok:totalPrn/Math.max(1,totalIns)>=0.85 },
                 { l:'Taxa de parição',     v:pct(partos.length,totalPrn),     meta:'≥80%', ok:partos.length/Math.max(1,totalPrn)>=0.80 },

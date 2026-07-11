@@ -1,12 +1,13 @@
-﻿import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useLocation } from 'react-router-dom'
 import { db } from '../lib/supabase'
 import { fmtMoeda, fmtData, GRUPOS_REC, GRUPOS_DES, valorPropLanc } from '../lib/helpers'
-import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, AlertBox, BotaoPDF, ErroCarregamento } from '../components/UI'
+import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, AlertBox, BotaoPDF, ErroCarregamento, BannerCicloEncerrado, SeletorCicloLocal } from '../components/UI'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import { usePermissoes } from '../lib/PermissoesContext'
 import { useConta } from '../lib/ContaContext'
 import { useFazenda } from '../lib/FazendaContext'
+import { useCiclo, statusCiclo, STATUS_CICLO_LABEL } from '../lib/CicloContext'
 
 const TABS = ['Resumo','Lançamentos','Compra & Venda','Resultados','Parâmetros','Ciclos']
 
@@ -19,8 +20,6 @@ export default function Financeiro() {
   const refParams    = useRef(null)
 
   const [tab,      setTab]     = useState(location.state?.tab ?? 0)
-  const [ciclos,   setCiclos]  = useState([])
-  const [cicloId,  setCicloId] = useState('')
   const [lancs,    setLancs]   = useState([])
   const [transacs, setTransacs]= useState([])
   const [catPrecos,setCatPrecos]= useState([])
@@ -32,32 +31,47 @@ export default function Financeiro() {
   const [filtTp,      setFiltTp]      = useState('')
   const [filtProp,    setFiltProp]    = useState('')
   const [saving,      setSaving]      = useState(false)
-  const [cicloVencido,setCicloVencido]= useState(null)
   const [modalCiclo,  setModalCiclo]  = useState(false)
   const [formCiclo,   setFormCiclo]   = useState({})
   const [savingCiclo, setSavingCiclo] = useState(false)
+  const [lancsPorCiclo,     setLancsPorCiclo]     = useState({})
+  const [loadingResultados, setLoadingResultados] = useState(false)
 
   const { podeEditar } = usePermissoes()
   const podeEditarFinanceiro = podeEditar('financeiro')
   const { contaAtual } = useConta()
   const { fazendaAtual } = useFazenda()
+  const { ciclos, cicloAtual, cicloSelecionado, carregarCiclos, cicloDaData, dataEhEditavel } = useCiclo()
+
+  // Seletor de ciclo LOCAL desta tela — inicia (e reseta, a cada montagem da
+  // tela) no ciclo GLOBAL selecionado no menu lateral, não no ciclo atual.
+  const [cicloLocal, setCicloLocal] = useState(null)
+  useEffect(() => { if (cicloSelecionado && !cicloLocal) setCicloLocal(cicloSelecionado) }, [cicloSelecionado]) // eslint-disable-line
+  const statusCicloLocal = statusCiclo(cicloLocal)
+  const podeEditarFinCiclo = podeEditarFinanceiro && (statusCicloLocal === 'atual' || statusCicloLocal === 'carencia')
 
   useEffect(() => { loadBase() }, [])
-  useEffect(() => { if (cicloId) loadCiclo() }, [cicloId])
+  useEffect(() => { if (cicloLocal) loadCiclo() }, [cicloLocal?.id])
+  useEffect(() => { if (tab === 3 && ciclos.length > 0) loadResultadosPorCiclo() }, [tab, ciclos.length]) // eslint-disable-line
+
+  // Busca os lançamentos de TODOS os ciclos (usado só na aba Resultados, para
+  // comparar receita/despesa/resultado de cada ciclo lado a lado)
+  const loadResultadosPorCiclo = async () => {
+    setLoadingResultados(true)
+    const pares = await Promise.all(ciclos.map(async c => {
+      const { data } = await db.lancamentos.list(c.id)
+      return [c.id, data || []]
+    }))
+    setLancsPorCiclo(Object.fromEntries(pares))
+    setLoadingResultados(false)
+  }
 
   const loadBase = async () => {
     setLoadError(false)
     try {
-      const [rc, rcp, rp] = await Promise.all([db.ciclos.list(), db.categoriasPreco.list(), db.proprietarios.list()])
-      const cl = rc.data || []
-      setCiclos(cl)
+      const [rcp, rp] = await Promise.all([db.categoriasPreco.list(), db.proprietarios.list()])
       setCatPrecos(rcp.data || [])
       setProps(rp.data || [])
-      const cur = cl.find(c => c.atual)
-      if (cur) {
-        setCicloId(cur.id)
-        if (cur.fim && new Date(cur.fim + 'T23:59:59') < new Date()) setCicloVencido(cur)
-      } else if (cl.length) setCicloId(cl[0].id)
     } catch (e) {
       console.error('[Financeiro] erro ao carregar:', e)
       setLoadError(true)
@@ -67,9 +81,8 @@ export default function Financeiro() {
   }
 
   const abrirModalNovoCiclo = () => {
-    const cur = ciclos.find(c => c.atual)
-    const anoBase = cur
-      ? parseInt(cur.nome.split('/')[1]) + 2000
+    const anoBase = cicloAtual
+      ? parseInt(cicloAtual.nome.split('/')[1]) + 2000
       : new Date().getFullYear() + 1
     setFormCiclo({
       nome:  `${anoBase - 1}/${String(anoBase).slice(-2)}`,
@@ -92,8 +105,7 @@ export default function Financeiro() {
     if (error) { toast('Erro: ' + error.message, 'error'); return }
     toast('Novo ciclo iniciado!')
     setModalCiclo(false)
-    setCicloVencido(null)
-    loadBase()
+    await carregarCiclos()
   }
 
   const abrirModalLanc = () => {
@@ -139,6 +151,7 @@ export default function Financeiro() {
   const totalRateioValor = (form.rateios || []).reduce((s, r) => s + (parseFloat(r.valor) || 0), 0)
 
   const excluirLanc = async (id) => {
+    if (!podeEditarFinCiclo) return
     const { error } = await db.lancamentos.delete(id)
     if (error) { toast('Erro ao excluir.', 'error'); return }
     toast('Removido.')
@@ -146,7 +159,8 @@ export default function Financeiro() {
   }
 
   const loadCiclo = async () => {
-    const [rl, rt] = await Promise.all([db.lancamentos.list(cicloId), db.transacoes.list(cicloId)])
+    if (!cicloLocal) return
+    const [rl, rt] = await Promise.all([db.lancamentos.list(cicloLocal.id), db.transacoes.list(cicloLocal.id)])
     setLancs(rl.data  || [])
     setTransacs(rt.data || [])
   }
@@ -154,7 +168,6 @@ export default function Financeiro() {
   const rec  = valorPropLanc(lancs, 'R', filtProp)
   const desp = valorPropLanc(lancs, 'D', filtProp)
   const resu = rec - desp
-  const cicloAtual = ciclos.find(c => c.id === cicloId)
 
   const lancsFiltrados = lancs
     .filter(l => !filtTp || l.tipo === filtTp)
@@ -168,16 +181,21 @@ export default function Financeiro() {
   }, 0)
 
   const salvarLanc = async () => {
+    if (!podeEditarFinCiclo) return
     if (!form.data||!form.grupo||!form.valor||!form.descricao) {
       toast('Preencha todos os campos.','error'); return
     }
+    if (!dataEhEditavel(form.data)) {
+      const c = cicloDaData(form.data)
+      toast(c
+        ? 'Não é possível lançar nesta data: ela está fora do ciclo atual (ou em um ciclo já encerrado).'
+        : 'Data fora de qualquer ciclo cadastrado.', 'error')
+      return
+    }
     setSaving(true)
-    const ciclo = ciclos.find(c => {
-      const d=new Date(form.data+'T12:00:00'),ini=new Date(c.inicio),fim=new Date(c.fim)
-      return d>=ini && d<=fim
-    })
+    const ciclo = cicloDaData(form.data)
     const { data: lancData, error } = await db.lancamentos.insert({
-      ciclo_id: ciclo?.id||cicloId, data:form.data,
+      ciclo_id: ciclo.id, data:form.data,
       tipo:form.tipo||'D', grupo:form.grupo,
       descricao:form.descricao, valor:parseFloat(form.valor)
     })
@@ -202,18 +220,23 @@ export default function Financeiro() {
   }
 
   const salvarTransac = async () => {
+    if (!podeEditarFinCiclo) return
     if (!form.data||!form.categoria||!form.peso_medio||!form.preco_kg) {
       toast('Preencha data, categoria, peso e preço.','error'); return
+    }
+    if (!dataEhEditavel(form.data)) {
+      const c = cicloDaData(form.data)
+      toast(c
+        ? 'Não é possível lançar nesta data: ela está fora do ciclo atual (ou em um ciclo já encerrado).'
+        : 'Data fora de qualquer ciclo cadastrado.', 'error')
+      return
     }
     setSaving(true)
     const n   = parseInt(form.quantidade)||1
     const vt  = parseFloat(form.peso_medio)*parseFloat(form.preco_kg)*n
-    const ciclo = ciclos.find(c => {
-      const d=new Date(form.data+'T12:00:00'),ini=new Date(c.inicio),fim=new Date(c.fim)
-      return d>=ini && d<=fim
-    })
+    const ciclo = cicloDaData(form.data)
     const { error } = await db.transacoes.insert({
-      ciclo_id: ciclo?.id||cicloId, data:form.data,
+      ciclo_id: ciclo.id, data:form.data,
       tipo:form.tipo||'V', categoria:form.categoria,
       quantidade:n, peso_medio:parseFloat(form.peso_medio),
       preco_kg:parseFloat(form.preco_kg), valor_total:vt,
@@ -283,11 +306,6 @@ export default function Financeiro() {
   const grpData = Object.entries(grpDesp).sort((a,b)=>b[1]-a[1]).slice(0,7)
     .map(([name,value])=>({ name:name.split(' ')[0], value }))
 
-  // Resultados histórico
-  const histData = ciclos.slice().reverse().map(c => ({
-    ciclo: c.nome, rec:0, desp:0, res:0
-  }))
-
   if (loading) return <Loading />
   if (loadError) return <ErroCarregamento onRetry={loadBase} />
 
@@ -302,24 +320,15 @@ export default function Financeiro() {
 
   return (
     <div>
-      {/* Seletor de ciclo (esquerda) + PDF (direita) — comum a todas as abas */}
+      {/* Seletor de ciclo LOCAL desta tela (independente do global) + PDF */}
       <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:10, marginBottom:14, flexWrap:'wrap' }}>
-        <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-          <span style={{ fontSize:'.82rem', color:'#6B7280', fontWeight:500 }}>Ciclo:</span>
-          <select value={cicloId} onChange={e=>setCicloId(e.target.value)}
-            style={{ width:'auto', fontSize:'.85rem', padding:'5px 10px' }}>
-            {ciclos.map(c => <option key={c.id} value={c.id}>{c.nome}{c.atual?' (atual)':''}</option>)}
-          </select>
-        </div>
+        <SeletorCicloLocal cicloLocal={cicloLocal} setCicloLocal={setCicloLocal} ciclos={ciclos} />
         {pdfAtual && (
           <BotaoPDF contentRef={pdfAtual.ref} filename={pdfAtual.filename} titulo={pdfAtual.titulo} />
         )}
       </div>
 
-      {cicloVencido && (
-        <AlertBox type="amber" title={`Ciclo ${cicloVencido.nome} encerrado`}
-          body={`O ciclo encerrou em ${fmtData(cicloVencido.fim)}. Acesse a aba Ciclos → Iniciar novo ciclo para criar o próximo.`}/>
-      )}
+      <BannerCicloEncerrado ciclo={cicloLocal} />
 
       <div className="tabs-bar">
         {TABS.map((t,i)=>(
@@ -384,10 +393,10 @@ export default function Financeiro() {
                 }
               </div>
               <div className="card">
-                <div className="card-title"><i className="ti ti-calendar"/> Ciclo {cicloAtual?.nome}</div>
-                <div className="row"><span className="row-label">Início</span><span className="row-value">{fmtData(cicloAtual?.inicio)}</span></div>
-                <div className="row"><span className="row-label">Encerramento</span><span className="row-value">{fmtData(cicloAtual?.fim)}</span></div>
-                <div className="row"><span className="row-label">Status</span><span><Badge color={cicloAtual?.atual?'green':'gray'}>{cicloAtual?.atual?'Atual':'Encerrado'}</Badge></span></div>
+                <div className="card-title"><i className="ti ti-calendar"/> Ciclo {cicloLocal?.nome}</div>
+                <div className="row"><span className="row-label">Início</span><span className="row-value">{fmtData(cicloLocal?.inicio)}</span></div>
+                <div className="row"><span className="row-label">Encerramento</span><span className="row-value">{fmtData(cicloLocal?.fim)}</span></div>
+                <div className="row"><span className="row-label">Status</span><span><Badge color={statusCicloLocal==='atual'?'green':statusCicloLocal==='carencia'?'amber':'gray'}>{STATUS_CICLO_LABEL[statusCicloLocal]||'—'}</Badge></span></div>
               </div>
             </div>
           </div>
@@ -414,7 +423,7 @@ export default function Financeiro() {
                 ))}
               </div>
             </div>
-            {podeEditarFinanceiro && (
+            {podeEditarFinCiclo && (
               <button className="btn btn-primary btn-sm" onClick={abrirModalLanc}>
                 <i className="ti ti-plus"/> Novo lançamento
               </button>
@@ -451,7 +460,7 @@ export default function Financeiro() {
                           <i className="ti ti-users" style={{ color: temRateio ? '#2B6CD9' : '#D1D5DB' }} />
                         </td>
                         <td>
-                          {podeEditarFinanceiro && (
+                          {podeEditarFinCiclo && (
                             <button className="btn-icon" onClick={() => excluirLanc(l.id)}>
                               <i className="ti ti-trash" style={{fontSize:13}}/>
                             </button>
@@ -482,7 +491,7 @@ export default function Financeiro() {
         <div>
           <div style={{display:'flex',justifyContent:'space-between',marginBottom:12}}>
             <span style={{fontSize:'.85rem',color:'#6B7280'}}>{transacs.length} transações</span>
-            {podeEditarFinanceiro && (
+            {podeEditarFinCiclo && (
               <button className="btn btn-primary btn-sm" onClick={()=>setModal('transac')}>
                 <i className="ti ti-plus"/> Registrar transação
               </button>
@@ -535,25 +544,34 @@ export default function Financeiro() {
           <div ref={refResultados}>
           <div className="card" style={{marginBottom:12}}>
             <div className="card-title"><i className="ti ti-chart-bar"/> Resultado por ciclo</div>
+            {loadingResultados ? <Loading /> : (
             <div className="table-wrap" style={{border:'none'}}>
               <table>
                 <thead><tr><th>Ciclo</th><th style={{textAlign:'right'}}>Receitas</th><th style={{textAlign:'right'}}>Despesas</th><th style={{textAlign:'right'}}>Resultado</th><th style={{textAlign:'right'}}>Margem</th></tr></thead>
                 <tbody>
-                  {ciclos.map(c=>(
-                    <tr key={c.id} style={{fontWeight:c.atual?600:''}}>
-                      <td>{c.nome}{c.atual&&<Badge color="purple" style={{marginLeft:6}}>atual</Badge>}</td>
-                      <td style={{textAlign:'right',color:'#1E55B0'}}>{c.id===cicloId?fmtMoeda(rec):'—'}</td>
-                      <td style={{textAlign:'right',color:'#791F1F'}}>{c.id===cicloId?fmtMoeda(desp):'—'}</td>
-                      <td style={{textAlign:'right',color:resu>=0?'#1E55B0':'#791F1F'}}>{c.id===cicloId?fmtMoeda(resu):'—'}</td>
-                      <td style={{textAlign:'right',color:'#6B7280'}}>{c.id===cicloId&&rec>0?Math.round(resu/rec*100)+'%':'—'}</td>
+                  {ciclos.map(c=>{
+                    const ehAtual = c.id === cicloAtual?.id
+                    const lancsCiclo = lancsPorCiclo[c.id]
+                    const recC  = lancsCiclo ? valorPropLanc(lancsCiclo, 'R', filtProp) : null
+                    const despC = lancsCiclo ? valorPropLanc(lancsCiclo, 'D', filtProp) : null
+                    const resuC = recC !== null && despC !== null ? recC - despC : null
+                    return (
+                    <tr key={c.id} style={{fontWeight:ehAtual?600:''}}>
+                      <td>{c.nome}{ehAtual&&<Badge color="purple" style={{marginLeft:6}}>atual</Badge>}</td>
+                      <td style={{textAlign:'right',color:'#1E55B0'}}>{recC !== null ? fmtMoeda(recC) : '—'}</td>
+                      <td style={{textAlign:'right',color:'#791F1F'}}>{despC !== null ? fmtMoeda(despC) : '—'}</td>
+                      <td style={{textAlign:'right',color:resuC>=0?'#1E55B0':'#791F1F'}}>{resuC !== null ? fmtMoeda(resuC) : '—'}</td>
+                      <td style={{textAlign:'right',color:'#6B7280'}}>{recC>0?Math.round(resuC/recC*100)+'%':'—'}</td>
                     </tr>
-                  ))}
+                    )
+                  })}
                 </tbody>
               </table>
             </div>
+            )}
           </div>
           <AlertBox type="purple" icon="ti-brain" title="Análise IA"
-            body={`Ciclo ${cicloAtual?.nome}: receita de ${fmtMoeda(rec)}, despesa de ${fmtMoeda(desp)}. ${resu>=0?`Resultado positivo de ${fmtMoeda(resu)}.`:`Resultado negativo de ${fmtMoeda(Math.abs(resu))}.`} Margem bruta: ${rec>0?Math.round(resu/rec*100):0}%.`}
+            body={`Ciclo ${cicloLocal?.nome}: receita de ${fmtMoeda(rec)}, despesa de ${fmtMoeda(desp)}. ${resu>=0?`Resultado positivo de ${fmtMoeda(resu)}.`:`Resultado negativo de ${fmtMoeda(Math.abs(resu))}.`} Margem bruta: ${rec>0?Math.round(resu/rec*100):0}%.`}
           />
           </div>{/* end refResultados */}
         </div>
@@ -612,7 +630,7 @@ export default function Financeiro() {
         <div>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
             <span style={{fontSize:'.85rem',color:'#6B7280'}}>{ciclos.length} ciclo(s) registrado(s)</span>
-            {podeEditarFinanceiro && (
+            {podeEditarFinCiclo && (
               <button className="btn btn-primary btn-sm" onClick={abrirModalNovoCiclo}>
                 <i className="ti ti-plus"/> Iniciar novo ciclo
               </button>
@@ -624,23 +642,26 @@ export default function Financeiro() {
                 <tr><th>Nome</th><th>Início</th><th>Encerramento</th><th>Status</th></tr>
               </thead>
               <tbody>
-                {ciclos.map(c => (
-                  <tr key={c.id} style={{fontWeight:c.atual?600:''}}>
+                {ciclos.map(c => {
+                  const st = statusCiclo(c)
+                  return (
+                  <tr key={c.id} style={{fontWeight:st==='atual'?600:''}}>
                     <td style={{fontWeight:600}}>{c.nome}</td>
                     <td>{fmtData(c.inicio)}</td>
                     <td>{fmtData(c.fim)}</td>
                     <td>
-                      <Badge color={c.atual?'green':'gray'}>{c.atual?'Atual':'Encerrado'}</Badge>
+                      <Badge color={st==='atual'?'green':st==='carencia'?'amber':'gray'}>{STATUS_CICLO_LABEL[st]}</Badge>
                     </td>
                   </tr>
-                ))}
+                  )
+                })}
               </tbody>
             </table>
           </div>
           <div style={{marginTop:14}}>
             <AlertBox type="purple" icon="ti-info-circle"
               title="Sobre os ciclos financeiros"
-              body="Cada ciclo corresponde a um ano pecuário (jul–jun). Ao iniciar um novo ciclo, o anterior é encerrado automaticamente. Os lançamentos de cada ciclo ficam preservados e podem ser consultados no seletor de ciclo no topo da página."/>
+              body="Cada ciclo corresponde a um ano pecuário (jul–jun). Ao iniciar um novo ciclo, o anterior é encerrado automaticamente. Os lançamentos de cada ciclo ficam preservados e podem ser consultados trocando o ciclo no menu lateral."/>
           </div>
         </div>
       )}
@@ -730,7 +751,7 @@ export default function Financeiro() {
         )}
 
         <div style={{display:'flex',gap:8,marginTop:14}}>
-          <button className="btn btn-primary" onClick={salvarLanc} disabled={saving}>{saving?'Salvando...':<><i className="ti ti-check"/>Salvar</>}</button>
+          <button className="btn btn-primary" onClick={salvarLanc} disabled={saving || !podeEditarFinCiclo}>{saving?'Salvando...':<><i className="ti ti-check"/>Salvar</>}</button>
           <button className="btn btn-secondary" onClick={()=>setModal(null)}>Cancelar</button>
         </div>
       </Modal>
@@ -759,7 +780,7 @@ export default function Financeiro() {
           </div>
         )}
         <div style={{display:'flex',gap:8}}>
-          <button className="btn btn-primary" onClick={salvarTransac} disabled={saving}>{saving?'Salvando...':<><i className="ti ti-check"/>Registrar</>}</button>
+          <button className="btn btn-primary" onClick={salvarTransac} disabled={saving || !podeEditarFinCiclo}>{saving?'Salvando...':<><i className="ti ti-check"/>Registrar</>}</button>
           <button className="btn btn-secondary" onClick={()=>setModal(null)}>Cancelar</button>
         </div>
       </Modal>
