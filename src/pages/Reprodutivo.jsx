@@ -4,7 +4,8 @@ import { usePermissoes } from '../lib/PermissoesContext'
 import { useFazenda } from '../lib/FazendaContext'
 import { useConta } from '../lib/ContaContext'
 import { useCiclo, statusCiclo } from '../lib/CicloContext'
-import { fmtData, pct } from '../lib/helpers'
+import { useCicloLocal } from '../lib/useCicloLocal'
+import { fmtData, pct, calcTaxaPrenhez } from '../lib/helpers'
 import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, AlertBox, BotaoPDF, ErroCarregamento, BannerCicloEncerrado, SeletorCicloLocal } from '../components/UI'
 import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
@@ -19,12 +20,8 @@ export default function Reprodutivo() {
   const podeEditarReprod = podeEditar('reprodutivo')
   const { fazendaAtual } = useFazenda()
   const { contaAtual } = useConta()
-  const { ciclos, cicloSelecionado, cicloDaData, dataEhEditavel } = useCiclo()
-
-  // Seletor de ciclo LOCAL desta tela — inicia (e reseta, a cada montagem da
-  // tela) no ciclo GLOBAL selecionado no menu lateral, não no ciclo atual.
-  const [cicloLocal, setCicloLocal] = useState(null)
-  useEffect(() => { if (cicloSelecionado && !cicloLocal) setCicloLocal(cicloSelecionado) }, [cicloSelecionado]) // eslint-disable-line
+  const { cicloDaData, dataEhEditavel } = useCiclo()
+  const { cicloLocal, setCicloLocal, ciclos } = useCicloLocal()
   const statusCicloLocal = statusCiclo(cicloLocal)
   const podeEditarReprodCiclo = podeEditarReprod && (statusCicloLocal === 'atual' || statusCicloLocal === 'carencia')
 
@@ -271,7 +268,7 @@ export default function Reprodutivo() {
   const removerInsem = async (ins) => {
     if (!podeEditarReprodCiclo) return
     if (!confirm(`Remover o brinco ${ins.animal?.brinco || ''} deste lote?`)) return
-    const { error } = await supabase.from('inseminacoes').delete().eq('id', ins.id)
+    const { error } = await db.inseminacoes.delete(ins.id)
     if (error) { toast('Erro ao remover: ' + error.message, 'error'); return }
     toast('Animal removido do lote.')
     await loadAll(false)
@@ -292,7 +289,7 @@ export default function Reprodutivo() {
     if (selInsem.length === 0) return
     if (!confirm(`Remover ${selInsem.length} animais do lote? (inclui animais já diagnosticados, se houver — o diagnóstico deles será perdido)`)) return
     setRemovendoLote(true)
-    const { error } = await supabase.from('inseminacoes').delete().in('id', selInsem)
+    const { error } = await db.inseminacoes.deleteVarios(selInsem)
     setRemovendoLote(false)
     if (error) { toast('Erro ao remover: ' + error.message, 'error'); return }
     toast(`${selInsem.length} animais removidos do lote.`)
@@ -480,7 +477,7 @@ export default function Reprodutivo() {
     const vazias    = ins.filter(i => i.diagnostico === 'V').length
     const pendentes = ins.filter(i => !i.diagnostico).length
     const total     = ins.length
-    const txPrenhez = total > 0 ? Math.round(prenhas / total * 100) : 0
+    const txPrenhez = calcTaxaPrenhez(ins) ?? 0
     const nascimentos = todosPartos.filter(p => animalIds.includes(p.mae_id)).length
     const txParicao = prenhas > 0 ? Math.round(nascimentos / prenhas * 100) : 0
     const partoPrev = lote.data
@@ -532,10 +529,10 @@ export default function Reprodutivo() {
 
   const lineData = ciclosUnicos.map(c => {
     const lc = todosLotes.filter(l => l.ciclo_id === c.id)
-    const tI = lc.reduce((s, l) => s + (l.inseminacoes?.length || 0), 0)
-    const tP = lc.reduce((s, l) => s + (l.inseminacoes?.filter(i => i.diagnostico === 'P').length || 0), 0)
+    const insLc = lc.flatMap(l => l.inseminacoes || [])
+    const tP = insLc.filter(i => i.diagnostico === 'P').length
     const tN = todosPartos.filter(p => lc.some(l => l.inseminacoes?.some(i => i.animal_id === p.mae_id))).length
-    return { ciclo: c.nome, prenhez: tI > 0 ? Math.round(tP/tI*100) : 0, paricao: tP > 0 ? Math.round(tN/tP*100) : 0 }
+    return { ciclo: c.nome, prenhez: calcTaxaPrenhez(insLc) ?? 0, paricao: tP > 0 ? Math.round(tN/tP*100) : 0 }
   })
 
   const pieData = [

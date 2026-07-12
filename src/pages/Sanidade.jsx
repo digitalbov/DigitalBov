@@ -4,6 +4,7 @@ import { usePermissoes } from '../lib/PermissoesContext'
 import { useConta } from '../lib/ContaContext'
 import { useFazenda } from '../lib/FazendaContext'
 import { useCiclo, statusCiclo } from '../lib/CicloContext'
+import { useCicloLocal } from '../lib/useCicloLocal'
 import { fmtData, diasDesde, calcCategoriaRebanho } from '../lib/helpers'
 import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, AlertBox, BotaoPDF, Confirm, ErroCarregamento, BannerCicloEncerrado, SeletorCicloLocal } from '../components/UI'
 
@@ -28,12 +29,8 @@ export default function Sanidade() {
   const podeEditarSanidade = podeEditar('sanidade')
   const { contaAtual }   = useConta()
   const { fazendaAtual } = useFazenda()
-  const { ciclos, cicloSelecionado, dentroDoCiclo, cicloDaData, dataEhEditavel } = useCiclo()
-
-  // Seletor de ciclo LOCAL desta tela — inicia (e reseta, a cada montagem da
-  // tela) no ciclo GLOBAL selecionado no menu lateral, não no ciclo atual.
-  const [cicloLocal, setCicloLocal] = useState(null)
-  useEffect(() => { if (cicloSelecionado && !cicloLocal) setCicloLocal(cicloSelecionado) }, [cicloSelecionado]) // eslint-disable-line
+  const { dentroDoCiclo, cicloDaData, dataEhEditavel } = useCiclo()
+  const { cicloLocal, setCicloLocal, ciclos } = useCicloLocal()
   const statusCicloLocal = statusCiclo(cicloLocal)
   const podeEditarSanidadeCiclo = podeEditarSanidade && (statusCicloLocal === 'atual' || statusCicloLocal === 'carencia')
 

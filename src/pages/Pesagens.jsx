@@ -2,7 +2,8 @@
 import { db } from '../lib/supabase'
 import { usePermissoes } from '../lib/PermissoesContext'
 import { useCiclo, statusCiclo } from '../lib/CicloContext'
-import { fmtData, calcGMD, fmtPeso } from '../lib/helpers'
+import { useCicloLocal } from '../lib/useCicloLocal'
+import { fmtData, calcGMD, fmtPeso, numeroPositivo, dataNaoFutura } from '../lib/helpers'
 import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, IndexCard, BotaoPDF, Confirm, ErroCarregamento, BannerCicloEncerrado, SeletorCicloLocal } from '../components/UI'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 
@@ -17,12 +18,8 @@ export default function Pesagens() {
 
   const { podeEditar } = usePermissoes()
   const podeEditarPesagens = podeEditar('pesagens')
-  const { ciclos, cicloSelecionado, dentroDoCiclo, cicloDaData, dataEhEditavel } = useCiclo()
-
-  // Seletor de ciclo LOCAL desta tela — inicia (e reseta, a cada montagem da
-  // tela) no ciclo GLOBAL selecionado no menu lateral, não no ciclo atual.
-  const [cicloLocal, setCicloLocal] = useState(null)
-  useEffect(() => { if (cicloSelecionado && !cicloLocal) setCicloLocal(cicloSelecionado) }, [cicloSelecionado]) // eslint-disable-line
+  const { dentroDoCiclo, cicloDaData, dataEhEditavel } = useCiclo()
+  const { cicloLocal, setCicloLocal, ciclos } = useCicloLocal()
   const statusCicloLocal = statusCiclo(cicloLocal)
   const podeEditarPesagensCiclo = podeEditarPesagens && (statusCicloLocal === 'atual' || statusCicloLocal === 'carencia')
 
@@ -63,6 +60,10 @@ export default function Pesagens() {
     if (!form.animal_id || !form.data || !form.peso_kg || !form.tipo) {
       toast('Preencha todos os campos.','error'); return
     }
+    const peso = numeroPositivo(form.peso_kg)
+    if (peso === null) { toast('Peso inválido: informe um número maior que zero.', 'error'); return }
+    if (peso > 1500) { toast('Peso acima de 1500 kg — confira o valor digitado.', 'error'); return }
+    if (!dataNaoFutura(form.data)) { toast('Data da pesagem não pode ser futura.', 'error'); return }
     if (!dataEhEditavel(form.data)) {
       const c = cicloDaData(form.data)
       toast(c
@@ -75,7 +76,7 @@ export default function Pesagens() {
       animal_id: form.animal_id,
       data:      form.data,
       tipo:      form.tipo,
-      peso_kg:   parseFloat(form.peso_kg),
+      peso_kg:   peso,
       observacoes: form.obs || ''
     })
     setSaving(false)

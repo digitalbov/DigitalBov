@@ -1,14 +1,27 @@
 ﻿import { useState, useEffect } from 'react'
-import * as XLSX from 'xlsx'
 import { supabase } from '../lib/supabase'
 import { calcCategoria } from '../lib/helpers'
 import { toast } from '../components/UI'
+import { useConta } from '../lib/ContaContext'
+import { useFazenda } from '../lib/FazendaContext'
+import { useCiclo } from '../lib/CicloContext'
 
 // ── Helpers ───────────────────────────────────────────────────────
 
-// Busca segura: retorna [] se a tabela não existir ou houver erro
-const safeQ = async (table) => {
-  const { data, error } = await supabase.from(table).select('*')
+// Busca segura e escopada: retorna [] se a tabela não existir ou houver erro.
+// Sempre filtra por conta_id; filtra também por fazenda_id, exceto quando
+// { semFazenda: true } (tabela não tem essa coluna) ou { porId: fazendaId }
+// (a própria tabela "fazendas": queremos só a linha da fazenda atual, não
+// todas as fazendas da conta).
+const safeQ = async (table, contaId, fazendaId, opts = {}) => {
+  let q = supabase.from(table).select('*')
+  if (contaId) q = q.eq('conta_id', contaId)
+  if (opts.porId) {
+    q = q.eq('id', fazendaId)
+  } else if (!opts.semFazenda && fazendaId) {
+    q = q.eq('fazenda_id', fazendaId)
+  }
+  const { data, error } = await q
   if (error) {
     console.warn(`[Backup] tabela "${table}":`, error.message)
     return []
@@ -81,6 +94,12 @@ function BackupCard({ icon, title, desc, bullet, stat, onClick, loading, lastTs,
 
 // ── Página principal ──────────────────────────────────────────────
 export default function Backup() {
+  const { contaAtual }   = useConta()
+  const { fazendaAtual } = useFazenda()
+  const { cicloAtual }   = useCiclo()
+  const contaId    = contaAtual?.id || null
+  const fazendaId  = fazendaAtual?.id || null
+
   const [counts,      setCounts]      = useState({ animais: 0, lancamentos: 0, pesagens: 0 })
   const [loadingJSON, setLoadingJSON] = useState(false)
   const [loadingAnim, setLoadingAnim] = useState(false)
@@ -90,17 +109,19 @@ export default function Backup() {
   const [tsFin,       setTsFin]       = useState('')
 
   useEffect(() => {
+    if (!contaId || !fazendaId) { setCounts({ animais: 0, lancamentos: 0, pesagens: 0 }); return }
     Promise.all([
-      supabase.from('animais').select('*', { count: 'exact', head: true }),
-      supabase.from('lancamentos_financeiros').select('*', { count: 'exact', head: true }),
-      supabase.from('pesagens').select('*', { count: 'exact', head: true }),
+      supabase.from('animais').select('*', { count: 'exact', head: true }).eq('conta_id', contaId).eq('fazenda_id', fazendaId),
+      supabase.from('lancamentos_financeiros').select('*', { count: 'exact', head: true }).eq('conta_id', contaId).eq('fazenda_id', fazendaId),
+      supabase.from('pesagens').select('*', { count: 'exact', head: true }).eq('conta_id', contaId).eq('fazenda_id', fazendaId),
     ]).then(([rA, rL, rP]) =>
       setCounts({ animais: rA.count || 0, lancamentos: rL.count || 0, pesagens: rP.count || 0 })
     )
-  }, [])
+  }, [contaId, fazendaId])
 
   // ── Backup JSON ─────────────────────────────────────────────────
   const gerarJSON = async () => {
+    if (!contaId || !fazendaId) { toast('Aguarde a fazenda carregar e tente novamente.', 'error'); return }
     setLoadingJSON(true)
     try {
       const [
@@ -111,16 +132,26 @@ export default function Backup() {
         lancamentos_financeiros, transacoes_animais,
         ciclos_financeiros, categorias_preco, metas
       ] = await Promise.all([
-        safeQ('proprietarios'),      safeQ('fazendas'),
-        safeQ('piquetes'),           safeQ('lotes'),
-        safeQ('animais'),            safeQ('lotes_inseminacao'),
-        safeQ('inseminacoes'),       safeQ('partos'),
-        safeQ('abortos'),            safeQ('pesagens'),
-        safeQ('procedimentos_sanitarios'),
-        safeQ('estoque_itens'),      safeQ('estoque_movimentacoes'),
-        safeQ('lancamentos_financeiros'), safeQ('transacoes_animais'),
-        safeQ('ciclos_financeiros'), safeQ('categorias_preco'),
-        safeQ('metas'),
+        safeQ('proprietarios', contaId, fazendaId),
+        // "fazendas" não tem coluna fazenda_id (é a própria fazenda) — filtra
+        // pelo id da fazenda atual, para exportar só a linha dela.
+        safeQ('fazendas', contaId, fazendaId, { porId: true }),
+        safeQ('piquetes', contaId, fazendaId),
+        safeQ('lotes', contaId, fazendaId),
+        safeQ('animais', contaId, fazendaId),
+        safeQ('lotes_inseminacao', contaId, fazendaId),
+        safeQ('inseminacoes', contaId, fazendaId),
+        safeQ('partos', contaId, fazendaId),
+        safeQ('abortos', contaId, fazendaId),
+        safeQ('pesagens', contaId, fazendaId),
+        safeQ('procedimentos_sanitarios', contaId, fazendaId),
+        safeQ('estoque_itens', contaId, fazendaId),
+        safeQ('estoque_movimentacoes', contaId, fazendaId),
+        safeQ('lancamentos_financeiros', contaId, fazendaId),
+        safeQ('transacoes_animais', contaId, fazendaId),
+        safeQ('ciclos_financeiros', contaId, fazendaId),
+        safeQ('categorias_preco', contaId, fazendaId),
+        safeQ('metas', contaId, fazendaId),
       ])
 
       const payload = {
@@ -157,12 +188,18 @@ export default function Backup() {
   }
 
   // ── Exportar animais Excel ───────────────────────────────────────
+  // xlsx é lazy (import dinâmico): só baixa os ~140kB gzip quando o usuário
+  // de fato clica em exportar, não em toda visita à tela de Backup.
   const exportarAnimais = async () => {
+    if (!contaId || !fazendaId) { toast('Aguarde a fazenda carregar e tente novamente.', 'error'); return }
     setLoadingAnim(true)
     try {
+      const XLSX = await import('xlsx')
       const { data: animais } = await supabase
         .from('animais')
         .select('*, proprietario:proprietarios(nome), lote:lotes(nome)')
+        .eq('conta_id', contaId)
+        .eq('fazenda_id', fazendaId)
         .order('brinco')
 
       const rows = (animais || []).map(a => ({
@@ -197,13 +234,16 @@ export default function Backup() {
 
   // ── Exportar financeiro Excel ────────────────────────────────────
   const exportarFinanceiro = async () => {
+    if (!contaId || !fazendaId) { toast('Aguarde a fazenda carregar e tente novamente.', 'error'); return }
     setLoadingFin(true)
     try {
-      const { data: ciclo } = await supabase
-        .from('ciclos_financeiros').select('*').eq('atual', true).single()
+      const XLSX = await import('xlsx')
+      // Ciclo atual POR DATA (CicloContext), já escopado à fazenda atual —
+      // em vez do antigo .eq('atual', true) sem escopo de fazenda/conta.
+      const ciclo = cicloAtual
 
       if (!ciclo) {
-        toast('Nenhum ciclo financeiro ativo.', 'error')
+        toast('Nenhum ciclo financeiro atual (por data) encontrado para esta fazenda.', 'error')
         setLoadingFin(false)
         return
       }
@@ -211,6 +251,8 @@ export default function Backup() {
       const { data: lancs } = await supabase
         .from('lancamentos_financeiros')
         .select('*')
+        .eq('conta_id', contaId)
+        .eq('fazenda_id', fazendaId)
         .eq('ciclo_id', ciclo.id)
         .order('data', { ascending: true })
 

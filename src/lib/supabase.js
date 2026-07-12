@@ -129,13 +129,15 @@ export const db = {
   },
 
   inseminacoes: {
-    insert:   (data)      => T('inseminacoes').insertOne(data),
-    update:   (id, d)     => escopo(T('inseminacoes').raw().update(d).eq('id', id)),
-    upsert:   (data)      => T('inseminacoes').raw().upsert(
+    insert:       (data)      => T('inseminacoes').insertOne(data),
+    update:       (id, d)     => escopo(T('inseminacoes').raw().update(d).eq('id', id)),
+    upsert:       (data)      => T('inseminacoes').raw().upsert(
       { ...data, conta_id: cid(), fazenda_id: fid() },
       { onConflict: 'lote_inseminacao_id,animal_id', ignoreDuplicates: false }
     ).select(),
-    byAnimal: (animalId)  => T('inseminacoes').select('*, lote:lotes_inseminacao(numero,touro,data)').eq('animal_id', animalId).order('criado_em', { ascending: true }),
+    delete:       (id)        => escopo(T('inseminacoes').raw().delete().eq('id', id)),
+    deleteVarios: (ids)       => escopo(T('inseminacoes').raw().delete().in('id', ids)),
+    byAnimal:     (animalId)  => T('inseminacoes').select('*, lote:lotes_inseminacao(numero,touro,data)').eq('animal_id', animalId).order('criado_em', { ascending: true }),
   },
 
   partos: {
@@ -150,7 +152,15 @@ export const db = {
 
   pesagens: {
     list:          (animalId) => T('pesagens').select('*').eq('animal_id', animalId).order('data'),
-    listAll:       ()         => T('pesagens').select('*, animal:animais(brinco,proprietario_id)').order('data', { ascending: false }).limit(100),
+    // Uma query só para vários animais (em vez de 1 query por animal em loop).
+    listPorAnimais: (animalIds) => {
+      if (!animalIds?.length) return Promise.resolve({ data: [], error: null })
+      return T('pesagens').select('*').in('animal_id', animalIds).order('data')
+    },
+    // Sem limite baixo: Metas.jsx e Pesagens.jsx calculam GMD/médias sobre este
+    // retorno, então um corte silencioso aqui distorce os cálculos. 10000 é uma
+    // salvaguarda contra retorno ilimitado, não um corte funcional esperado.
+    listAll:       ()         => T('pesagens').select('*, animal:animais(brinco,proprietario_id)').order('data', { ascending: false }).limit(10000),
     insert:        (data)     => T('pesagens').insertOne(data).select().single(),
     delete:        (id)       => escopo(T('pesagens').raw().delete().eq('id', id)),
     countByAnimal: (animalId) => supabase.from('pesagens').select('id', { count:'exact', head:true }).eq('animal_id', animalId),
@@ -179,7 +189,7 @@ export const db = {
   },
 
   movEstoque: {
-    list:   ()       => T('estoque_movimentacoes').select('*, item:estoque_itens(item,unidade)').order('data', { ascending: false }).limit(50),
+    list:   ()       => T('estoque_movimentacoes').select('*, item:estoque_itens(item,unidade)').order('data', { ascending: false }).limit(500),
     insert: (data)   => T('estoque_movimentacoes').insertOne(data).select().single(),
   },
 

@@ -1,4 +1,7 @@
-import * as XLSX from 'xlsx'
+// xlsx é uma lib pesada (~140kB gzip) usada só quando o usuário de fato
+// importa uma planilha — por isso é carregada sob demanda (import dinâmico)
+// dentro de lerPlanilhaAnimais, em vez de estática no topo do arquivo (o que
+// forçaria o download em toda visita à tela de Animais).
 
 // Colunas da planilha modelo (ordem e nomes exatos)
 export const COLUNAS = [
@@ -28,6 +31,7 @@ export function baixarModeloAnimais() {
 // Layout do modelo: linha 1 = título, linha 2 = subtítulo, linha 3 = cabeçalho,
 // linha 4 em diante = dados. Ou seja, pulamos as 3 primeiras linhas (índices 0-2).
 export async function lerPlanilhaAnimais(file) {
+  const XLSX = await import('xlsx')
   const buf = await file.arrayBuffer()
   const wb = XLSX.read(buf, { type: 'array' })
   const aba = wb.Sheets['Animais'] || wb.Sheets[wb.SheetNames[0]]

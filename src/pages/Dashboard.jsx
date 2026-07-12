@@ -1,7 +1,7 @@
 ﻿import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase, db } from '../lib/supabase'
-import { calcCategoria, calcCategoriaRebanho, fmtMoeda, valorPropLanc } from '../lib/helpers'
+import { calcCategoria, calcCategoriaRebanho, calcTaxaPrenhez, fmtMoeda, valorPropLanc } from '../lib/helpers'
 import { Loading, FullLoading, AlertBox, IndexCard, ErroCarregamento } from '../components/UI'
 import { useFazenda } from '../lib/FazendaContext'
 import { useCiclo } from '../lib/CicloContext'
@@ -35,7 +35,7 @@ export default function Dashboard({ perfil }) {
   const [lotesInsem, setLotesInsem] = useState([])
   const primeiroCarregamento = useRef(true)
 
-  useEffect(() => { loadData() }, [fazendaAtual?.id, cicloSelecionado?.id]) // eslint-disable-line
+  useEffect(() => { loadData() }, [fazendaAtual?.id, cicloSelecionado?.id])
 
   const loadData = async () => {
     setLoading(true)
@@ -135,10 +135,11 @@ export default function Dashboard({ perfil }) {
     return c === 'Vaca' || c === 'Vaca Madura'
   }).length
 
-  // Taxa de prenhez: mesma lógica do Reprodutivo — prenhas / inseminadas no ciclo atual
-  const kpiIns = lotesInsem.reduce((s, l) => s + (l.inseminacoes?.length || 0), 0)
-  const kpiPrn = lotesInsem.reduce((s, l) => s + (l.inseminacoes?.filter(i => i.diagnostico === 'P').length || 0), 0)
-  const txPrenhez = kpiIns > 0 ? Math.round((kpiPrn / kpiIns) * 100) : null
+  // Taxa de prenhez: fórmula oficial única (helpers.calcTaxaPrenhez) — prenhas / inseminadas no ciclo atual
+  const insemDashboard = lotesInsem.flatMap(l => l.inseminacoes || [])
+  const kpiIns = insemDashboard.length
+  const kpiPrn = insemDashboard.filter(i => i.diagnostico === 'P').length
+  const txPrenhez = calcTaxaPrenhez(insemDashboard)
 
   // Valor do rebanho (resumo)
   const valorRows = CATEGORIAS_VALOR.map(cat => {
@@ -364,7 +365,7 @@ export default function Dashboard({ perfil }) {
       <div className="grid-2" style={{ marginBottom:16 }}>
         {/* Valor do Rebanho */}
         <div>
-          <div className="sl">Valor do rebanho</div>
+          <div className="sl">Valor de mercado do rebanho</div>
           <div className="card" style={{ padding:'12px 14px' }}>
             {valorRows.length === 0 ? (
               <div style={{ fontSize:'.82rem', color:'#9CA3AF', textAlign:'center', padding:'12px 0' }}>

@@ -3,7 +3,7 @@ import { db } from '../lib/supabase'
 import { calcCategoria, calcCategoriaRebanho, fmtData, fmtMoeda, pct } from '../lib/helpers'
 import { Loading, Badge, AlertBox, toast, SeletorCicloLocal } from '../components/UI'
 import { useFazenda } from '../lib/FazendaContext'
-import { useCiclo } from '../lib/CicloContext'
+import { useCicloLocal } from '../lib/useCicloLocal'
 
 const TABS = ['Resumo Geral','Reprodução','Financeiro']
 const CATS_REL = [
@@ -27,12 +27,7 @@ export default function Relatorios() {
   const [loading,   setLoading]  = useState(true)
   const [generating,setGenerating]=useState(false)
   const { fazendaAtual } = useFazenda()
-  const { ciclos, cicloSelecionado } = useCiclo()
-
-  // Seletor de ciclo LOCAL desta tela — inicia (e reseta, a cada montagem da
-  // tela) no ciclo GLOBAL selecionado no menu lateral, não no ciclo atual.
-  const [cicloLocal, setCicloLocal] = useState(null)
-  useEffect(() => { if (cicloSelecionado && !cicloLocal) setCicloLocal(cicloSelecionado) }, [cicloSelecionado]) // eslint-disable-line
+  const { cicloLocal, setCicloLocal, ciclos } = useCicloLocal()
 
   const resumoRef      = useRef(null)
   const reproducaoRef  = useRef(null)
@@ -40,7 +35,7 @@ export default function Relatorios() {
   const tabRefs        = [resumoRef, reproducaoRef, financeiroRef]
   const hoje = new Date().toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric'})
 
-  useEffect(() => { loadAll() }, [cicloLocal?.id]) // eslint-disable-line
+  useEffect(() => { loadAll() }, [cicloLocal?.id])
 
   const loadAll = async () => {
     setLoading(true)

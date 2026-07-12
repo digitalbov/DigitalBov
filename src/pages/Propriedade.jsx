@@ -59,7 +59,7 @@ function MapaPiquetes({ piqs }) {
     }, 100)
 
     return () => { if (mapRef.current) { mapRef.current.remove(); mapRef.current = null } }
-  }, []) // eslint-disable-line
+  }, [])
 
   const CORES = ['#4ADE80','#60A5FA','#FACC15','#FB923C','#A78BFA','#F472B6']
 
@@ -152,7 +152,7 @@ function MapaDesenho({ initialGeometry, onConfirm, onClose }) {
       if (mapRef.current) { mapRef.current.remove(); mapRef.current = null }
       layerRef.current = null
     }
-  }, []) // eslint-disable-line
+  }, [])
 
   const confirmar = () => {
     if (!layerRef.current) { toast('Desenhe um polígono primeiro.','error'); return }
@@ -442,6 +442,7 @@ export default function Propriedade() {
 
   // ── Fazenda ───────────────────────────────────────────────────
   const saveFazenda = async () => {
+    if (!podeEditarProp) return
     if (!fazendaForm.nome) { toast('Informe o nome.','error'); return }
     setSaving(true)
     const { data, error } = await db.fazendas.update(fazendaAtual.id, {
@@ -457,6 +458,7 @@ export default function Propriedade() {
   }
 
   const criarFazenda = async () => {
+    if (!podeEditarProp) return
     if (!form.nome) { toast('Informe o nome.','error'); return }
     if (!contaAtual?.id) { toast('Conta não identificada.','error'); return }
     setSaving(true)
@@ -475,6 +477,7 @@ export default function Propriedade() {
   }
 
   const desativarFazenda = async (faz) => {
+    if (!podeEditarProp) return
     if (fazendas.length <= 1) { toast('Não é possível desativar a única fazenda.','error'); return }
     await db.fazendas.deactivate(faz.id)
     toast('Fazenda desativada. Histórico preservado.')
@@ -492,6 +495,7 @@ export default function Propriedade() {
   }
 
   const excluirFazendaPermanente = async (faz) => {
+    if (!podeEditarProp) return
     if (nomeDeletar !== faz.nome) { toast('Nome digitado incorreto.','error'); return }
     const { error } = await db.fazendas.hardDelete(faz.id)
     if (error) { toast('Erro: '+error.message,'error'); return }
@@ -519,6 +523,7 @@ export default function Propriedade() {
   }
 
   const saveAcao = async () => {
+    if (!podeEditarProp) return
     if (!form.descricao) { toast('Informe a descrição.','error'); return }
     if (!plan) { toast('Crie o planejamento primeiro.','error'); return }
     setSaving(true)
@@ -535,6 +540,7 @@ export default function Propriedade() {
   }
 
   const toggleAcao = async (acao) => {
+    if (!podeEditarProp) return
     const concluida = acao.status !== 'concluida'
     await db.planejamentoAcoes.update(acao.id, {
       status:      concluida ? 'concluida' : 'pendente',
@@ -1379,7 +1385,7 @@ function PlanNumeros({ plan, form, setForm, totalHa, resultadoLiquido, cicloAtua
         ? String(plan.dados.valor_benfeitorias).replace('.', ',')
         : '',
     })
-  }, [plan?.id]) // eslint-disable-line
+  }, [plan?.id])
 
   return (
     <div>
@@ -1426,7 +1432,7 @@ function PlanNumeros({ plan, form, setForm, totalHa, resultadoLiquido, cicloAtua
               }}
               placeholder="ex: 50.000" />
           </Field>
-          <Field label="Valor do rebanho (R$)">
+          <Field label="Valor do rebanho (planejado) (R$)">
             <input type="text" inputMode="decimal"
               value={(() => {
                 if (!form.valor_rebanho && form.valor_rebanho !== 0) return ''
@@ -1484,7 +1490,7 @@ function PlanNumeros({ plan, form, setForm, totalHa, resultadoLiquido, cicloAtua
             <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(160px, 1fr))', gap:12, marginBottom:16 }}>
               {[
                 { label:'RENT. DA TERRA',       valor:rentTerra,   tip:'Resultado ÷ valor da terra' },
-                { label:'RENT. DO REBANHO',      valor:rentRebanho, tip:'Resultado ÷ valor do rebanho' },
+                { label:'RENT. DO REBANHO',      valor:rentRebanho, tip:'Resultado ÷ valor do rebanho (planejado)' },
                 { label:'RENT. DA PROPRIEDADE',  valor:rentTotal,   tip:'Resultado ÷ valor total' },
               ].map(r => (
                 <div key={r.label} style={{ background:'#F9FAFB', border:'.5px solid #E5E7EB', borderRadius:10, padding:'12px 14px' }}>
@@ -1513,7 +1519,7 @@ function PlanNumeros({ plan, form, setForm, totalHa, resultadoLiquido, cicloAtua
           <div className="card-title"><i className="ti ti-coins" /> Patrimônio estimado</div>
           <div style={{ display:'flex', gap:12, flexWrap:'wrap' }}>
             {vTerraEfetivo > 0 && <div style={{ background:'#F9FAFB', border:'.5px solid #E5E7EB', borderRadius:8, padding:'8px 14px' }}><div style={{ fontSize:'.72rem', color:'#9CA3AF' }}>TERRA</div><div style={{ fontWeight:600, color:'#2B6CD9' }}>{fmtMoeda(vTerraEfetivo)}</div></div>}
-            {vRebanho > 0 && <div style={{ background:'#F9FAFB', border:'.5px solid #E5E7EB', borderRadius:8, padding:'8px 14px' }}><div style={{ fontSize:'.72rem', color:'#9CA3AF' }}>REBANHO</div><div style={{ fontWeight:600, color:'#2B6CD9' }}>{fmtMoeda(vRebanho)}</div></div>}
+            {vRebanho > 0 && <div style={{ background:'#F9FAFB', border:'.5px solid #E5E7EB', borderRadius:8, padding:'8px 14px' }}><div style={{ fontSize:'.72rem', color:'#9CA3AF' }}>REBANHO (PLANEJADO)</div><div style={{ fontWeight:600, color:'#2B6CD9' }}>{fmtMoeda(vRebanho)}</div></div>}
             {(plan?.dados?.valor_benfeitorias > 0) && <div style={{ background:'#F9FAFB', border:'.5px solid #E5E7EB', borderRadius:8, padding:'8px 14px' }}><div style={{ fontSize:'.72rem', color:'#9CA3AF' }}>BENFEITORIAS</div><div style={{ fontWeight:600, color:'#2B6CD9' }}>{fmtMoeda(plan.dados.valor_benfeitorias)}</div></div>}
             <div style={{ background:'#E8F0FC', border:'.5px solid #A5C8F5', borderRadius:8, padding:'8px 14px' }}><div style={{ fontSize:'.72rem', color:'#1E55B0' }}>TOTAL</div><div style={{ fontWeight:700, color:'#2B6CD9', fontSize:'1.05rem' }}>{fmtMoeda(vTotal)}</div></div>
           </div>

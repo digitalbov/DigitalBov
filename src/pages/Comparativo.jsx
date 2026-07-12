@@ -1,8 +1,8 @@
 ﻿import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { useFazenda } from '../lib/FazendaContext'
-import { useCiclo } from '../lib/CicloContext'
-import { fmtMoeda, calcCategoria } from '../lib/helpers'
+import { useCicloLocal } from '../lib/useCicloLocal'
+import { fmtMoeda, calcCategoria, calcTaxaPrenhez } from '../lib/helpers'
 import { Loading, EmptyState, SeletorCicloLocal } from '../components/UI'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -11,36 +11,29 @@ import {
 
 export default function Comparativo() {
   const { fazendas } = useFazenda()
-  const { ciclos, cicloSelecionado } = useCiclo()
   const [tab,     setTab]     = useState('financeiro')
   const [dados,   setDados]   = useState([])
   const [loading, setLoading] = useState(true)
 
-  // Seletor de ciclo LOCAL desta tela — inicia (e reseta, a cada montagem da
-  // tela) no ciclo GLOBAL selecionado no menu lateral. Como cada fazenda tem
-  // seus próprios registros de ciclos_financeiros, o alinhamento entre
-  // fazendas é feito pelo NOME do ciclo (ex: "2025/26"), não pelo id.
-  const [cicloLocal, setCicloLocal] = useState(null)
-  useEffect(() => { if (cicloSelecionado && !cicloLocal) setCicloLocal(cicloSelecionado) }, [cicloSelecionado]) // eslint-disable-line
+  // Seletor de ciclo LOCAL desta tela. Como cada fazenda tem seus próprios
+  // registros de ciclos_financeiros, o alinhamento entre fazendas é feito
+  // pelo NOME do ciclo (ex: "2025/26"), não pelo id.
+  const { cicloLocal, setCicloLocal, ciclos } = useCicloLocal()
 
   useEffect(() => {
     if (fazendas.length < 2 || !cicloLocal) { setLoading(false); return }
     loadComparativo()
-  }, [fazendas.length, cicloLocal?.nome]) // eslint-disable-line
+  }, [fazendas.length, cicloLocal?.nome])
 
   const loadComparativo = async () => {
     setLoading(true)
-    console.log('[Comparativo] fazendas.length =', fazendas.length, '| fazendas:', fazendas.map(f => ({ nome: f.nome, id: f.id })))
-    console.log('[Comparativo] cicloLocal selecionado:', cicloLocal?.nome, cicloLocal)
     const resultados = await Promise.all(fazendas.map(f => carregarFazenda(f, cicloLocal.nome)))
-    console.log('[Comparativo] resultado final (1 objeto por fazenda):', resultados)
     setDados(resultados)
     setLoading(false)
   }
 
   const carregarFazenda = async (fazenda, nomeCiclo) => {
     const fid = fazenda.id
-    console.log(`[Comparativo] → "${fazenda.nome}" (fazenda_id=${fid}): buscando ciclo com nome="${nomeCiclo}"`)
 
     const [rAnimais, rCiclo, rPiqs] = await Promise.all([
       supabase.from('animais').select('*').eq('fazenda_id', fid).eq('situacao', 'ativo'),
@@ -56,29 +49,33 @@ export default function Comparativo() {
     const ciclo   = rCiclo.data
     const piqs    = rPiqs.data || []
 
-    console.log(`[Comparativo] "${fazenda.nome}": ciclo resolvido =`,
-      ciclo ? { id: ciclo.id, nome: ciclo.nome, fazenda_id: ciclo.fazenda_id, inicio: ciclo.inicio, fim: ciclo.fim } : null,
-      ciclo ? '' : `← NENHUM ciclo chamado "${nomeCiclo}" encontrado para fazenda_id=${fid}`)
-
-    let lancamentos = [], transacoes = []
+    let lancamentos = [], transacoes = [], inseminacoes = []
     if (ciclo) {
-      const [rL, rT] = await Promise.all([
+      const [rL, rT, rLI] = await Promise.all([
         supabase.from('lancamentos_financeiros').select('tipo,valor').eq('ciclo_id', ciclo.id).eq('fazenda_id', fid),
-        supabase.from('transacoes_animais').select('tipo,valor').eq('ciclo_id', ciclo.id).eq('fazenda_id', fid),
+        supabase.from('transacoes_animais').select('tipo,valor_total').eq('ciclo_id', ciclo.id).eq('fazenda_id', fid),
+        supabase.from('lotes_inseminacao').select('inseminacoes(diagnostico)').eq('ciclo_id', ciclo.id).eq('fazenda_id', fid),
       ])
-      if (rL.error) console.error(`[Comparativo] "${fazenda.nome}": erro ao buscar lancamentos_financeiros:`, rL.error)
-      if (rT.error) console.error(`[Comparativo] "${fazenda.nome}": erro ao buscar transacoes_animais:`, rT.error)
-      lancamentos = rL.data || []
-      transacoes  = rT.data || []
-      console.log(`[Comparativo] "${fazenda.nome}": ${lancamentos.length} lançamentos + ${transacoes.length} transações no ciclo "${ciclo.nome}" (ciclo_id=${ciclo.id})`)
-    } else {
-      console.warn(`[Comparativo] "${fazenda.nome}": sem ciclo "${nomeCiclo}" → receitas/despesas ficarão em zero para esta fazenda`)
+      if (rL.error)  console.error(`[Comparativo] "${fazenda.nome}": erro ao buscar lancamentos_financeiros:`, rL.error)
+      if (rT.error)  console.error(`[Comparativo] "${fazenda.nome}": erro ao buscar transacoes_animais:`, rT.error)
+      if (rLI.error) console.error(`[Comparativo] "${fazenda.nome}": erro ao buscar lotes_inseminacao:`, rLI.error)
+      lancamentos   = rL.data || []
+      transacoes    = rT.data || []
+      inseminacoes  = (rLI.data || []).flatMap(l => l.inseminacoes || [])
     }
 
-    const todasReceitas = [...lancamentos.filter(l=>l.tipo==='R'), ...transacoes.filter(t=>t.tipo==='V')]
-    const todasDespesas = [...lancamentos.filter(l=>l.tipo==='D'), ...transacoes.filter(t=>t.tipo==='C')]
-    const receitas  = todasReceitas.reduce((s,l) => s + Number(l.valor), 0)
-    const despesas  = todasDespesas.reduce((s,l) => s + Number(l.valor), 0)
+    // Receitas/despesas: lançamentos usam a coluna `valor`, transações de
+    // animais usam `valor_total` — cada origem soma o campo certo, protegido
+    // com Number.isFinite para não deixar NaN contaminar o total.
+    const somaFinita = (lista, campo) => lista.reduce((s, item) => {
+      const v = Number(item[campo])
+      return s + (Number.isFinite(v) ? v : 0)
+    }, 0)
+
+    const receitas  = somaFinita(lancamentos.filter(l => l.tipo === 'R'), 'valor')
+                     + somaFinita(transacoes.filter(t => t.tipo === 'V'), 'valor_total')
+    const despesas  = somaFinita(lancamentos.filter(l => l.tipo === 'D'), 'valor')
+                     + somaFinita(transacoes.filter(t => t.tipo === 'C'), 'valor_total')
     const resultado = receitas - despesas
     const totalHa   = piqs.reduce((s,p) => s + parseFloat(p.area_ha||0), 0)
 
@@ -93,8 +90,11 @@ export default function Comparativo() {
       return c === 'Vaca' || c === 'Vaca Madura'
     }).length
 
-    const prenhas   = animais.filter(a => a.sit_reprodutiva === 'prenha').length
-    const txPrenhez = matrizes > 0 ? Math.round(prenhas/matrizes*100) : 0
+    // Taxa de prenhez: fórmula oficial única (helpers.calcTaxaPrenhez), a partir
+    // das inseminações do ciclo — mesma fonte usada em Dashboard/Reprodutivo/Rebanho,
+    // em vez do campo sit_reprodutiva/contagem de matrizes.
+    const prenhas   = inseminacoes.filter(i => i.diagnostico === 'P').length
+    const txPrenhez = calcTaxaPrenhez(inseminacoes) ?? 0
 
     return {
       fazenda,

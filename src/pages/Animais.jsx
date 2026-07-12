@@ -1,7 +1,7 @@
 ﻿import { useState, useEffect, useRef } from 'react'
 import { usePermissoes } from '../lib/PermissoesContext'
 import { db } from '../lib/supabase'
-import { calcCategoria, calcCategoriaRebanho, idadeFormatada, fmtData, catCor, sitCor, repCor, sortBrinco } from '../lib/helpers'
+import { calcCategoria, calcCategoriaRebanho, idadeFormatada, fmtData, catCor, sitCor, repCor, sortBrinco, dataNaoFutura } from '../lib/helpers'
 import { Loading, EmptyState, Modal, Field, MicButton, Badge, toast, BotaoPDF, ErroCarregamento } from '../components/UI'
 import { baixarModeloAnimais, lerPlanilhaAnimais, validarLinhas } from '../lib/importacaoAnimais'
 
@@ -330,7 +330,7 @@ export default function Animais() {
     if (!selected) { setTimeline([]); setNotas(''); return }
     setNotas(selected.observacoes || '')
     loadTimeline(selected)
-  }, [selected?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selected?.id])
 
   // Carrega histórico sanitário quando muda o animal selecionado
   useEffect(() => {
@@ -449,6 +449,7 @@ export default function Animais() {
   }
 
   const salvarNotas = async () => {
+    if (!podeEditarAnimais) return
     setSavingNotas(true)
     const { error } = await db.animais.update(selected.id, { observacoes: notas })
     setSavingNotas(false)
@@ -474,6 +475,7 @@ export default function Animais() {
   }
 
   const excluirAnimal = async (animal) => {
+    if (!podeEditarAnimais) return
     const motivos = await temVinculos(animal.id)
     if (motivos.length > 0) {
       toast(`Não é possível excluir: o animal tem histórico (${motivos.join(', ')}). Use "vender" ou "marcar como morto" para dar baixa.`, 'error')
@@ -497,6 +499,7 @@ export default function Animais() {
   }
 
   const excluirSelecionados = async () => {
+    if (!podeEditarAnimais) return
     if (selecionados.length === 0) return
     if (!confirm(`Excluir definitivamente ${selecionados.length} animal(is) selecionado(s)? Esta ação não pode ser desfeita.`)) return
     setExcluindoLote(true)
@@ -595,6 +598,7 @@ export default function Animais() {
   }
 
   const salvar = async () => {
+    if (!podeEditarAnimais) return
     let payload = { ...editData }
     delete payload.proprietario
     delete payload.lote
@@ -603,6 +607,7 @@ export default function Animais() {
     if (!payload.sexo)            { toast('Selecione o sexo.', 'error'); return }
     if (!payload.proprietario_id) { toast('Selecione o proprietário.', 'error'); return }
     if (!payload.data_nascimento) { toast('Preencha a data de nascimento.', 'error'); return }
+    if (!dataNaoFutura(payload.data_nascimento)) { toast('Data de nascimento não pode ser futura.', 'error'); return }
     setSaving(true)
     const { data: animalSalvo, error } = editData.id
       ? await db.animais.update(editData.id, payload)
@@ -642,6 +647,7 @@ export default function Animais() {
   }
 
   const confirmarImportacao = async () => {
+    if (!podeEditarAnimais) return
     if (!previewImport?.validos?.length) return
     setImportando(true)
     let ok = 0, falhas = 0

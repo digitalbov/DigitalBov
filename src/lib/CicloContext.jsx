@@ -29,11 +29,14 @@ export function CicloProvider({ children }) {
   const [ciclos, setCiclos] = useState([])
   const [cicloSelecionado, setCicloSelecionadoSt] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [erro, setErro] = useState(null)
 
   const carregarCiclos = useCallback(async () => {
     if (!fazendaAtual) { setCiclos([]); setCicloSelecionadoSt(null); setLoading(false); return [] }
     setLoading(true)
-    const { data } = await db.ciclos.listByFazenda(fazendaAtual.id)
+    const { data, error } = await db.ciclos.listByFazenda(fazendaAtual.id)
+    if (error) console.error('[CicloContext] erro ao carregar ciclos:', error)
+    setErro(error || null)
     const lista = data || []
     const hoje = new Date().toISOString().slice(0, 10)
     const atual = lista.find(c => hoje >= c.inicio && hoje <= c.fim)
@@ -77,7 +80,7 @@ export function CicloProvider({ children }) {
       ciclos, cicloSelecionado, setCicloSelecionado, cicloAtual,
       statusCicloSelecionado, podeEditarCiclo, dentroDoCiclo,
       cicloDaData, dataEhEditavel,
-      loading, carregarCiclos,
+      loading, carregarCiclos, erro,
     }}>
       {children}
     </CicloCtx.Provider>

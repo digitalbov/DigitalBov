@@ -1,12 +1,12 @@
 ﻿import { useState, useEffect, useRef } from 'react'
 import { db } from '../lib/supabase'
-import { calcCategoria, calcGMD } from '../lib/helpers'
+import { calcCategoria, calcGMD, calcTaxaPrenhez } from '../lib/helpers'
 import { Loading, Modal, toast, BotaoPDF, EmptyState, ErroCarregamento } from '../components/UI'
 import { usePermissoes } from '../lib/PermissoesContext'
 
 // ── Metadata de cada indicador ────────────────────────────────────
 const CFG = {
-  taxa_prenhez:  { label: 'Taxa de Prenhez',  icon: '💉', inverted: false, desc: 'Prenhas / inseminadas com DG (ciclo atual)' },
+  taxa_prenhez:  { label: 'Taxa de Prenhez',  icon: '💉', inverted: false, desc: 'Prenhas / total de inseminadas no ciclo atual' },
   taxa_paricao:  { label: 'Taxa de Parição',  icon: '🍼', inverted: false, desc: 'Partos / prenhas confirmadas (ciclo atual)' },
   gmd_terneiros: { label: 'GMD Terneiros',    icon: '⚖️', inverted: false, desc: 'GMD médio dos terneiros com ≥2 pesagens' },
   mortalidade:   { label: 'Mortalidade',      icon: '📊', inverted: true,  desc: 'Mortos / total registrado (meta = máx. aceitável)' },
@@ -146,15 +146,10 @@ export default function Metas() {
         db.pesagens.listAll()
       ])
 
-      // ── taxa_prenhez ──
-      let prenhas = 0, comDG = 0
-      for (const lote of (rLotes.data || [])) {
-        for (const ins of (lote.inseminacoes || [])) {
-          if (ins.diagnostico === 'P') { prenhas++; comDG++ }
-          else if (ins.diagnostico === 'V') comDG++
-        }
-      }
-      const taxaPrenhez = comDG > 0 ? (prenhas / comDG) * 100 : null
+      // ── taxa_prenhez (fórmula oficial única — helpers.calcTaxaPrenhez) ──
+      const todasInseminacoes = (rLotes.data || []).flatMap(lote => lote.inseminacoes || [])
+      const prenhas      = todasInseminacoes.filter(i => i.diagnostico === 'P').length
+      const taxaPrenhez  = calcTaxaPrenhez(todasInseminacoes)
 
       // ── taxa_paricao ──
       const nPartos     = (rPartos.data || []).length
@@ -198,6 +193,7 @@ export default function Metas() {
   }
 
   const salvarMetas = async () => {
+    if (!podeEditarMetas) return
     setSalvandoMeta(true)
     for (const m of metas) {
       const novo = parseFloat(editVals[m.id])

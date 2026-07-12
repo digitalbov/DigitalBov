@@ -9,10 +9,13 @@ export function FazendaProvider({ children }) {
   const [fazendas,      setFazendas]      = useState([])
   const [fazendaAtual,  setFazendaAtualSt]= useState(null)
   const [loading,       setLoading]       = useState(true)
+  const [erro,          setErro]          = useState(null)
 
   const carregarFazendas = useCallback(async () => {
     if (!contaAtual) { setFazendas([]); setFazendaAtualSt(null); setCurrentFazendaId(null); setLoading(false); return [] }
-    const { data } = await supabase.from('fazendas').select('*').eq('ativo', true).eq('conta_id', contaAtual.id).order('nome')
+    const { data, error } = await supabase.from('fazendas').select('*').eq('ativo', true).eq('conta_id', contaAtual.id).order('nome')
+    if (error) console.error('[FazendaContext] erro ao carregar fazendas:', error)
+    setErro(error || null)
     const lista = data || []
     setFazendas(lista)
     const savedId = localStorage.getItem('fazenda_atual_id')
@@ -40,7 +43,7 @@ export function FazendaProvider({ children }) {
   return (
     <FazendaCtx.Provider value={{
       fazendas, fazendaAtual, setFazendaAtual,
-      carregarFazendas, atualizarFazendaAtual, loading
+      carregarFazendas, atualizarFazendaAtual, loading, erro
     }}>
       {children}
     </FazendaCtx.Provider>

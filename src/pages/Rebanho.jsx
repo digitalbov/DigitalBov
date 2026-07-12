@@ -4,15 +4,15 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { db } from '../lib/supabase'
-import { calcCategoria, calcCategoriaRebanho, pct, fmtMoeda } from '../lib/helpers'
+import { calcCategoria, calcCategoriaRebanho, calcTaxaPrenhez, calcGMD, pct, fmtMoeda } from '../lib/helpers'
 import { Loading, IndexCard, BotaoPDF, ErroCarregamento, SeletorCicloLocal, Badge, EmptyState } from '../components/UI'
-import { useCiclo } from '../lib/CicloContext'
+import { useCicloLocal } from '../lib/useCicloLocal'
 import {
   BarChart, Bar, XAxis, YAxis,
   CartesianGrid, Tooltip, Legend, ResponsiveContainer
 } from 'recharts'
 
-const TABS_R = ['Visão Geral','Índices','Comparativo','Histórico','Valor do Rebanho']
+const TABS_R = ['Visão Geral','Índices','Comparativo','Histórico','Valor de Mercado do Rebanho']
 const CATEGORIAS_VALOR = [
   'Terneira','Novilha 13-24m','Novilha Prenha 13-24m',
   'Novilha 25-36m','Novilha Prenha 25-36m',
@@ -39,11 +39,8 @@ export function Rebanho() {
   const [todosLotesInsem, setTodosLotesInsem] = useState([])
   const [pesagensPorAnimal, setPesagensPorAnimal] = useState({})
 
-  const { ciclos, cicloSelecionado, cicloAtual } = useCiclo()
-  // Seletor de ciclo LOCAL da aba Índices — inicia (e reseta, a cada montagem
-  // da tela) no ciclo GLOBAL selecionado no menu lateral, não no ciclo atual.
-  const [cicloLocal, setCicloLocal] = useState(null)
-  useEffect(() => { if (cicloSelecionado && !cicloLocal) setCicloLocal(cicloSelecionado) }, [cicloSelecionado]) // eslint-disable-line
+  // Seletor de ciclo LOCAL da aba Índices.
+  const { cicloLocal, setCicloLocal, ciclos, cicloAtual } = useCicloLocal()
   const lotesInsem = todosLotesInsem.filter(l => l.ciclo_id === cicloLocal?.id)
 
   // Dados de TODOS os ciclos (partos, lançamentos, transações) — usados nas
@@ -55,7 +52,7 @@ export function Rebanho() {
   const [loadingCiclos,     setLoadingCiclos]     = useState(false)
 
   useEffect(() => { loadAll() }, [])
-  useEffect(() => { if (ciclos.length > 0) loadDadosPorCiclo() }, [ciclos.length]) // eslint-disable-line
+  useEffect(() => { if (ciclos.length > 0) loadDadosPorCiclo() }, [ciclos.length])
 
   const loadDadosPorCiclo = async () => {
     setLoadingCiclos(true)
@@ -101,13 +98,19 @@ export function Rebanho() {
       if (ra.error)  console.error('[Rebanho] erro ao buscar animais:', ra.error)
       if (rli.error) console.error('[Rebanho] erro ao buscar lotes de inseminação:', rli.error)
 
-      // Pesagens dos terneiros/terneiras ativos, para o GMD
+      // Pesagens dos terneiros/terneiras ativos, para o GMD — uma única query
+      // com .in('animal_id', ids) em vez de 1 query por terneiro em loop.
       const terneirosAtivos = animaisData.filter(a =>
         a.situacao === 'ativo' && ['Terneiro','Terneira'].includes(calcCategoria(a.data_nascimento, a.sexo))
       )
-      const pesagensRes = await Promise.all(terneirosAtivos.map(t => db.pesagens.list(t.id)))
+      const { data: pesagensTerneiros, error: erroPesagens } = await db.pesagens.listPorAnimais(terneirosAtivos.map(t => t.id))
+      if (erroPesagens) console.error('[Rebanho] erro ao buscar pesagens dos terneiros:', erroPesagens)
       const pesagensMap = {}
-      terneirosAtivos.forEach((t, idx) => { pesagensMap[t.id] = pesagensRes[idx].data || [] })
+      terneirosAtivos.forEach(t => { pesagensMap[t.id] = [] })
+      ;(pesagensTerneiros || []).forEach(p => {
+        if (!pesagensMap[p.animal_id]) pesagensMap[p.animal_id] = []
+        pesagensMap[p.animal_id].push(p)
+      })
       setPesagensPorAnimal(pesagensMap)
     } catch (e) {
       console.error('[Rebanho] erro ao carregar:', e)
@@ -127,27 +130,21 @@ export function Rebanho() {
   const fem    = ativos.filter(a => a.sexo === 'F')
   const matrizes = ativos.filter(a => ['Vaca','Vaca Madura'].includes(calcCategoria(a.data_nascimento, a.sexo)))
 
-  // Índices reprodutivos do ciclo atual (mesma lógica do Reprodutivo/Dashboard):
+  // Índices reprodutivos do ciclo atual — fórmula oficial única (helpers.calcTaxaPrenhez):
   // prenhas diagnosticadas / inseminadas no ciclo — não usa matrizes por idade nem sit_reprodutiva atual
-  const kpiIns = lotesInsem.reduce((s, l) => s + (l.inseminacoes?.length || 0), 0)
-  const kpiPrn = lotesInsem.reduce((s, l) => s + (l.inseminacoes?.filter(i => i.diagnostico === 'P').length || 0), 0)
-  const txPren = kpiIns > 0 ? Math.round(kpiPrn / kpiIns * 100) + '%' : '—'
+  const insemRebanho = lotesInsem.flatMap(l => l.inseminacoes || [])
+  const kpiIns = insemRebanho.length
+  const kpiPrn = insemRebanho.filter(i => i.diagnostico === 'P').length
+  const txPrenNum = calcTaxaPrenhez(insemRebanho)
+  const txPren = txPrenNum !== null ? txPrenNum + '%' : '—'
 
-  // GMD de terneiros/terneiras ativos: (peso mais recente - peso inicial) / dias entre as pesagens
+  // GMD de terneiros/terneiras ativos: (peso mais recente - peso inicial) / dias entre as pesagens.
+  // Usa o calcGMD único de helpers.js (retorna string via toFixed ou null) — convertido
+  // para número aqui antes de filtrar/agregar.
   const terneiros = ativos.filter(a => ['Terneiro','Terneira'].includes(calcCategoria(a.data_nascimento, a.sexo)))
-  const calcGMD = (pesagensAnimal) => {
-    if (!pesagensAnimal || pesagensAnimal.length < 2) return null
-    const ordenadas = [...pesagensAnimal].sort((a, b) => (a.data || '').localeCompare(b.data || ''))
-    const primeira = ordenadas[0]
-    const ultima   = ordenadas[ordenadas.length - 1]
-    const dias = Math.round((new Date(ultima.data) - new Date(primeira.data)) / 86400000)
-    if (dias <= 0) return null
-    const ganho = parseFloat(ultima.peso_kg) - parseFloat(primeira.peso_kg)
-    return Number.isFinite(ganho) ? ganho / dias : null
-  }
   const gmdTerneiros = terneiros
-    .map(t => ({ sexo: t.sexo, gmd: calcGMD(pesagensPorAnimal[t.id]) }))
-    .filter(t => t.gmd !== null && Number.isFinite(t.gmd))
+    .map(t => ({ sexo: t.sexo, gmd: parseFloat(calcGMD(pesagensPorAnimal[t.id])) }))
+    .filter(t => Number.isFinite(t.gmd))
   const mediaGMD = (lista) => lista.length > 0 ? lista.reduce((s, v) => s + v, 0) / lista.length : null
   const fmtGMD   = (v) => v === null ? '—' : `${v.toFixed(2).replace('.', ',')} kg/dia`
   const gmdTotal  = mediaGMD(gmdTerneiros.map(t => t.gmd))
@@ -161,7 +158,7 @@ export function Rebanho() {
   })
   const catData = Object.entries(catMap).map(([name, value]) => ({ name, value }))
 
-  // Dados para aba Valor do Rebanho
+  // Dados para aba Valor de Mercado do Rebanho
   const ativosGlobal    = animais.filter(a => a.situacao === 'ativo')
   const propsSelecionadas = props.filter(p => selProps.includes(p.id))
   const valorRows = CATEGORIAS_VALOR.map(cat => {
@@ -186,9 +183,10 @@ export function Rebanho() {
 
   const statsPorCiclo = ciclosOrdenados.map(c => {
     const lotesDoCiclo = todosLotesInsem.filter(l => l.ciclo_id === c.id)
-    const inseminacoes = lotesDoCiclo.reduce((s, l) => s + (l.inseminacoes?.length || 0), 0)
-    const prenhas      = lotesDoCiclo.reduce((s, l) => s + (l.inseminacoes?.filter(i => i.diagnostico === 'P').length || 0), 0)
-    const txPrenhez    = inseminacoes > 0 ? Math.round(prenhas / inseminacoes * 100) : null
+    const insemDoCiclo = lotesDoCiclo.flatMap(l => l.inseminacoes || [])
+    const inseminacoes = insemDoCiclo.length
+    const prenhas      = insemDoCiclo.filter(i => i.diagnostico === 'P').length
+    const txPrenhez    = calcTaxaPrenhez(insemDoCiclo)
     const nascimentos  = partosTodos.filter(p => p.ciclo_id === c.id).length
     const lancs        = lancsPorCiclo[c.id] || []
     const transacs     = transacsPorCiclo[c.id] || []
@@ -217,7 +215,7 @@ export function Rebanho() {
     { ref: refIndices, filename:'rebanho-indices',      titulo:'Rebanho: Índices' },
     { ref: refComp,    filename:'rebanho-comparativo',  titulo:'Rebanho: Comparativo' },
     { ref: refHist,    filename:'rebanho-historico',    titulo:'Rebanho: Histórico' },
-    { ref: refValor,   filename:'rebanho-valor',        titulo:'Rebanho: Valor do Rebanho' },
+    { ref: refValor,   filename:'rebanho-valor',        titulo:'Rebanho: Valor de Mercado do Rebanho' },
   ]
   const pdfAtualR = PDF_CONFIG_R[tab]
 
@@ -306,7 +304,7 @@ export function Rebanho() {
           <div ref={refIndices}>
           <div className="sl">Índices reprodutivos</div>
           <div className="grid-3" style={{marginBottom:16}}>
-            <IndexCard value={txPren} label="Taxa de prenhez" meta="≥85%" ok={kpiIns > 0 && (kpiPrn / kpiIns) >= 0.85}/>
+            <IndexCard value={txPren} label="Taxa de prenhez" meta="≥85%" ok={txPrenNum !== null && txPrenNum >= 85}/>
             <IndexCard value={kpiIns} label="Inseminadas no ciclo" color="#2B6CD9"/>
             <IndexCard value={kpiPrn} label="Prenhas no ciclo" color="#2B6CD9"/>
           </div>
@@ -469,7 +467,7 @@ export function Rebanho() {
           </div>
           <div ref={refValor}>
           <div style={{ marginBottom:14 }}>
-            <span style={{ fontSize:'.85rem', color:'#6B7280' }}>Valor estimado do rebanho por categoria e proprietário</span>
+            <span style={{ fontSize:'.85rem', color:'#6B7280' }}>Valor de mercado estimado do rebanho, por categoria e proprietário</span>
           </div>
 
           {/* Checkboxes de proprietários */}

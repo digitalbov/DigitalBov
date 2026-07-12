@@ -2,7 +2,8 @@
 import { db } from '../lib/supabase'
 import { usePermissoes } from '../lib/PermissoesContext'
 import { useCiclo, statusCiclo } from '../lib/CicloContext'
-import { fmtData } from '../lib/helpers'
+import { useCicloLocal } from '../lib/useCicloLocal'
+import { fmtData, numeroPositivo } from '../lib/helpers'
 import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, AlertBox, BotaoPDF, Confirm, ErroCarregamento, BannerCicloEncerrado, SeletorCicloLocal } from '../components/UI'
 
 const TABS = ['Inventário','Movimentar','Alertas']
@@ -23,14 +24,12 @@ export default function Estoque() {
 
   const { podeEditar } = usePermissoes()
   const podeEditarEstoque = podeEditar('estoque')
-  const { ciclos, cicloSelecionado, dentroDoCiclo, cicloDaData, dataEhEditavel } = useCiclo()
+  const { dentroDoCiclo, cicloDaData, dataEhEditavel } = useCiclo()
 
-  // Seletor de ciclo LOCAL desta tela — inicia (e reseta, a cada montagem da
-  // tela) no ciclo GLOBAL selecionado no menu lateral, não no ciclo atual.
-  // Só afeta a listagem de MOVIMENTAÇÕES (têm data); os itens são saldo atual
-  // e ficam sempre visíveis/edítáveis conforme a permissão do módulo.
-  const [cicloLocal, setCicloLocal] = useState(null)
-  useEffect(() => { if (cicloSelecionado && !cicloLocal) setCicloLocal(cicloSelecionado) }, [cicloSelecionado]) // eslint-disable-line
+  // Seletor de ciclo LOCAL desta tela. Só afeta a listagem de MOVIMENTAÇÕES
+  // (têm data); os itens são saldo atual e ficam sempre visíveis/editáveis
+  // conforme a permissão do módulo.
+  const { cicloLocal, setCicloLocal, ciclos } = useCicloLocal()
   const statusCicloLocal = statusCiclo(cicloLocal)
   const podeEditarMovCiclo = podeEditarEstoque && (statusCicloLocal === 'atual' || statusCicloLocal === 'carencia')
 
@@ -95,6 +94,8 @@ export default function Estoque() {
     if (!form.item_id || !form.tipo || !form.quantidade || !form.data) {
       toast('Preencha todos os campos.', 'error'); return
     }
+    const qt = numeroPositivo(form.quantidade)
+    if (qt === null) { toast('Quantidade inválida: informe um número maior que zero.', 'error'); return }
     if (!dataEhEditavel(form.data)) {
       const c = cicloDaData(form.data)
       toast(c
@@ -104,7 +105,6 @@ export default function Estoque() {
     }
     setSaving(true)
     const item = itens.find(i => i.id === form.item_id)
-    const qt   = parseFloat(form.quantidade)
     const novaQt = form.tipo === 'E'
       ? parseFloat(item.quantidade) + qt
       : Math.max(0, parseFloat(item.quantidade) - qt)

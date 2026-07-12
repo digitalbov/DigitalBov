@@ -3,6 +3,7 @@ import { db } from '../lib/supabase'
 import { fmtData } from '../lib/helpers'
 import { Loading, BotaoPDF, EmptyState, ErroCarregamento, SeletorCicloLocal } from '../components/UI'
 import { useCiclo } from '../lib/CicloContext'
+import { useCicloLocal } from '../lib/useCicloLocal'
 import { addDays, parseISO, differenceInDays } from 'date-fns'
 
 // ── Urgência ──────────────────────────────────────────────────────
@@ -108,11 +109,8 @@ export default function Calendario() {
   const [vazias,    setVazias]   = useState([])
   const [filtTipo,  setFiltTipo] = useState('todos')
 
-  const { ciclos, cicloSelecionado, dentroDoCiclo } = useCiclo()
-  // Seletor de ciclo LOCAL desta tela — inicia (e reseta, a cada montagem da
-  // tela) no ciclo GLOBAL selecionado no menu lateral, não no ciclo atual.
-  const [cicloLocal, setCicloLocal] = useState(null)
-  useEffect(() => { if (cicloSelecionado && !cicloLocal) setCicloLocal(cicloSelecionado) }, [cicloSelecionado]) // eslint-disable-line
+  const { dentroDoCiclo } = useCiclo()
+  const { cicloLocal, setCicloLocal, ciclos } = useCicloLocal()
 
   useEffect(() => { loadData() }, [])
 

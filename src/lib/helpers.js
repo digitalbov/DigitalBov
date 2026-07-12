@@ -89,6 +89,30 @@ export const calcGMD = (pesagens) => {
 // ── Percentual ───────────────────────────────────────────────────────────────
 export const pct = (a, b) => b > 0 ? Math.round((a / b) * 100) + '%' : '—'
 
+// ── Validação de input ─────────────────────────────────────────────────────
+// Retorna o número se for finito e > 0; caso contrário null (bloqueia negativo,
+// zero, NaN e valores não numéricos digitados por engano).
+export const numeroPositivo = (v) => {
+  const n = parseFloat(v)
+  return Number.isFinite(n) && n > 0 ? n : null
+}
+
+// Data (string 'AAAA-MM-DD') não pode ser posterior a hoje.
+export const dataNaoFutura = (d) => !!d && d <= new Date().toISOString().slice(0, 10)
+
+// ── Taxa de prenhez (fórmula única e oficial, usada em todas as telas) ────────
+// Padrão oficial: prenhas / total de inseminações do ciclo (inclui pendentes,
+// sem diagnóstico ainda). Passe { incluirPendentes: false } para calcular sobre
+// apenas as inseminações já diagnosticadas (prenha ou vazia).
+export function calcTaxaPrenhez(inseminacoes, { incluirPendentes = true } = {}) {
+  const lista = inseminacoes || []
+  const prenhas = lista.filter(i => i.diagnostico === 'P').length
+  const denominador = incluirPendentes
+    ? lista.length
+    : lista.filter(i => i.diagnostico === 'P' || i.diagnostico === 'V').length
+  return denominador > 0 ? Math.round((prenhas / denominador) * 100) : null
+}
+
 // ── Cores por categoria ───────────────────────────────────────────────────────
 export const catCor = {
   Terneira: { bg: '#EEEDFE', text: '#3C3489' },

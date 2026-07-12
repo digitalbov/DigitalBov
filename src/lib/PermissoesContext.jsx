@@ -12,6 +12,7 @@ export function PermissoesProvider({ children }) {
   const [permsEditar, setPermsEditar] = useState({})
   const [ehAdmin, setEhAdmin] = useState(false)
   const [carregado, setCarregado] = useState(false)
+  const [erro, setErro] = useState(null)
 
   const carregar = useCallback(async () => {
     setCarregado(false)
@@ -25,12 +26,14 @@ export function PermissoesProvider({ children }) {
     if (!fazendaAtual) { setPermsVer({}); setPermsEditar({}); setCarregado(true); return }
 
     const { data: { user } } = await supabase.auth.getUser()
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('usuario_permissoes')
       .select('modulo, pode_ver, pode_editar')
       .eq('usuario_id', user.id)
       .eq('conta_id', contaAtual.id)
       .eq('fazenda_id', fazendaAtual.id)
+    if (error) console.error('[PermissoesContext] erro ao carregar permissões:', error)
+    setErro(error || null)
     const mapVer = {}, mapEditar = {}
     ;(data || []).forEach(p => { mapVer[p.modulo] = p.pode_ver; mapEditar[p.modulo] = p.pode_editar })
     setPermsVer(mapVer)
@@ -54,7 +57,7 @@ export function PermissoesProvider({ children }) {
   }, [carregado, ehAdmin, permsEditar])
 
   return (
-    <PermCtx.Provider value={{ podeVer, podeEditar, ehAdmin, carregado }}>
+    <PermCtx.Provider value={{ podeVer, podeEditar, ehAdmin, carregado, erro }}>
       {children}
     </PermCtx.Provider>
   )

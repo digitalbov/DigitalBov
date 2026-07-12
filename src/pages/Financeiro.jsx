@@ -1,13 +1,14 @@
 import { useState, useEffect, useRef } from 'react'
 import { useLocation } from 'react-router-dom'
 import { db } from '../lib/supabase'
-import { fmtMoeda, fmtData, GRUPOS_REC, GRUPOS_DES, valorPropLanc } from '../lib/helpers'
+import { fmtMoeda, fmtData, GRUPOS_REC, GRUPOS_DES, valorPropLanc, numeroPositivo } from '../lib/helpers'
 import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, AlertBox, BotaoPDF, ErroCarregamento, BannerCicloEncerrado, SeletorCicloLocal } from '../components/UI'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import { usePermissoes } from '../lib/PermissoesContext'
 import { useConta } from '../lib/ContaContext'
 import { useFazenda } from '../lib/FazendaContext'
 import { useCiclo, statusCiclo, STATUS_CICLO_LABEL } from '../lib/CicloContext'
+import { useCicloLocal } from '../lib/useCicloLocal'
 
 const TABS = ['Resumo','Lançamentos','Compra & Venda','Resultados','Parâmetros','Ciclos']
 
@@ -41,18 +42,14 @@ export default function Financeiro() {
   const podeEditarFinanceiro = podeEditar('financeiro')
   const { contaAtual } = useConta()
   const { fazendaAtual } = useFazenda()
-  const { ciclos, cicloAtual, cicloSelecionado, carregarCiclos, cicloDaData, dataEhEditavel } = useCiclo()
-
-  // Seletor de ciclo LOCAL desta tela — inicia (e reseta, a cada montagem da
-  // tela) no ciclo GLOBAL selecionado no menu lateral, não no ciclo atual.
-  const [cicloLocal, setCicloLocal] = useState(null)
-  useEffect(() => { if (cicloSelecionado && !cicloLocal) setCicloLocal(cicloSelecionado) }, [cicloSelecionado]) // eslint-disable-line
+  const { carregarCiclos, cicloDaData, dataEhEditavel } = useCiclo()
+  const { cicloLocal, setCicloLocal, ciclos, cicloAtual } = useCicloLocal()
   const statusCicloLocal = statusCiclo(cicloLocal)
   const podeEditarFinCiclo = podeEditarFinanceiro && (statusCicloLocal === 'atual' || statusCicloLocal === 'carencia')
 
   useEffect(() => { loadBase() }, [])
   useEffect(() => { if (cicloLocal) loadCiclo() }, [cicloLocal?.id])
-  useEffect(() => { if (tab === 3 && ciclos.length > 0) loadResultadosPorCiclo() }, [tab, ciclos.length]) // eslint-disable-line
+  useEffect(() => { if (tab === 3 && ciclos.length > 0) loadResultadosPorCiclo() }, [tab, ciclos.length])
 
   // Busca os lançamentos de TODOS os ciclos (usado só na aba Resultados, para
   // comparar receita/despesa/resultado de cada ciclo lado a lado)
@@ -185,6 +182,8 @@ export default function Financeiro() {
     if (!form.data||!form.grupo||!form.valor||!form.descricao) {
       toast('Preencha todos os campos.','error'); return
     }
+    const valor = numeroPositivo(form.valor)
+    if (valor === null) { toast('Valor inválido: informe um número maior que zero.', 'error'); return }
     if (!dataEhEditavel(form.data)) {
       const c = cicloDaData(form.data)
       toast(c
@@ -197,7 +196,7 @@ export default function Financeiro() {
     const { data: lancData, error } = await db.lancamentos.insert({
       ciclo_id: ciclo.id, data:form.data,
       tipo:form.tipo||'D', grupo:form.grupo,
-      descricao:form.descricao, valor:parseFloat(form.valor)
+      descricao:form.descricao, valor
     })
     if (error) { setSaving(false); toast('Erro: '+error.message,'error'); return }
 
@@ -224,6 +223,18 @@ export default function Financeiro() {
     if (!form.data||!form.categoria||!form.peso_medio||!form.preco_kg) {
       toast('Preencha data, categoria, peso e preço.','error'); return
     }
+    const pesoMedio = numeroPositivo(form.peso_medio)
+    const precoKg   = numeroPositivo(form.preco_kg)
+    if (pesoMedio === null) { toast('Peso médio inválido: informe um número maior que zero.', 'error'); return }
+    if (precoKg   === null) { toast('Preço/kg inválido: informe um número maior que zero.', 'error'); return }
+    // Quantidade: se não preenchida, assume 1 animal (padrão); se preenchida
+    // com algo inválido/negativo/zero, bloqueia em vez de mascarar com ||1.
+    let n = 1
+    if (form.quantidade !== undefined && form.quantidade !== '' && form.quantidade !== null) {
+      const qtd = numeroPositivo(form.quantidade)
+      if (qtd === null) { toast('Quantidade inválida: informe um número maior que zero.', 'error'); return }
+      n = qtd
+    }
     if (!dataEhEditavel(form.data)) {
       const c = cicloDaData(form.data)
       toast(c
@@ -232,14 +243,13 @@ export default function Financeiro() {
       return
     }
     setSaving(true)
-    const n   = parseInt(form.quantidade)||1
-    const vt  = parseFloat(form.peso_medio)*parseFloat(form.preco_kg)*n
+    const vt  = pesoMedio*precoKg*n
     const ciclo = cicloDaData(form.data)
     const { error } = await db.transacoes.insert({
       ciclo_id: ciclo.id, data:form.data,
       tipo:form.tipo||'V', categoria:form.categoria,
-      quantidade:n, peso_medio:parseFloat(form.peso_medio),
-      preco_kg:parseFloat(form.preco_kg), valor_total:vt,
+      quantidade:n, peso_medio:pesoMedio,
+      preco_kg:precoKg, valor_total:vt,
       contraparte:form.contraparte||'', comissao:parseFloat(form.comissao)||0,
       imposto:parseFloat(form.imposto)||0
     })
