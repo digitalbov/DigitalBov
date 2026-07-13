@@ -18,9 +18,10 @@ export const fmtMoeda = (v) => {
 export const fmtPeso = (v) => v ? `${parseFloat(v).toFixed(1)} kg` : '—'
 
 // ── Datas ────────────────────────────────────────────────────────────────────
-export const mesesDeVida = (dataNasc) => {
+export const mesesDeVida = (dataNasc, dataRef = new Date()) => {
   if (!dataNasc) return 0
-  return Math.max(0, differenceInMonths(new Date(), parseISO(dataNasc)))
+  const ref = typeof dataRef === 'string' ? parseISO(dataRef) : dataRef
+  return Math.max(0, differenceInMonths(ref, parseISO(dataNasc)))
 }
 
 export const idadeFormatada = (dataNasc) => {
@@ -34,6 +35,18 @@ export const idadeFormatada = (dataNasc) => {
 export const diasDesde = (dt) => {
   if (!dt) return 0
   return Math.abs(differenceInDays(new Date(), parseISO(dt)))
+}
+
+// ── Matriz (fêmea ativa apta à reprodução) ─────────────────────────────────
+// Definição única: fêmea ativa com mais de 24 meses. dataRef permite calcular
+// a idade numa data passada (ex: a data de uma monta), não apenas hoje.
+export function ehMatriz(animal, dataRef = new Date()) {
+  if (animal.sexo !== 'F' || animal.situacao !== 'ativo' || !animal.data_nascimento) return false
+  return mesesDeVida(animal.data_nascimento, dataRef) > 24
+}
+
+export function contarMatrizes(animais, dataRef = new Date()) {
+  return (animais || []).filter(a => ehMatriz(a, dataRef)).length
 }
 
 // ── Categoria automática ──────────────────────────────────────────────────────

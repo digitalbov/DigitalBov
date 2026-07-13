@@ -2,7 +2,7 @@
 import { supabase } from '../lib/supabase'
 import { useFazenda } from '../lib/FazendaContext'
 import { useCicloLocal } from '../lib/useCicloLocal'
-import { fmtMoeda, calcCategoria, calcTaxaPrenhez } from '../lib/helpers'
+import { fmtMoeda, calcCategoria, calcTaxaPrenhez, contarMatrizes } from '../lib/helpers'
 import { Loading, EmptyState, SeletorCicloLocal } from '../components/UI'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -85,10 +85,7 @@ export default function Comparativo() {
       cats[c] = (cats[c]||0) + 1
     })
 
-    const matrizes = animais.filter(a => {
-      const c = calcCategoria(a.data_nascimento, a.sexo)
-      return c === 'Vaca' || c === 'Vaca Madura'
-    }).length
+    const matrizes = contarMatrizes(animais)
 
     // Taxa de prenhez: fórmula oficial única (helpers.calcTaxaPrenhez), a partir
     // das inseminações do ciclo — mesma fonte usada em Dashboard/Reprodutivo/Rebanho,

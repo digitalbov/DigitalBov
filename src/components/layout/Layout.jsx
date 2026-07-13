@@ -3,6 +3,7 @@ import { Outlet, useLocation } from 'react-router-dom'
 import Sidebar from './Sidebar'
 import BottomNav from './BottomNav'
 import { Loading } from '../UI'
+import ErrorBoundary from '../ErrorBoundary'
 
 const PAGE_TITLES = {
   '/':             { title: 'Dashboard',            sub: 'Visão geral da fazenda' },
@@ -75,9 +76,11 @@ export default function Layout({ user, perfil }) {
 
         {/* Page content */}
         <main className="page-body">
-          <Suspense fallback={<Loading text="Carregando..." />}>
-            <Outlet />
-          </Suspense>
+          <ErrorBoundary key={location.pathname}>
+            <Suspense fallback={<Loading text="Carregando..." />}>
+              <Outlet />
+            </Suspense>
+          </ErrorBoundary>
         </main>
       </div>
 

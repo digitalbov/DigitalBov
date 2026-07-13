@@ -117,11 +117,13 @@ export const db = {
 
   lotesInseminacao: {
     list: (cicloId) => T('lotes_inseminacao').select(`
-      *, inseminacoes(*, animal:animais(brinco,proprietario_id))
+      *, inseminacoes(*, animal:animais(brinco,proprietario_id)),
+      partos(id,bezerro_id,data_parto,bezerro:animais!bezerro_id(situacao))
     `).eq('ciclo_id', cicloId).order('data', { ascending: false }),
     listAll: () => T('lotes_inseminacao').select(`
-      *, ciclo:ciclos_financeiros(id,nome,inicio),
-      inseminacoes(*, animal:animais(brinco,proprietario_id,proprietario:proprietarios(nome)))
+      *, ciclo:ciclos_financeiros(id,nome,inicio,fim),
+      inseminacoes(*, animal:animais(brinco,proprietario_id,proprietario:proprietarios(nome))),
+      partos(id,bezerro_id,data_parto,bezerro:animais!bezerro_id(situacao))
     `).order('data', { ascending: true }),
     insert: (data)  => T('lotes_inseminacao').insertOne(data).select().single(),
     update: (id, d) => escopo(T('lotes_inseminacao').raw().update(d).eq('id', id)).select().single(),
@@ -142,7 +144,7 @@ export const db = {
 
   partos: {
     list:      (cicloId)    => T('partos').select('*, mae:animais!mae_id(brinco,proprietario_id,proprietario:proprietarios(id,nome)), bezerro:animais!bezerro_id(brinco,sexo)').eq('ciclo_id', cicloId).order('data_parto', { ascending: false }),
-    listAll:   ()           => T('partos').select('mae_id,data_parto,ciclo_id').order('data_parto', { ascending: true }),
+    listAll:   ()           => T('partos').select('mae_id,data_parto,ciclo_id,lote_inseminacao_id').order('data_parto', { ascending: true }),
     insert:    (data)       => T('partos').insertOne(data).select().single(),
     byMae:     (maeId)      => T('partos').select('*, bezerro:animais!bezerro_id(brinco,sexo)').eq('mae_id', maeId).order('data_parto', { ascending: true }),
     byBezerro: (bezerroId)  => T('partos').select('*, mae:animais!mae_id(brinco)').eq('bezerro_id', bezerroId).maybeSingle(),

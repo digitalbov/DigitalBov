@@ -5,7 +5,7 @@ import { useFazenda } from '../lib/FazendaContext'
 import { useConta } from '../lib/ContaContext'
 import { useCiclo, statusCiclo } from '../lib/CicloContext'
 import { useCicloLocal } from '../lib/useCicloLocal'
-import { fmtData, pct, calcTaxaPrenhez } from '../lib/helpers'
+import { fmtData, pct, calcTaxaPrenhez, contarMatrizes } from '../lib/helpers'
 import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, AlertBox, BotaoPDF, ErroCarregamento, BannerCicloEncerrado, SeletorCicloLocal } from '../components/UI'
 import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
@@ -14,6 +14,49 @@ import {
 
 const TABS = ['Lotes de Inseminação','Nascimentos','Índices']
 const GESTACAO_ANGUS_DIAS = 283
+const GESTACAO_MIN_DIAS = 260
+const GESTACAO_MAX_DIAS = 300
+
+// Card único do funil da safra reprodutiva (Matrizes aptas → Aproveitamento →
+// Inseminadas → Prenhez → Partos/Parição → Perdas). Reaproveitado tanto no
+// detalhe de um lote quanto, consolidado, na aba Índices — mesmo visual nos
+// dois lugares para o usuário reconhecer facilmente.
+function CardResultadoSafra({ titulo, sm, andamento, previsao }) {
+  return (
+    <div className="card" style={{ marginBottom:14 }}>
+      <div className="card-title"><i className="ti ti-report-analytics" /> {titulo}</div>
+      <div style={{ fontSize:'.78rem', color:'#6B7280', marginBottom:10 }}>
+        Índices ancorados na(s) monta(s) desta safra — os partos podem ocorrer no ciclo seguinte, mas pertencem à safra da monta.
+      </div>
+      {andamento && (
+        <AlertBox type="amber" icon="ti-hourglass"
+          title="Safra em andamento"
+          body={`Partos previstos a partir de ${fmtData(previsao)}.`} />
+      )}
+      <div className="grid-4" style={{ marginTop:10 }}>
+        {[
+          ['Matrizes aptas',               sm.matrizesAptas,                                                '#374151'],
+          ['Taxa de aproveitamento',       sm.txAproveitamento!=null?`${sm.txAproveitamento}%`:'—',         '#2B6CD9'],
+          ['Inseminadas',                  sm.total,                                                        '#111'   ],
+          ['Prenhas',                      sm.prenhas,                                                      '#1E55B0'],
+          ['Taxa de prenhez',              sm.txPrenhez!=null?`${sm.txPrenhez}%`:'—',                      '#1E55B0'],
+          ['Partos',                       sm.nascimentos,                                                  '#0C447C'],
+          ['Taxa de parição (natalidade)', sm.txNatalidade!=null?`${sm.txNatalidade}%`:'—',                '#0C447C'],
+          ['Perda gestacional',            sm.perdaGestacional!=null?`${sm.perdaGestacional}%`:'—',        '#791F1F'],
+          ['Mortalidade de bezerros',      sm.mortalidadeBezerros!=null?`${sm.mortalidadeBezerros}%`:'—',  '#791F1F'],
+        ].map(([l,v,c]) => (
+          <div key={l} style={{ background:'white',border:'.5px solid #E5E7EB',borderRadius:10,padding:'10px 12px',textAlign:'center' }}>
+            <div style={{ fontSize:'1.15rem',fontWeight:600,color:c }}>{v}</div>
+            <div style={{ fontSize:'.72rem',color:'#6B7280',marginTop:2 }}>{l}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{ fontSize:'.7rem', color:'#9CA3AF', marginTop:10 }}>
+        Taxa de aproveitamento abaixo de 100% indica matrizes aptas que não foram expostas à reprodução (matrizes ociosas). Mortalidade de bezerros = bezerros com situação "morto" entre os partos desta safra ÷ total de partos desta safra.
+      </div>
+    </div>
+  )
+}
 
 export default function Reprodutivo() {
   const { podeEditar } = usePermissoes()
@@ -73,14 +116,21 @@ export default function Reprodutivo() {
   const loadAll = async (showLoading = true) => {
     if (showLoading) { setLoading(true); setLoadError(false) }
     try {
-      const [ra, rprops, ls] = await Promise.all([
+      const [ra, rprops, ls, rlAll, rpAll] = await Promise.all([
         db.animais.list({ situacao:'ativo' }),
         db.proprietarios.list(),
-        db.lotes.list()
+        db.lotes.list(),
+        db.lotesInseminacao.listAll(),
+        db.partos.listAll()
       ])
       setAnimais(ra.data || [])
       setProprietarios(rprops.data || [])
       setLotesSistema(ls.data || [])
+      // Também alimenta todosLotes/todosPartos (usados na aba Índices e para
+      // localizar o lote de uma mãe fora do ciclo selecionado), assim eles ficam
+      // atualizados sempre que loadAll roda, não só quando a aba Índices é aberta.
+      setTodosLotes(rlAll.data || [])
+      setTodosPartos(rpAll.data || [])
       if (cicloLocal) await loadLotesPartos(cicloLocal.id)
     } catch (e) {
       console.error('[Reprodutivo] erro ao carregar:', e)
@@ -133,32 +183,30 @@ export default function Reprodutivo() {
     ? femsVaziasFiltradas.filter(a => !(selLote.inseminacoes||[]).some(i => i.animal_id === a.id))
     : []
 
-  // Apenas fêmeas com diagnóstico 'P' confirmado em algum lote de inseminação
+  // Apenas fêmeas com diagnóstico 'P' confirmado em algum lote de inseminação.
+  // Usa todosLotes (não apenas o ciclo selecionado): a gestação (~283 dias) costuma
+  // atravessar a virada do ciclo, então a monta pode ter sido num ciclo anterior.
   const maesElegiveis = femsAtivas.filter(a =>
     a.sit_reprodutiva === 'prenha' &&
-    lotes.some(l => l.inseminacoes?.some(i => i.animal_id === a.id && i.diagnostico === 'P'))
+    todosLotes.some(l => l.inseminacoes?.some(i => i.animal_id === a.id && i.diagnostico === 'P'))
   )
 
-  // Touro do lote mais recente com diagnóstico P para a animal
-  const resolverTouro = (animalId) => {
-    const lotesDaMae = lotes.filter(l => l.inseminacoes?.some(i => i.animal_id === animalId && i.diagnostico === 'P'))
-    const loteEnc = lotesDaMae.sort((a, b) => b.data.localeCompare(a.data))[0]
-    return loteEnc?.touro || ''
-  }
-
-  const resolverTouroFromLotes = (animalId, lotesList) => {
-    const lotesDaMae = lotesList.filter(l => l.inseminacoes?.some(i => i.animal_id === animalId && i.diagnostico === 'P'))
-    const loteEnc = lotesDaMae.sort((a, b) => (b.data||'').localeCompare(a.data||''))[0]
-    return loteEnc?.touro || ''
-  }
-
-  const resolverPrevParto = (animalId, lotesList) => {
-    const lotesDaMae = lotesList.filter(l => l.inseminacoes?.some(i => i.animal_id === animalId && i.diagnostico === 'P'))
-    const loteEnc = lotesDaMae.sort((a, b) => (b.data||'').localeCompare(a.data||''))[0]
-    if (!loteEnc?.data) return '—'
-    const d = new Date(loteEnc.data + 'T12:00:00')
-    d.setDate(d.getDate() + GESTACAO_ANGUS_DIAS)
-    return d.toLocaleDateString('pt-BR')
+  // Acha o lote de inseminação (safra) mais provável para o nascimento: entre os
+  // lotes com diagnóstico 'P' para a mãe, o que cai numa janela de gestação
+  // plausível (260–300 dias) mais próxima do padrão (283 dias).
+  const encontrarLoteSafra = (maeId, dataParto) => {
+    if (!maeId || !dataParto) return null
+    const dParto = new Date(dataParto + 'T12:00:00')
+    let melhor = null, melhorDelta = Infinity
+    todosLotes.forEach(l => {
+      if (!l.data) return
+      if (!l.inseminacoes?.some(i => i.animal_id === maeId && i.diagnostico === 'P')) return
+      const dias = Math.round((dParto - new Date(l.data + 'T12:00:00')) / 86400000)
+      if (dias < GESTACAO_MIN_DIAS || dias > GESTACAO_MAX_DIAS) return
+      const delta = Math.abs(dias - GESTACAO_ANGUS_DIAS)
+      if (delta < melhorDelta) { melhorDelta = delta; melhor = l }
+    })
+    return melhor
   }
 
   const togSel = (br) => setSelBrs(prev =>
@@ -350,12 +398,14 @@ export default function Reprodutivo() {
       sit_reprodutiva: form.sexo_bezerro === 'F' ? 'vazia' : 'nao_se_aplica'
     })
 
-    // Registrar parto
+    // Registrar parto — ciclo_id é o ciclo do EVENTO (data do parto); lote_inseminacao_id
+    // é a SAFRA (a monta que originou a gestação), que pode ser de um ciclo anterior.
     await db.partos.insert({
       mae_id: mae.id,
       bezerro_id: bezData.id,
       data_parto: form.data_parto,
       ciclo_id: cicloDoParto.id,
+      lote_inseminacao_id: form.lote_inseminacao_id || null,
       observacoes: form.obs || ''
     })
 
@@ -470,28 +520,66 @@ export default function Reprodutivo() {
   const totalNasc = partos.length
 
   // ─── Índices: dados derivados ────────────────────────────────────────────────
+  // Safra reprodutiva: os índices de parição/perda/mortalidade são ancorados no
+  // LOTE (a monta), não na data do parto — a gestação (~283 dias) costuma
+  // atravessar a virada do ciclo, então os partos de uma safra podem ocorrer no
+  // ciclo seguinte. `lote.partos` vem do FK partos.lote_inseminacao_id (join no
+  // supabase.js), por isso é uma contagem exata, diferente de casar por mae_id.
   const calcLoteMetrics = (lote) => {
     const ins       = lote.inseminacoes || []
-    const animalIds = ins.map(i => i.animal_id)
     const prenhas   = ins.filter(i => i.diagnostico === 'P').length
     const vazias    = ins.filter(i => i.diagnostico === 'V').length
     const pendentes = ins.filter(i => !i.diagnostico).length
     const total     = ins.length
     const txPrenhez = calcTaxaPrenhez(ins) ?? 0
-    const nascimentos = todosPartos.filter(p => animalIds.includes(p.mae_id)).length
-    const txParicao = prenhas > 0 ? Math.round(nascimentos / prenhas * 100) : 0
+    const partosLote  = lote.partos || []
+    const nascimentos = partosLote.length
+    const txParicao   = prenhas > 0 ? Math.round(nascimentos / prenhas * 100) : 0
+    // Novos índices da safra
+    const txNatalidade      = total > 0 ? Math.round(nascimentos / total * 100) : null
+    const perdaGestacional  = prenhas > 0 ? Math.max(0, Math.round((prenhas - nascimentos) / prenhas * 100)) : null
+    const mortosBezerros    = partosLote.filter(p => p.bezerro?.situacao === 'morto').length
+    const mortalidadeBezerros = nascimentos > 0 ? Math.round(mortosBezerros / nascimentos * 100) : null
+    const matrizesAptas   = lote.data ? contarMatrizes(animais, lote.data) : 0
+    const txAproveitamento = matrizesAptas > 0 ? Math.round(total / matrizesAptas * 100) : null
     const partoPrev = lote.data
       ? new Date(new Date(lote.data).setMonth(new Date(lote.data).getMonth() + 9)).toLocaleDateString('pt-BR')
       : '—'
-    return { total, prenhas, vazias, pendentes, txPrenhez, nascimentos, txParicao, partoPrev }
+    return {
+      total, prenhas, vazias, pendentes, txPrenhez, nascimentos, txParicao,
+      txNatalidade, perdaGestacional, mortalidadeBezerros, matrizesAptas, txAproveitamento,
+      partoPrev,
+    }
+  }
+
+  // Uma safra é considerada "em andamento" enquanto o ciclo do lote é o atual e
+  // ainda não se passaram os ~283 dias de gestação desde a monta.
+  const safraEmAndamento = (lote, ciclo) => {
+    if (!lote?.data || !ciclo) return false
+    if (statusCiclo(ciclo) !== 'atual') return false
+    const dias = Math.round((new Date() - new Date(lote.data + 'T12:00:00')) / 86400000)
+    return dias < GESTACAO_ANGUS_DIAS
   }
 
   const lotesCicloAtual = todosLotes.filter(l => l.ciclo_id === cicloLocal?.id)
   const kpiIns  = lotesCicloAtual.reduce((s, l) => s + (l.inseminacoes?.length || 0), 0)
   const kpiPrn  = lotesCicloAtual.reduce((s, l) => s + (l.inseminacoes?.filter(i => i.diagnostico === 'P').length || 0), 0)
-  const kpiNasc = todosPartos.filter(p =>
-    lotesCicloAtual.some(l => l.inseminacoes?.some(i => i.animal_id === p.mae_id))
-  ).length
+  const kpiPartos = lotesCicloAtual.reduce((s, l) => s + (l.partos?.length || 0), 0)
+  const kpiMortos = lotesCicloAtual.flatMap(l => l.partos || []).filter(p => p.bezerro?.situacao === 'morto').length
+  const kpiMortalidade = kpiPartos > 0 ? Math.round(kpiMortos / kpiPartos * 100) : null
+  const kpiPerdaGestacional = kpiPrn > 0 ? Math.max(0, Math.round((kpiPrn - kpiPartos) / kpiPrn * 100)) : null
+  const primeiraMontaCiclo = lotesCicloAtual.map(l => l.data).filter(Boolean).sort()[0] || null
+  const kpiMatrizesAptas = primeiraMontaCiclo ? contarMatrizes(animais, primeiraMontaCiclo) : 0
+  const kpiTxAproveitamento = kpiMatrizesAptas > 0 ? Math.round(kpiIns / kpiMatrizesAptas * 100) : null
+  const safraCicloEmAndamento = lotesCicloAtual.some(l => safraEmAndamento(l, cicloLocal))
+  const previsaoSafraCiclo = (() => {
+    const emAndamento = lotesCicloAtual.filter(l => safraEmAndamento(l, cicloLocal))
+    if (emAndamento.length === 0) return null
+    const datas = emAndamento.map(l => {
+      const d = new Date(l.data + 'T12:00:00'); d.setDate(d.getDate() + GESTACAO_ANGUS_DIAS); return d
+    })
+    return new Date(Math.min(...datas))
+  })()
   // Intervalo entre partos: para cada mãe com 2+ partos, mede o intervalo entre
   // partos consecutivos; só considera intervalos plausíveis para bovinos (300–700 dias)
   const INTERVALO_PARTOS_MIN_DIAS = 300
@@ -531,7 +619,7 @@ export default function Reprodutivo() {
     const lc = todosLotes.filter(l => l.ciclo_id === c.id)
     const insLc = lc.flatMap(l => l.inseminacoes || [])
     const tP = insLc.filter(i => i.diagnostico === 'P').length
-    const tN = todosPartos.filter(p => lc.some(l => l.inseminacoes?.some(i => i.animal_id === p.mae_id))).length
+    const tN = lc.reduce((s, l) => s + (l.partos?.length || 0), 0)
     return { ciclo: c.nome, prenhez: calcTaxaPrenhez(insLc) ?? 0, paricao: tP > 0 ? Math.round(tN/tP*100) : 0 }
   })
 
@@ -693,6 +781,15 @@ export default function Reprodutivo() {
               </div>
             ))}
           </div>
+
+          {/* Resultado da safra — índices ancorados nesta monta, mesmo que os partos ocorram no ciclo seguinte */}
+          <CardResultadoSafra
+            titulo="Resultado da safra"
+            sm={calcLoteMetrics(selLote)}
+            andamento={safraEmAndamento(selLote, cicloLocal)}
+            previsao={previsaoPartoLote}
+          />
+
           <div className="card">
             <div className="card-title">
               <span><i className="ti ti-stethoscope" /> Diagnóstico de gestação</span>
@@ -806,7 +903,7 @@ export default function Reprodutivo() {
           <div>
             {/* Linha 1 — ciclo + botão */}
             <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12, flexWrap:'wrap', gap:8 }}>
-              <span style={{ fontSize:'.85rem', color:'#6B7280' }}>Ciclo: <strong style={{ color:'#374151' }}>{cicloLocal?.nome || '—'}</strong></span>
+              <span style={{ fontSize:'.85rem', color:'#6B7280' }}>Nascimentos no ciclo (pela data do parto): <strong style={{ color:'#374151' }}>{cicloLocal?.nome || '—'}</strong></span>
               <div style={{ display:'flex', gap:8 }}>
                 {podeEditarReprodCiclo && (
                   <button className="btn btn-primary btn-sm" onClick={() => { setForm({ data_parto: new Date().toISOString().split('T')[0] }); setModal('parto') }}>
@@ -842,7 +939,7 @@ export default function Reprodutivo() {
               <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(128px, 1fr))', gap:10, marginBottom:14 }}>
                 <div style={{ background:'white', border:'.5px solid #E5E7EB', borderRadius:12, padding:'12px 14px', textAlign:'center' }}>
                   <div style={{ fontSize:'1.6rem', fontWeight:700, color:'#2B6CD9' }}>{pFilt.length}</div>
-                  <div style={{ fontSize:'.72rem', color:'#6B7280', marginTop:2 }}>Nascimentos</div>
+                  <div style={{ fontSize:'.72rem', color:'#6B7280', marginTop:2 }}>Nascimentos no ciclo</div>
                 </div>
                 <div style={{ background:'#EFF6FF', border:'.5px solid #BFDBFE', borderRadius:12, padding:'12px 14px', textAlign:'center' }}>
                   <div style={{ fontSize:'1.5rem', fontWeight:700, color:'#1D4ED8' }}>♂ {nascMachos}</div>
@@ -877,7 +974,17 @@ export default function Reprodutivo() {
                         <tr><th>Data nasc.</th><th>Mãe</th><th>Proprietário</th><th>Sexo</th><th>Brinco</th><th>Touro</th><th>Prev. parto</th><th>Ações</th></tr>
                       </thead>
                       <tbody>
-                        {pFilt.map(p => (
+                        {pFilt.map(p => {
+                          // Touro sempre pelo lote VINCULADO ao parto (por ID, via
+                          // partos.lote_inseminacao_id) — nunca "o lote mais recente
+                          // com diagnóstico P para a mãe", que pode ser de outro ciclo.
+                          const loteDoP = todosLotes.find(l => l.id === p.lote_inseminacao_id) || null
+                          const prevPartoLoteP = loteDoP?.data ? (() => {
+                            const d = new Date(loteDoP.data + 'T12:00:00')
+                            d.setDate(d.getDate() + GESTACAO_ANGUS_DIAS)
+                            return d.toLocaleDateString('pt-BR')
+                          })() : '—'
+                          return (
                           <tr key={p.id}>
                             <td style={{ whiteSpace:'nowrap' }}>{fmtData(p.data_parto)}</td>
                             <td><strong>{p.mae?.brinco||'—'}</strong></td>
@@ -888,8 +995,8 @@ export default function Reprodutivo() {
                                 : <span style={{ color:'#1D4ED8', fontWeight:500 }}>♂ Macho</span>}
                             </td>
                             <td><Badge color="gray">{p.bezerro?.brinco||'—'}</Badge></td>
-                            <td style={{ fontSize:'.82rem', color:'#6B7280' }}>{resolverTouroFromLotes(p.mae_id, lotesNasc)||'—'}</td>
-                            <td style={{ fontSize:'.78rem', color:'#9CA3AF', whiteSpace:'nowrap' }}>{resolverPrevParto(p.mae_id, lotesNasc)}</td>
+                            <td style={{ fontSize:'.82rem', color:'#6B7280' }}>{loteDoP?.touro || '—'}</td>
+                            <td style={{ fontSize:'.78rem', color:'#9CA3AF', whiteSpace:'nowrap' }}>{prevPartoLoteP}</td>
                             <td style={{ whiteSpace:'nowrap' }}>
                               {podeEditarReprodCiclo && (
                                 <>
@@ -905,7 +1012,8 @@ export default function Reprodutivo() {
                               )}
                             </td>
                           </tr>
-                        ))}
+                          )
+                        })}
                       </tbody>
                     </table>
                   </div>
@@ -926,28 +1034,28 @@ export default function Reprodutivo() {
           {loadingIdx ? <Loading /> : <>
           <div ref={refIndices}>
 
-            {/* Seção 1 — KPIs */}
+            {/* Seção 1 — Resultado da safra reprodutiva (consolidado do ciclo selecionado) */}
             <div style={{ marginBottom:16 }}>
-              <div style={{ fontSize:'.9rem', fontWeight:600, color:'#2B6CD9', marginBottom:10 }}>
-                <i className="ti ti-chart-bar" /> Ciclo selecionado — {cicloLocal?.nome}
+              <div style={{ display:'flex', gap:10, marginBottom:12, flexWrap:'wrap' }}>
+                <Badge color="blue"><i className="ti ti-stack" /> {lotesCicloAtual.length} lote{lotesCicloAtual.length!==1?'s':''} no ciclo</Badge>
+                <Badge color="amber"><i className="ti ti-clock" /> Intervalo médio entre partos: {kpiIntervalo}</Badge>
               </div>
-              <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(130px, 1fr))', gap:10 }}>
-                {[
-                  { icon:'ti-stack',         l:'Lotes no ciclo',  v: lotesCicloAtual.length,                                        c:'#2B6CD9' },
-                  { icon:'ti-needle',        l:'Inseminadas',     v: kpiIns,                                                         c:'#111'    },
-                  { icon:'ti-rosette',       l:'Taxa de prenhez', v: kpiIns > 0 ? `${Math.round(kpiPrn/kpiIns*100)}%` : '—',        c:'#2B6CD9', meta:'meta ≥85%' },
-                  { icon:'ti-baby-carriage', l:'Nascimentos',     v: kpiNasc,                                                        c:'#0C447C' },
-                  { icon:'ti-trending-up',   l:'Taxa de parição', v: kpiPrn > 0 ? `${Math.round(kpiNasc/kpiPrn*100)}%` : '—',       c:'#2B6CD9', meta:'meta ≥80%' },
-                  { icon:'ti-clock',         l:'Intervalo médio', v: kpiIntervalo,                                                   c:'#633806', meta: kpiIntervalo === '—' ? 'sem dados suficientes' : undefined },
-                ].map(k => (
-                  <div key={k.l} style={{ background:'white', border:'.5px solid #E5E7EB', borderRadius:12, padding:'12px 14px' }}>
-                    <i className={`ti ${k.icon}`} style={{ fontSize:'1.1rem', color:k.c, marginBottom:6, display:'block' }} />
-                    <div style={{ fontSize:'1.45rem', fontWeight:700, color:k.c, lineHeight:1.1 }}>{k.v}</div>
-                    <div style={{ fontSize:'.72rem', color:'#6B7280', marginTop:4 }}>{k.l}</div>
-                    {k.meta && <div style={{ fontSize:'.68rem', color:'#9CA3AF' }}>{k.meta}</div>}
-                  </div>
-                ))}
-              </div>
+              <CardResultadoSafra
+                titulo={`Resultado da safra reprodutiva — ${cicloLocal?.nome || ''}`}
+                sm={{
+                  matrizesAptas:       kpiMatrizesAptas,
+                  txAproveitamento:    kpiTxAproveitamento,
+                  total:               kpiIns,
+                  prenhas:             kpiPrn,
+                  txPrenhez:           kpiIns > 0 ? Math.round(kpiPrn / kpiIns * 100) : null,
+                  nascimentos:         kpiPartos,
+                  txNatalidade:        kpiIns > 0 ? Math.round(kpiPartos / kpiIns * 100) : null,
+                  perdaGestacional:    kpiPerdaGestacional,
+                  mortalidadeBezerros: kpiMortalidade,
+                }}
+                andamento={safraCicloEmAndamento}
+                previsao={previsaoSafraCiclo}
+              />
             </div>
 
             {/* Seção 2 — Bar chart comparativo */}
@@ -1288,13 +1396,18 @@ export default function Reprodutivo() {
             const mae = maesElegiveis.find(a => a.brinco === brinco)
             if (!mae) { toast(`Brinco ${brinco} não encontrado entre as mães com diagnóstico confirmado`, 'error'); return }
 
-            const touro   = resolverTouro(mae.id)
+            // Touro SEMPRE do lote resolvido por ID (o mesmo vinculado ao parto) —
+            // nunca de "o lote mais recente com diagnóstico P", que pode ser de um
+            // ciclo diferente (o número do lote reinicia a cada ciclo, então nunca
+            // usar lote.numero para identificar/comparar lotes entre ciclos).
+            const loteSafra = encontrarLoteSafra(mae.id, form.data_parto)
+            const touro   = loteSafra?.touro || ''
             const loteLbl = mae.lote?.nome || '—'
             const prop    = mae.proprietario?.nome || '—'
 
             const pesoTxt = peso ? ` · ${peso}kg` : ''
             const resumo  = `Mãe ${brinco} · ${sexo === 'M' ? 'Macho' : 'Fêmea'}${pesoTxt} · Touro ${touro||'—'} · ${prop} · ${loteLbl}`
-            setForm(p => ({ ...p, mae_brinco: brinco, sexo_bezerro: sexo, touro_pai: touro, auto_lote: loteLbl, auto_prop: prop, voz_resumo: resumo, peso_nascimento: peso || p.peso_nascimento }))
+            setForm(p => ({ ...p, mae_brinco: brinco, sexo_bezerro: sexo, touro_pai: touro, auto_lote: loteLbl, auto_prop: prop, voz_resumo: resumo, peso_nascimento: peso || p.peso_nascimento, lote_inseminacao_id: loteSafra?.id || null }))
           }} />
         </div>
 
@@ -1313,10 +1426,12 @@ export default function Reprodutivo() {
             <select value={form.mae_brinco||''} onChange={e => {
               const brinco = e.target.value
               const mae = maesElegiveis.find(a => a.brinco === brinco)
-              const touro   = mae ? resolverTouro(mae.id) : ''
+              // Touro SEMPRE do lote resolvido por ID (ver comentário acima, no handler de voz)
+              const loteSafra = mae ? encontrarLoteSafra(mae.id, form.data_parto) : null
+              const touro   = loteSafra?.touro || ''
               const loteLbl = mae?.lote?.nome || '—'
               const prop    = mae?.proprietario?.nome || '—'
-              setForm(p => ({ ...p, mae_brinco: brinco, touro_pai: touro, auto_lote: loteLbl, auto_prop: prop, voz_resumo: null }))
+              setForm(p => ({ ...p, mae_brinco: brinco, touro_pai: touro, auto_lote: loteLbl, auto_prop: prop, voz_resumo: null, lote_inseminacao_id: loteSafra?.id || null }))
             }}>
               <option value="">— selecione —</option>
               {maesElegiveis.map(a => (
@@ -1344,6 +1459,56 @@ export default function Reprodutivo() {
             <input value={form.auto_lote||''} readOnly style={{ background:'#F9FAFB', color:'#6B7280', cursor:'default' }} />
           </Field>
         </div>
+
+        {/* Vínculo com a safra reprodutiva (lote de inseminação que originou a gestação) — em
+            destaque visual proposital, para o usuário ver claramente antes de salvar. */}
+        {form.mae_brinco && (() => {
+          const maeObj = animais.find(a => a.brinco === form.mae_brinco)
+          const candidatos = maeObj
+            ? todosLotes
+                .filter(l => l.inseminacoes?.some(i => i.animal_id === maeObj.id && i.diagnostico === 'P'))
+                .slice()
+                .sort((a, b) => (b.data||'').localeCompare(a.data||''))
+            : []
+          const loteVinculado = candidatos.find(l => l.id === form.lote_inseminacao_id)
+          return (
+            <div style={{
+              background: loteVinculado ? '#E8F0FC' : '#FEF3C7',
+              border: `1.5px solid ${loteVinculado ? '#1BA89C' : '#F3D5A3'}`,
+              borderRadius: 10, padding: '10px 14px', marginBottom: 14
+            }}>
+              <div style={{ fontSize:'.68rem', fontWeight:700, color:'#6B7280', textTransform:'uppercase', letterSpacing:.4, marginBottom:5 }}>
+                <i className="ti ti-link" /> Safra (lote de inseminação)
+              </div>
+              <div style={{ fontSize:'.92rem', fontWeight:700, color: loteVinculado ? '#1E55B0' : '#92620A', marginBottom: 8 }}>
+                {loteVinculado
+                  ? <>Vinculado: Lote {loteVinculado.numero} — {loteVinculado.ciclo?.nome || ''} — {loteVinculado.touro} ({fmtData(loteVinculado.data)})</>
+                  : <>Sem lote vinculado (monta natural)</>}
+              </div>
+              {candidatos.length > 0 ? (
+                <select value={form.lote_inseminacao_id || ''}
+                  onChange={e => {
+                    const novoId = e.target.value || null
+                    // O touro acompanha o lote escolhido manualmente — nunca fica
+                    // dessincronizado do lote de fato vinculado.
+                    const novoLote = candidatos.find(l => l.id === novoId)
+                    setForm(p => ({ ...p, lote_inseminacao_id: novoId, touro_pai: novoLote?.touro || '' }))
+                  }}
+                  style={{ width:'100%' }}>
+                  <option value="">— nenhum (monta natural) —</option>
+                  {candidatos.map(l => (
+                    <option key={l.id} value={l.id}>Lote {l.numero} — {l.ciclo?.nome || ''} — {l.touro} ({fmtData(l.data)})</option>
+                  ))}
+                </select>
+              ) : (
+                <div style={{ fontSize:'.75rem', color:'#92620A' }}>
+                  Nenhum lote com diagnóstico de prenhez encontrado para esta mãe — será registrado como monta natural.
+                </div>
+              )}
+            </div>
+          )
+        })()}
+
         <div className="grid-form">
           <Field label="Peso ao nascer (kg)">
             <input type="number" min="0" step="0.1" value={form.peso_nascimento||''} onChange={e=>setForm(p=>({...p,peso_nascimento:e.target.value}))} placeholder="opcional" />

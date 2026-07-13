@@ -1,7 +1,7 @@
 ﻿import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase, db } from '../lib/supabase'
-import { calcCategoria, calcCategoriaRebanho, calcTaxaPrenhez, fmtMoeda, valorPropLanc } from '../lib/helpers'
+import { calcCategoria, calcCategoriaRebanho, calcTaxaPrenhez, fmtMoeda, valorPropLanc, contarMatrizes } from '../lib/helpers'
 import { Loading, FullLoading, AlertBox, IndexCard, ErroCarregamento } from '../components/UI'
 import { useFazenda } from '../lib/FazendaContext'
 import { useCiclo } from '../lib/CicloContext'
@@ -130,10 +130,7 @@ export default function Dashboard({ perfil }) {
     return s.charAt(0).toUpperCase() + s.slice(1)
   })()
 
-  const matrizes = filtAnimais.filter(a => {
-    const c = calcCategoria(a.data_nascimento, a.sexo)
-    return c === 'Vaca' || c === 'Vaca Madura'
-  }).length
+  const matrizes = contarMatrizes(filtAnimais)
 
   // Taxa de prenhez: fórmula oficial única (helpers.calcTaxaPrenhez) — prenhas / inseminadas no ciclo atual
   const insemDashboard = lotesInsem.flatMap(l => l.inseminacoes || [])

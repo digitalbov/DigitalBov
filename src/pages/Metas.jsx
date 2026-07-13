@@ -3,6 +3,7 @@ import { db } from '../lib/supabase'
 import { calcCategoria, calcGMD, calcTaxaPrenhez } from '../lib/helpers'
 import { Loading, Modal, toast, BotaoPDF, EmptyState, ErroCarregamento } from '../components/UI'
 import { usePermissoes } from '../lib/PermissoesContext'
+import { useCiclo } from '../lib/CicloContext'
 
 // ── Metadata de cada indicador ────────────────────────────────────
 const CFG = {
@@ -119,8 +120,9 @@ export default function Metas() {
 
   const { podeEditar } = usePermissoes()
   const podeEditarMetas = podeEditar('metas')
+  const { cicloAtual } = useCiclo()
 
-  useEffect(() => { loadAll() }, [])
+  useEffect(() => { loadAll() }, [cicloAtual?.id])
 
   const loadAll = async () => {
     setLoading(true)
@@ -134,8 +136,10 @@ export default function Metas() {
       }
       setMetas(metasData || [])
 
-      // Ciclo atual
-      const { data: ciclo } = await db.ciclos.current()
+      // Ciclo atual: mesmo critério do resto do app (intervalo inicio..fim contém
+      // hoje, via CicloContext) — não a flag `atual` do banco, que não é mais a
+      // fonte da verdade desde o sistema de ciclos por data.
+      const ciclo = cicloAtual
       setCicloNome(ciclo?.nome || '')
 
       // Carregar dados para cálculo em paralelo

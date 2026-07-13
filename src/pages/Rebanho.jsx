@@ -4,7 +4,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { db } from '../lib/supabase'
-import { calcCategoria, calcCategoriaRebanho, calcTaxaPrenhez, calcGMD, pct, fmtMoeda } from '../lib/helpers'
+import { calcCategoria, calcCategoriaRebanho, calcTaxaPrenhez, calcGMD, pct, fmtMoeda, ehMatriz } from '../lib/helpers'
 import { Loading, IndexCard, BotaoPDF, ErroCarregamento, SeletorCicloLocal, Badge, EmptyState } from '../components/UI'
 import { useCicloLocal } from '../lib/useCicloLocal'
 import {
@@ -128,7 +128,7 @@ export function Rebanho() {
     a.situacao === 'ativo' && (!filtProp || a.proprietario_id === filtProp)
   )
   const fem    = ativos.filter(a => a.sexo === 'F')
-  const matrizes = ativos.filter(a => ['Vaca','Vaca Madura'].includes(calcCategoria(a.data_nascimento, a.sexo)))
+  const matrizes = ativos.filter(a => ehMatriz(a))
 
   // Índices reprodutivos do ciclo atual — fórmula oficial única (helpers.calcTaxaPrenhez):
   // prenhas diagnosticadas / inseminadas no ciclo — não usa matrizes por idade nem sit_reprodutiva atual
@@ -303,10 +303,11 @@ export function Rebanho() {
         <div>
           <div ref={refIndices}>
           <div className="sl">Índices reprodutivos</div>
-          <div className="grid-3" style={{marginBottom:16}}>
+          <div className="grid-4" style={{marginBottom:16}}>
             <IndexCard value={txPren} label="Taxa de prenhez" meta="≥85%" ok={txPrenNum !== null && txPrenNum >= 85}/>
             <IndexCard value={kpiIns} label="Inseminadas no ciclo" color="#2B6CD9"/>
             <IndexCard value={kpiPrn} label="Prenhas no ciclo" color="#2B6CD9"/>
+            <IndexCard value={partosTodos.filter(p => p.ciclo_id === cicloLocal?.id).length} label="Nascimentos no ciclo" color="#0C447C"/>
           </div>
 
           <div className="sl">GMD terneiros (0–12 meses)</div>
@@ -365,7 +366,7 @@ export function Rebanho() {
                     ))}
                   </tr>
                   <tr>
-                    <td>Nascimentos</td>
+                    <td>Nascimentos no ciclo</td>
                     {statsPorCiclo.map(s => <td key={s.ciclo.id} style={{textAlign:'right'}}>{s.nascimentos || '—'}</td>)}
                   </tr>
                   <tr className="tr-total">
@@ -409,7 +410,7 @@ export function Rebanho() {
                   <YAxis tick={{fontSize:11}} allowDecimals={false} />
                   <Tooltip />
                   <Legend />
-                  <Bar dataKey="Nascimentos" fill="#4ADE80" radius={[4,4,0,0]} />
+                  <Bar dataKey="Nascimentos" name="Nascimentos no ciclo" fill="#4ADE80" radius={[4,4,0,0]} />
                   <Bar dataKey="Vendas"      fill="#60A5FA" radius={[4,4,0,0]} />
                   <Bar dataKey="Compras"     fill="#F59E0B" radius={[4,4,0,0]} />
                 </BarChart>
@@ -425,7 +426,7 @@ export function Rebanho() {
                   <thead>
                     <tr>
                       <th>Ciclo</th>
-                      <th style={{textAlign:'right'}}>Nascimentos</th>
+                      <th style={{textAlign:'right'}}>Nascimentos no ciclo</th>
                       <th style={{textAlign:'right'}}>Vendas</th>
                       <th style={{textAlign:'right'}}>Compras</th>
                       <th style={{textAlign:'right'}}>Variação líquida</th>

@@ -1,6 +1,6 @@
 ﻿import { useState, useEffect, useRef } from 'react'
 import { db } from '../lib/supabase'
-import { calcCategoria, calcCategoriaRebanho, fmtData, fmtMoeda, pct } from '../lib/helpers'
+import { calcCategoria, calcCategoriaRebanho, fmtData, fmtMoeda, pct, ehMatriz } from '../lib/helpers'
 import { Loading, Badge, AlertBox, toast, SeletorCicloLocal } from '../components/UI'
 import { useFazenda } from '../lib/FazendaContext'
 import { useCicloLocal } from '../lib/useCicloLocal'
@@ -88,7 +88,7 @@ export default function Relatorios() {
   // Cálculos
   const ativos   = animais.filter(a => a.situacao === 'ativo')
   const inativos = animais.filter(a => a.situacao !== 'ativo')
-  const matrizes = ativos.filter(a => ['Vaca','Vaca Madura'].includes(calcCategoria(a.data_nascimento, a.sexo)))
+  const matrizes = ativos.filter(a => ehMatriz(a))
   const prenhas  = ativos.filter(a => a.sit_reprodutiva === 'prenha').length
   const rec      = lancs.filter(l=>l.tipo==='R').reduce((s,l)=>s+Number(l.valor),0)
   const desp     = lancs.filter(l=>l.tipo==='D').reduce((s,l)=>s+Number(l.valor),0)
