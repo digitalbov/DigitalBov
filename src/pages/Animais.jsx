@@ -16,6 +16,7 @@ const TL_ICONS = {
   dg_vazia:     '❌',
   parto_mae:    '🍼',
   parto_bezerro:'🐣',
+  aborto:       '⚠️',
 }
 
 function TimelineCard({ timeline, loading }) {
@@ -362,17 +363,19 @@ export default function Animais() {
     setTimelineLoading(true)
     setTimeline([])
 
-    const [rPes, rIns, rPartosMae, rPartoBezerro] = await Promise.all([
+    const [rPes, rIns, rPartosMae, rPartoBezerro, rAbortos] = await Promise.all([
       db.pesagens.list(animal.id),
       db.inseminacoes.byAnimal(animal.id),
       db.partos.byMae(animal.id),
-      db.partos.byBezerro(animal.id)
+      db.partos.byBezerro(animal.id),
+      db.abortos.byAnimal(animal.id)
     ])
 
     if (rPes.error)         console.error('[Timeline] Erro pesagens:', rPes.error)
     if (rIns.error)         console.error('[Timeline] Erro inseminacoes:', rIns.error)
     if (rPartosMae.error)   console.error('[Timeline] Erro partos (como mãe):', rPartosMae.error)
     if (rPartoBezerro.error) console.error('[Timeline] Erro parto (como bezerro):', rPartoBezerro.error)
+    if (rAbortos.error)     console.error('[Timeline] Erro abortos:', rAbortos.error)
 
     const eventos = []
 
@@ -438,6 +441,17 @@ export default function Animais() {
         descricao: p.bezerro?.brinco
           ? `Bezerro: brinco ${p.bezerro.brinco} · ${p.bezerro.sexo === 'M' ? 'Macho ♂' : 'Fêmea ♀'}`
           : 'Bezerro não identificado'
+      })
+    }
+
+    // Abortos
+    const CAUSA_LABEL = { infeccioso:'Infeccioso', nutricional:'Nutricional', traumatico:'Traumático', desconhecido:'Desconhecido', outro:'Outro' }
+    for (const ab of (rAbortos.data || [])) {
+      eventos.push({
+        data:     ab.data,
+        icon:     TL_ICONS.aborto,
+        titulo:   'Aborto',
+        descricao: `Causa: ${CAUSA_LABEL[ab.causa] || ab.causa || '—'}${ab.lote ? ` · Lote ${ab.lote.numero} — ${ab.lote.touro}` : ''}`
       })
     }
 

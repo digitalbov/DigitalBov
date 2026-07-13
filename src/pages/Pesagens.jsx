@@ -3,11 +3,11 @@ import { db } from '../lib/supabase'
 import { usePermissoes } from '../lib/PermissoesContext'
 import { useCiclo, statusCiclo } from '../lib/CicloContext'
 import { useCicloLocal } from '../lib/useCicloLocal'
-import { fmtData, calcGMD, fmtPeso, numeroPositivo, dataNaoFutura } from '../lib/helpers'
+import { fmtData, calcGMD, fmtPeso, numeroPositivo, dataNaoFutura, calcCategoria, mesesDeVida } from '../lib/helpers'
 import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, IndexCard, BotaoPDF, Confirm, ErroCarregamento, BannerCicloEncerrado, SeletorCicloLocal } from '../components/UI'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 
-const TABS  = ['Registrar','Por Animal','Desempenho','Projeção']
+const TABS  = ['Registrar','Por Animal','Desempenho','Projeção','Desmame']
 const TIPOS = ['nascimento','desmama','sobreano','intermediaria']
 
 export default function Pesagens() {
@@ -35,18 +35,28 @@ export default function Pesagens() {
   const [loadError,  setLoadError]  = useState(false)
   const [pesoAlvo,   setPesoAlvo]   = useState(480)
 
+  // Desmame
+  const [lotesSistema,     setLotesSistema]     = useState([])
+  const [filtroLoteDesm,   setFiltroLoteDesm]   = useState('')
+  const [selDesmame,       setSelDesmame]       = useState([])
+  const [pesosDesmame,     setPesosDesmame]     = useState({})
+  const [dataDesmame,      setDataDesmame]      = useState(new Date().toISOString().split('T')[0])
+  const [salvandoDesmame,  setSalvandoDesmame]  = useState(false)
+
   useEffect(() => { loadAll() }, [])
 
   const loadAll = async () => {
     setLoading(true)
     setLoadError(false)
     try {
-      const [ra, rp] = await Promise.all([
+      const [ra, rp, rl] = await Promise.all([
         db.animais.list({ situacao:'ativo' }),
-        db.pesagens.listAll()
+        db.pesagens.listAll(),
+        db.lotes.list()
       ])
       setAnimais(ra.data  || [])
       setPesagens(rp.data || [])
+      setLotesSistema(rl.data || [])
     } catch (e) {
       console.error('[Pesagens] erro ao carregar:', e)
       setLoadError(true)
@@ -139,6 +149,50 @@ export default function Pesagens() {
   // abas (Por Animal, Desempenho, Projeção) usam o histórico completo, pois
   // o cálculo de GMD/projeção depende de pesagens de qualquer época.
   const pesagensFiltradas = pesagens.filter(p => cicloLocal && dentroDoCiclo(p.data, cicloLocal))
+
+  // Candidatos ao desmame: bezerros/terneiros ativos (≤12 meses) que ainda não
+  // têm data_desmame registrada, com filtro opcional por lote (pasto/manejo).
+  const candidatosDesmame = animais
+    .filter(a => a.situacao === 'ativo' && !a.data_desmame && ['Terneiro','Terneira'].includes(calcCategoria(a.data_nascimento, a.sexo)))
+    .filter(a => !filtroLoteDesm || a.lote_id === filtroLoteDesm)
+    .sort((a, b) => a.brinco.localeCompare(b.brinco, undefined, { numeric: true }))
+
+  const togSelDesmame = (id) => setSelDesmame(prev =>
+    prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+  )
+
+  const registrarDesmame = async () => {
+    if (!podeEditarPesagensCiclo) return
+    if (selDesmame.length === 0) { toast('Selecione ao menos um animal.', 'error'); return }
+    if (!dataDesmame) { toast('Informe a data do desmame.', 'error'); return }
+    if (!dataNaoFutura(dataDesmame)) { toast('Data do desmame não pode ser futura.', 'error'); return }
+    if (!dataEhEditavel(dataDesmame)) {
+      const c = cicloDaData(dataDesmame)
+      toast(c
+        ? 'Não é possível lançar nesta data: ela está fora do ciclo atual (ou em um ciclo já encerrado).'
+        : 'Data fora de qualquer ciclo cadastrado.', 'error')
+      return
+    }
+    const semPeso = selDesmame.filter(id => numeroPositivo(pesosDesmame[id]) === null)
+    if (semPeso.length > 0) { toast('Informe um peso válido para todos os animais selecionados.', 'error'); return }
+
+    setSalvandoDesmame(true)
+    let erros = 0
+    for (const id of selDesmame) {
+      const peso = numeroPositivo(pesosDesmame[id])
+      const { error: e1 } = await db.animais.update(id, { data_desmame: dataDesmame })
+      const { error: e2 } = await db.pesagens.insert({
+        animal_id: id, data: dataDesmame, tipo: 'desmama',
+        peso_kg: peso, observacoes: 'Peso ao desmame'
+      })
+      if (e1 || e2) erros++
+    }
+    setSalvandoDesmame(false)
+    if (erros > 0) toast(`${erros} animal(is) não puderam ser desmamados — confira e tente de novo.`, 'error')
+    else toast(`${selDesmame.length} animal(is) desmamado(s)!`)
+    setSelDesmame([]); setPesosDesmame({})
+    loadAll()
+  }
 
   if (loading) return <Loading />
   if (loadError) return <ErroCarregamento onRetry={loadAll} />
@@ -434,6 +488,82 @@ export default function Pesagens() {
           </div>
         )
       })()}
+
+      {/* ── Desmame ── */}
+      {tab === 4 && (
+        <div>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:8, marginBottom:12 }}>
+            <span style={{ fontSize:'.85rem', color:'#6B7280' }}>
+              {candidatosDesmame.length} candidato{candidatosDesmame.length!==1?'s':''} ao desmame (terneiros/terneiras ativos sem desmame registrado)
+            </span>
+          </div>
+
+          <div className="grid-form" style={{ marginBottom: 14 }}>
+            <Field label="Data do desmame" required>
+              <input type="date" value={dataDesmame} onChange={e => setDataDesmame(e.target.value)} />
+            </Field>
+            <Field label="Filtrar por lote">
+              <select value={filtroLoteDesm} onChange={e => setFiltroLoteDesm(e.target.value)}>
+                <option value="">Todos os lotes</option>
+                {lotesSistema.map(l => <option key={l.id} value={l.id}>{l.nome}</option>)}
+              </select>
+            </Field>
+          </div>
+
+          {candidatosDesmame.length === 0 ? (
+            <EmptyState icon="🐄" title="Nenhum candidato ao desmame" sub="Terneiros/terneiras ativos já desmamados ou nenhum registrado ainda." />
+          ) : (
+            <>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
+                <label style={{ display:'flex', alignItems:'center', gap:8, fontSize:'.82rem', color:'#374151' }}>
+                  <input type="checkbox"
+                    checked={selDesmame.length > 0 && candidatosDesmame.every(a => selDesmame.includes(a.id))}
+                    onChange={() => {
+                      const todos = candidatosDesmame.map(a => a.id)
+                      const todosSel = todos.every(id => selDesmame.includes(id))
+                      setSelDesmame(todosSel ? [] : todos)
+                    }} />
+                  Marcar/desmarcar todos
+                </label>
+                {podeEditarPesagensCiclo && selDesmame.length > 0 && (
+                  <button className="btn btn-primary btn-sm" onClick={registrarDesmame} disabled={salvandoDesmame}>
+                    {salvandoDesmame ? 'Registrando...' : <><i className="ti ti-check" /> Registrar desmame ({selDesmame.length})</>}
+                  </button>
+                )}
+              </div>
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr><th></th><th>Brinco</th><th>Idade</th><th>Sexo</th><th>Lote</th><th style={{textAlign:'right'}}>Peso ao desmame (kg)</th></tr>
+                  </thead>
+                  <tbody>
+                    {candidatosDesmame.map(a => (
+                      <tr key={a.id}>
+                        <td>
+                          {podeEditarPesagensCiclo && (
+                            <input type="checkbox" checked={selDesmame.includes(a.id)} onChange={() => togSelDesmame(a.id)} />
+                          )}
+                        </td>
+                        <td><strong>{a.brinco}</strong></td>
+                        <td style={{ fontSize:'.82rem', color:'#6B7280' }}>{mesesDeVida(a.data_nascimento)}m</td>
+                        <td>{a.sexo === 'F' ? '♀' : '♂'}</td>
+                        <td style={{ fontSize:'.82rem', color:'#6B7280' }}>{a.lote?.nome || '—'}</td>
+                        <td style={{ textAlign:'right' }}>
+                          <input type="number" step="0.1" min="0" placeholder="0,0"
+                            disabled={!selDesmame.includes(a.id)}
+                            value={pesosDesmame[a.id] || ''}
+                            onChange={e => setPesosDesmame(p => ({ ...p, [a.id]: e.target.value }))}
+                            style={{ width:90, textAlign:'right' }} />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </div>
+      )}
 
       <Confirm
         open={!!confirmDel}

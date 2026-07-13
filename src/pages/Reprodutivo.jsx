@@ -5,7 +5,7 @@ import { useFazenda } from '../lib/FazendaContext'
 import { useConta } from '../lib/ContaContext'
 import { useCiclo, statusCiclo } from '../lib/CicloContext'
 import { useCicloLocal } from '../lib/useCicloLocal'
-import { fmtData, pct, calcTaxaPrenhez, contarMatrizes } from '../lib/helpers'
+import { fmtData, pct, contarMatrizes } from '../lib/helpers'
 import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, AlertBox, BotaoPDF, ErroCarregamento, BannerCicloEncerrado, SeletorCicloLocal } from '../components/UI'
 import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
@@ -36,23 +36,34 @@ function CardResultadoSafra({ titulo, sm, andamento, previsao }) {
       <div className="grid-4" style={{ marginTop:10 }}>
         {[
           ['Matrizes aptas',               sm.matrizesAptas,                                                '#374151'],
-          ['Taxa de aproveitamento',       sm.txAproveitamento!=null?`${sm.txAproveitamento}%`:'—',         '#2B6CD9'],
-          ['Inseminadas',                  sm.total,                                                        '#111'   ],
+          ['Taxa de aproveitamento',       sm.txAproveitamento!=null?`${sm.txAproveitamento}%`:'—',         '#2B6CD9', 'Matrizes expostas (distintas) ÷ matrizes aptas. Acima de 100% indica que fêmeas com menos de 24 meses foram expostas (novilhas precoces) — não é um erro.'],
+          ['Inseminadas (expostas)',       sm.total,                                                        '#111'   ],
           ['Prenhas',                      sm.prenhas,                                                      '#1E55B0'],
-          ['Taxa de prenhez',              sm.txPrenhez!=null?`${sm.txPrenhez}%`:'—',                      '#1E55B0'],
+          ['Taxa de prenhez',              sm.txPrenhez!=null?`${sm.txPrenhez}%`:'—',                      '#1E55B0', 'Matrizes distintas com diagnóstico P ÷ matrizes distintas expostas (não conta a mesma vaca 2x se ela entrou na IATF e no repasse).'],
+          ['Abortos',                      sm.nAbortos,                                                     '#791F1F'],
+          ['Perdas não identificadas',     sm.perdasNaoIdentificadas,                                       '#791F1F'],
+          ['Perda gestacional',            sm.perdaGestacional!=null?`${sm.perdaGestacional}%`:'—',        '#791F1F'],
           ['Partos',                       sm.nascimentos,                                                  '#0C447C'],
           ['Taxa de parição (natalidade)', sm.txNatalidade!=null?`${sm.txNatalidade}%`:'—',                '#0C447C'],
-          ['Perda gestacional',            sm.perdaGestacional!=null?`${sm.perdaGestacional}%`:'—',        '#791F1F'],
           ['Mortalidade de bezerros',      sm.mortalidadeBezerros!=null?`${sm.mortalidadeBezerros}%`:'—',  '#791F1F'],
-        ].map(([l,v,c]) => (
-          <div key={l} style={{ background:'white',border:'.5px solid #E5E7EB',borderRadius:10,padding:'10px 12px',textAlign:'center' }}>
+          ['Desmamados',                   sm.desmamados,                                                   '#166534'],
+          ['Taxa de desmama',              sm.txDesmama!=null?`${sm.txDesmama}%`:'—',                      '#166534'],
+          ['Peso médio ao desmame',        sm.pesoMedioDesmame!=null?`${sm.pesoMedioDesmame} kg`:'—',       '#166534'],
+          ['P205 médio',                   sm.p205Medio!=null?`${sm.p205Medio} kg`:'—',                    '#166534'],
+          ['Kg desmamado / matriz exposta',sm.kgPorMatrizExposta!=null?`${sm.kgPorMatrizExposta} kg`:'—',   '#166534'],
+        ].map(([l,v,c,tip]) => (
+          <div key={l} title={tip} style={{ background:'white',border:'.5px solid #E5E7EB',borderRadius:10,padding:'10px 12px',textAlign:'center', cursor:tip?'help':'default' }}>
             <div style={{ fontSize:'1.15rem',fontWeight:600,color:c }}>{v}</div>
             <div style={{ fontSize:'.72rem',color:'#6B7280',marginTop:2 }}>{l}</div>
           </div>
         ))}
       </div>
-      <div style={{ fontSize:'.7rem', color:'#9CA3AF', marginTop:10 }}>
-        Taxa de aproveitamento abaixo de 100% indica matrizes aptas que não foram expostas à reprodução (matrizes ociosas). Mortalidade de bezerros = bezerros com situação "morto" entre os partos desta safra ÷ total de partos desta safra.
+      <div style={{ fontSize:'.7rem', color:'#9CA3AF', marginTop:10, lineHeight:1.5 }}>
+        Taxa de aproveitamento acima de 100% indica que fêmeas com menos de 24 meses foram expostas (novilhas precoces) — é um sinal de boa arquitetura de rebanho, não um erro; abaixo de 100% indica matrizes aptas que ficaram ociosas.
+        Matrizes expostas e prenhas contam animais distintos (uma vaca exposta na IATF e no repasse conta 1x).
+        Perda gestacional = abortos registrados + perdas não identificadas (prenhas − partos − abortos) ÷ prenhas.
+        Mortalidade de bezerros = bezerros com situação "morto" entre os partos desta safra ÷ total de partos.
+        Taxa de desmama e kg/matriz exposta usam as matrizes expostas (distintas) como base, não os nascidos — referência de mercado para kg/matriz exposta: acima de 160 kg.
       </div>
     </div>
   )
@@ -95,6 +106,14 @@ export default function Reprodutivo() {
   const [loadingIdx,  setLoadingIdx] = useState(false)
   const [sortCol,     setSortCol]    = useState('data')
   const [sortAsc,     setSortAsc]    = useState(false)
+
+  // Estação de monta (agrupador de lotes: IATF + repasses)
+  const [estacoes,     setEstacoes]     = useState([])
+  const [estacaoIdxSel, setEstacaoIdxSel] = useState('')
+
+  // Aborto (registrado a partir de uma inseminação com diagnóstico 'P')
+  const [abortoAlvo, setAbortoAlvo] = useState(null)
+  const [formAborto, setFormAborto] = useState({})
 
   // Nascimentos tab state
   const [partosNasc,    setPartosNasc]    = useState(null)
@@ -141,13 +160,15 @@ export default function Reprodutivo() {
   }
 
   const loadLotesPartos = async (cicloId) => {
-    const [rl, rp] = await Promise.all([
+    const [rl, rp, re] = await Promise.all([
       db.lotesInseminacao.list(cicloId),
-      db.partos.list(cicloId)
+      db.partos.list(cicloId),
+      db.estacoesMonta.list(cicloId)
     ])
     const newLotes = rl.data || []
     setLotes(newLotes)
     setPartos(rp.data || [])
+    setEstacoes(re.data || [])
     // Atualiza selLote com dados frescos do banco (evita estado obsoleto após saves)
     setSelLote(prev => prev ? (newLotes.find(l => l.id === prev.id) || prev) : null)
   }
@@ -213,7 +234,23 @@ export default function Reprodutivo() {
     prev.includes(br) ? prev.filter(b => b !== br) : [...prev, br]
   )
 
-  // Salvar lote (cria novo ou edita data/touro/protocolo de um existente)
+  // Cria a estação de monta inline (usado ao salvar um lote com "+ Criar nova estação")
+  const criarEstacaoInline = async (cicloId) => {
+    if (!form.nova_estacao_nome || !form.nova_estacao_inicio) {
+      toast('Preencha nome e início da nova estação de monta.', 'error')
+      return { error: true }
+    }
+    const { data, error } = await db.estacoesMonta.insert({
+      ciclo_id: cicloId,
+      nome:     form.nova_estacao_nome,
+      inicio:   form.nova_estacao_inicio,
+      fim:      form.nova_estacao_fim || null,
+    })
+    if (error || !data) { toast('Erro ao criar estação: ' + (error?.message || ''), 'error'); return { error: true } }
+    return { id: data.id }
+  }
+
+  // Salvar lote (cria novo ou edita data/touro/protocolo/estação de um existente)
   const salvarLote = async () => {
     if (!podeEditarReprodCiclo) return
     if (loteEdit) {
@@ -226,7 +263,13 @@ export default function Reprodutivo() {
         return
       }
       setSaving(true)
-      const payload = { data: form.data, touro: form.touro, protocolo: form.protocolo || '' }
+      let estacaoId = form.estacao_monta_id || null
+      if (form.criandoEstacao) {
+        const r = await criarEstacaoInline(loteEdit.ciclo_id)
+        if (r.error) { setSaving(false); return }
+        estacaoId = r.id
+      }
+      const payload = { data: form.data, touro: form.touro, protocolo: form.protocolo || '', estacao_monta_id: estacaoId }
       const { error } = await db.lotesInseminacao.update(loteEdit.id, payload)
       setSaving(false)
       if (error) { toast('Erro ao atualizar lote: ' + error.message, 'error'); return }
@@ -247,12 +290,19 @@ export default function Reprodutivo() {
     }
     setSaving(true)
     const cicloDoLote = cicloDaData(form.data)
+    let estacaoId = form.estacao_monta_id || null
+    if (form.criandoEstacao) {
+      const r = await criarEstacaoInline(cicloDoLote.id)
+      if (r.error) { setSaving(false); return }
+      estacaoId = r.id
+    }
     const { data: loteData, error } = await db.lotesInseminacao.insert({
       ciclo_id: cicloDoLote.id,
       numero: lotes.length + 1,
       data: form.data,
       touro: form.touro,
-      protocolo: form.protocolo || ''
+      protocolo: form.protocolo || '',
+      estacao_monta_id: estacaoId
     })
     if (error || !loteData) { toast('Erro ao criar lote.', 'error'); setSaving(false); return }
 
@@ -364,6 +414,42 @@ export default function Reprodutivo() {
     if (a) await db.animais.update(animalId, { sit_reprodutiva: diag === 'P' ? 'prenha' : 'vazia' })
     await loadAll(false)
     return true
+  }
+
+  // Abre modal de registro de aborto para uma inseminação com diagnóstico 'P'
+  const abrirRegistrarAborto = (ins, lote) => {
+    if (!podeEditarReprodCiclo) return
+    setAbortoAlvo({ animal_id: ins.animal_id, brinco: ins.animal?.brinco || '?', lote_id: lote.id })
+    setFormAborto({ data: new Date().toISOString().split('T')[0], causa: 'desconhecido' })
+    setModal('aborto')
+  }
+
+  // Salva o aborto: grava em abortos, vira a mãe para 'vazia' de novo
+  const salvarAborto = async () => {
+    if (!podeEditarReprodCiclo || !abortoAlvo) return
+    if (!formAborto.data) { toast('Informe a data do aborto.', 'error'); return }
+    if (!dataEhEditavel(formAborto.data)) {
+      const c = cicloDaData(formAborto.data)
+      toast(c
+        ? 'Não é possível lançar nesta data: ela está fora do ciclo atual (ou em um ciclo já encerrado).'
+        : 'Data fora de qualquer ciclo cadastrado.', 'error')
+      return
+    }
+    setSaving(true)
+    const cicloDoAborto = cicloDaData(formAborto.data)
+    const { error } = await db.abortos.insert({
+      animal_id:           abortoAlvo.animal_id,
+      lote_inseminacao_id: abortoAlvo.lote_id,
+      ciclo_id:             cicloDoAborto?.id || null,
+      data:                 formAborto.data,
+      causa:                formAborto.causa || 'desconhecido',
+      observacoes:          formAborto.observacoes || ''
+    })
+    if (error) { toast('Erro ao registrar aborto: ' + error.message, 'error'); setSaving(false); return }
+    await db.animais.update(abortoAlvo.animal_id, { sit_reprodutiva: 'vazia' })
+    toast('Aborto registrado.')
+    setSaving(false); setModal(null); setAbortoAlvo(null); setFormAborto({})
+    await loadAll(false)
   }
 
   // Salvar parto
@@ -525,29 +611,77 @@ export default function Reprodutivo() {
   // atravessar a virada do ciclo, então os partos de uma safra podem ocorrer no
   // ciclo seguinte. `lote.partos` vem do FK partos.lote_inseminacao_id (join no
   // supabase.js), por isso é uma contagem exata, diferente de casar por mae_id.
+
+  // Desmame + peso ajustado 205 dias (padrão Embrapa) para um conjunto de partos.
+  // totalInseminadas = "matrizes expostas" — denominador oficial da taxa de
+  // desmama e do kg desmamado por matriz exposta (não usa nascidos).
+  const calcDesmameMetrics = (partosArr, totalInseminadas) => {
+    const desmamados = partosArr.filter(p => p.bezerro?.data_desmame).length
+    const txDesmama  = totalInseminadas > 0 ? Math.round(desmamados / totalInseminadas * 100) : null
+    const pesosDesmame = []
+    const p205s = []
+    partosArr.forEach(p => {
+      const pesagensB = p.bezerro?.pesagens || []
+      const pesoNasc = pesagensB.find(ps => ps.tipo === 'nascimento')
+      const pesoDesm = pesagensB.find(ps => ps.tipo === 'desmama')
+      if (!pesoDesm) return
+      const pd = parseFloat(pesoDesm.peso_kg)
+      if (Number.isFinite(pd)) pesosDesmame.push(pd)
+      if (pesoNasc && p.data_parto && pesoDesm.data) {
+        const pn = parseFloat(pesoNasc.peso_kg)
+        const diasDesmame = Math.round((new Date(pesoDesm.data) - new Date(p.data_parto)) / 86400000)
+        if (Number.isFinite(pn) && diasDesmame > 0) {
+          p205s.push(((pd - pn) / diasDesmame) * 205 + pn)
+        }
+      }
+    })
+    const media = arr => arr.length > 0 ? Math.round(arr.reduce((s, v) => s + v, 0) / arr.length * 10) / 10 : null
+    return {
+      desmamados, txDesmama,
+      pesoMedioDesmame: media(pesosDesmame),
+      p205Medio: media(p205s),
+      kgPorMatrizExposta: totalInseminadas > 0 ? Math.round(pesosDesmame.reduce((s, v) => s + v, 0) / totalInseminadas * 10) / 10 : null,
+    }
+  }
+
+  // Conta animal_id DISTINTOS de uma lista de inseminações — "matrizes expostas"
+  // nunca é o número de inseminações: se a mesma vaca entra na IATF e depois no
+  // repasse, ela é 1 matriz exposta, não 2 (mesmo valendo 2 serviços/inseminações).
+  const distintos = (lista, filtro) => new Set((filtro ? lista.filter(filtro) : lista).map(i => i.animal_id)).size
+
   const calcLoteMetrics = (lote) => {
-    const ins       = lote.inseminacoes || []
-    const prenhas   = ins.filter(i => i.diagnostico === 'P').length
+    const ins = lote.inseminacoes || []
+    const totalInseminacoes = ins.length                                  // total de serviços (informativo)
+    const total     = distintos(ins)                                      // matrizes expostas (distintas)
+    const prenhas   = distintos(ins, i => i.diagnostico === 'P')          // matrizes prenhas (distintas)
     const vazias    = ins.filter(i => i.diagnostico === 'V').length
     const pendentes = ins.filter(i => !i.diagnostico).length
-    const total     = ins.length
-    const txPrenhez = calcTaxaPrenhez(ins) ?? 0
+    const txPrenhez = total > 0 ? Math.round(prenhas / total * 100) : null
     const partosLote  = lote.partos || []
     const nascimentos = partosLote.length
     const txParicao   = prenhas > 0 ? Math.round(nascimentos / prenhas * 100) : 0
-    // Novos índices da safra
+    // Novos índices da safra — denominador = matrizes expostas distintas
     const txNatalidade      = total > 0 ? Math.round(nascimentos / total * 100) : null
-    const perdaGestacional  = prenhas > 0 ? Math.max(0, Math.round((prenhas - nascimentos) / prenhas * 100)) : null
+    // Perda gestacional agora é MEDIDA: abortos registrados + a diferença que não
+    // foi explicada por parto nem por aborto (perdas não identificadas).
+    const abortosLote = lote.abortos || []
+    const nAbortos = abortosLote.length
+    const perdasNaoIdentificadas = Math.max(0, prenhas - nascimentos - nAbortos)
+    const perdaGestacional = prenhas > 0 ? Math.round((nAbortos + perdasNaoIdentificadas) / prenhas * 100) : null
     const mortosBezerros    = partosLote.filter(p => p.bezerro?.situacao === 'morto').length
     const mortalidadeBezerros = nascimentos > 0 ? Math.round(mortosBezerros / nascimentos * 100) : null
     const matrizesAptas   = lote.data ? contarMatrizes(animais, lote.data) : 0
+    // Sem teto em 100%: taxa acima de 100% é esperada e correta quando novilhas
+    // com menos de 24 meses (fora da definição de "matriz apta") são expostas.
     const txAproveitamento = matrizesAptas > 0 ? Math.round(total / matrizesAptas * 100) : null
+    const desm = calcDesmameMetrics(partosLote, total)
     const partoPrev = lote.data
       ? new Date(new Date(lote.data).setMonth(new Date(lote.data).getMonth() + 9)).toLocaleDateString('pt-BR')
       : '—'
     return {
-      total, prenhas, vazias, pendentes, txPrenhez, nascimentos, txParicao,
-      txNatalidade, perdaGestacional, mortalidadeBezerros, matrizesAptas, txAproveitamento,
+      total, totalInseminacoes, prenhas, vazias, pendentes, txPrenhez, nascimentos, txParicao,
+      txNatalidade, nAbortos, perdasNaoIdentificadas, perdaGestacional,
+      mortalidadeBezerros, matrizesAptas, txAproveitamento, ...desm,
       partoPrev,
     }
   }
@@ -562,15 +696,26 @@ export default function Reprodutivo() {
   }
 
   const lotesCicloAtual = todosLotes.filter(l => l.ciclo_id === cicloLocal?.id)
-  const kpiIns  = lotesCicloAtual.reduce((s, l) => s + (l.inseminacoes?.length || 0), 0)
-  const kpiPrn  = lotesCicloAtual.reduce((s, l) => s + (l.inseminacoes?.filter(i => i.diagnostico === 'P').length || 0), 0)
-  const kpiPartos = lotesCicloAtual.reduce((s, l) => s + (l.partos?.length || 0), 0)
-  const kpiMortos = lotesCicloAtual.flatMap(l => l.partos || []).filter(p => p.bezerro?.situacao === 'morto').length
+  const insCicloAtual = lotesCicloAtual.flatMap(l => l.inseminacoes || [])
+  const kpiInsTotal = insCicloAtual.length                          // total de serviços/inseminações (informativo)
+  // Matrizes expostas/prenhas DISTINTAS do ciclo: um ciclo pode ter vários lotes
+  // (IATF + repasses) e a mesma vaca não pode ser contada mais de uma vez.
+  const kpiIns  = distintos(insCicloAtual)
+  const kpiPrn  = distintos(insCicloAtual, i => i.diagnostico === 'P')
+  const kpiPartosArr = lotesCicloAtual.flatMap(l => l.partos || [])
+  const kpiPartos = kpiPartosArr.length
+  const kpiMortos = kpiPartosArr.filter(p => p.bezerro?.situacao === 'morto').length
   const kpiMortalidade = kpiPartos > 0 ? Math.round(kpiMortos / kpiPartos * 100) : null
-  const kpiPerdaGestacional = kpiPrn > 0 ? Math.max(0, Math.round((kpiPrn - kpiPartos) / kpiPrn * 100)) : null
+  const kpiAbortos = lotesCicloAtual.reduce((s, l) => s + (l.abortos?.length || 0), 0)
+  const kpiPerdasNaoIdentificadas = Math.max(0, kpiPrn - kpiPartos - kpiAbortos)
+  const kpiPerdaGestacional = kpiPrn > 0 ? Math.round((kpiAbortos + kpiPerdasNaoIdentificadas) / kpiPrn * 100) : null
   const primeiraMontaCiclo = lotesCicloAtual.map(l => l.data).filter(Boolean).sort()[0] || null
   const kpiMatrizesAptas = primeiraMontaCiclo ? contarMatrizes(animais, primeiraMontaCiclo) : 0
+  // Sem teto em 100%: uma taxa de aproveitamento acima de 100% é esperada e
+  // correta quando novilhas com menos de 24 meses (fora da definição de "matriz
+  // apta") são expostas à reprodução — não é um erro de cálculo.
   const kpiTxAproveitamento = kpiMatrizesAptas > 0 ? Math.round(kpiIns / kpiMatrizesAptas * 100) : null
+  const kpiDesmame = calcDesmameMetrics(kpiPartosArr, kpiIns)
   const safraCicloEmAndamento = lotesCicloAtual.some(l => safraEmAndamento(l, cicloLocal))
   const previsaoSafraCiclo = (() => {
     const emAndamento = lotesCicloAtual.filter(l => safraEmAndamento(l, cicloLocal))
@@ -613,14 +758,17 @@ export default function Reprodutivo() {
 
   const barData = todosLotes
     .filter(l => l.ciclo_id === cicloLocal?.id)
-    .map(l => { const m = calcLoteMetrics(l); return { name: `L${l.numero}·${l.touro}`, prenhez: m.txPrenhez, paricao: m.txParicao } })
+    .map(l => { const m = calcLoteMetrics(l); return { name: `L${l.numero}·${l.touro}`, prenhez: m.txPrenhez ?? 0, paricao: m.txParicao } })
 
   const lineData = ciclosUnicos.map(c => {
     const lc = todosLotes.filter(l => l.ciclo_id === c.id)
     const insLc = lc.flatMap(l => l.inseminacoes || [])
-    const tP = insLc.filter(i => i.diagnostico === 'P').length
-    const tN = lc.reduce((s, l) => s + (l.partos?.length || 0), 0)
-    return { ciclo: c.nome, prenhez: calcTaxaPrenhez(insLc) ?? 0, paricao: tP > 0 ? Math.round(tN/tP*100) : 0 }
+    // Distintos: um ciclo pode ter vários lotes (IATF + repasses) — a mesma vaca
+    // não pode ser contada 2x nem no total exposto nem nas prenhas.
+    const tExp = distintos(insLc)
+    const tP   = distintos(insLc, i => i.diagnostico === 'P')
+    const tN   = lc.reduce((s, l) => s + (l.partos?.length || 0), 0)
+    return { ciclo: c.nome, prenhez: tExp > 0 ? Math.round(tP / tExp * 100) : 0, paricao: tP > 0 ? Math.round(tN/tP*100) : 0 }
   })
 
   const pieData = [
@@ -754,7 +902,7 @@ export default function Reprodutivo() {
             {podeEditarReprodCiclo && (
               <button className="btn btn-secondary btn-sm" onClick={() => {
                 setLoteEdit(selLote)
-                setForm({ data: selLote.data, touro: selLote.touro, protocolo: selLote.protocolo || '' })
+                setForm({ data: selLote.data, touro: selLote.touro, protocolo: selLote.protocolo || '', estacao_monta_id: selLote.estacao_monta_id || '' })
                 setModal('lote')
               }}>
                 <i className="ti ti-edit" /> Editar
@@ -825,6 +973,7 @@ export default function Reprodutivo() {
             {selLote.inseminacoes?.map(ins => {
               const br = ins.animal?.brinco || '?'
               const d  = ins.diagnostico
+              const abortoReg = (selLote.abortos || []).find(ab => ab.animal_id === ins.animal_id)
               return (
                 <div key={ins.id} style={{
                   display:'flex', alignItems:'center', justifyContent:'space-between',
@@ -838,7 +987,12 @@ export default function Reprodutivo() {
                     )}
                     <div>
                       <span style={{ fontWeight:500, minWidth:50, display:'inline-block' }}>{br}</span>
-                      {d === 'P' && selLote.data && (
+                      {d === 'P' && abortoReg && (
+                        <div style={{ fontSize:'.72rem', color:'#791F1F', marginTop:2 }}>
+                          <i className="ti ti-alert-circle" style={{ fontSize:11 }} /> Aborto registrado em {fmtData(abortoReg.data)}
+                        </div>
+                      )}
+                      {d === 'P' && !abortoReg && selLote.data && (
                         <div style={{ fontSize:'.72rem', color:'#1E55B0', marginTop:2 }}>
                           Prenha · Parto previsto: {fmtData(previsaoPartoLote)}
                         </div>
@@ -846,6 +1000,13 @@ export default function Reprodutivo() {
                     </div>
                   </div>
                   <div style={{ display:'flex', gap:6 }}>
+                    {podeEditarReprodCiclo && d === 'P' && !abortoReg && (
+                      <button className="btn btn-secondary btn-xs"
+                        onClick={() => abrirRegistrarAborto(ins, selLote)}
+                        style={{ fontSize:'.72rem', color:'#791F1F' }}>
+                        <i className="ti ti-alert-circle" /> Registrar aborto
+                      </button>
+                    )}
                     {podeEditarReprodCiclo && (
                       <button
                         style={{
@@ -1038,6 +1199,7 @@ export default function Reprodutivo() {
             <div style={{ marginBottom:16 }}>
               <div style={{ display:'flex', gap:10, marginBottom:12, flexWrap:'wrap' }}>
                 <Badge color="blue"><i className="ti ti-stack" /> {lotesCicloAtual.length} lote{lotesCicloAtual.length!==1?'s':''} no ciclo</Badge>
+                <Badge color="gray"><i className="ti ti-needle" /> {kpiInsTotal} inseminações (serviços) no total</Badge>
                 <Badge color="amber"><i className="ti ti-clock" /> Intervalo médio entre partos: {kpiIntervalo}</Badge>
               </div>
               <CardResultadoSafra
@@ -1048,14 +1210,92 @@ export default function Reprodutivo() {
                   total:               kpiIns,
                   prenhas:             kpiPrn,
                   txPrenhez:           kpiIns > 0 ? Math.round(kpiPrn / kpiIns * 100) : null,
+                  nAbortos:            kpiAbortos,
+                  perdasNaoIdentificadas: kpiPerdasNaoIdentificadas,
+                  perdaGestacional:    kpiPerdaGestacional,
                   nascimentos:         kpiPartos,
                   txNatalidade:        kpiIns > 0 ? Math.round(kpiPartos / kpiIns * 100) : null,
-                  perdaGestacional:    kpiPerdaGestacional,
                   mortalidadeBezerros: kpiMortalidade,
+                  ...kpiDesmame,
                 }}
                 andamento={safraCicloEmAndamento}
                 previsao={previsaoSafraCiclo}
               />
+            </div>
+
+            {/* Seção 1B — Estação de monta (agrupa IATF + repasses) */}
+            <div className="card" style={{ marginBottom:16 }}>
+              <div className="card-title"><i className="ti ti-calendar-stats" /> Estação de monta</div>
+              {estacoes.length === 0 ? (
+                <p style={{ color:'#9CA3AF', fontSize:'.85rem', textAlign:'center', padding:'20px 0' }}>
+                  Nenhuma estação de monta cadastrada neste ciclo. Vincule os lotes a uma estação ao criá-los ou editá-los (aba Lotes de Inseminação).
+                </p>
+              ) : (
+                <>
+                  <select value={estacaoIdxSel} onChange={e => setEstacaoIdxSel(e.target.value)}
+                    style={{ maxWidth:340, marginBottom:14 }}>
+                    <option value="">— selecione uma estação —</option>
+                    {estacoes.map(es => <option key={es.id} value={es.id}>{es.nome}</option>)}
+                  </select>
+                  {estacaoIdxSel && (() => {
+                    const estacaoObj = estacoes.find(es => es.id === estacaoIdxSel)
+                    const lotesDaEstacao = lotesCicloAtual.filter(l => l.estacao_monta_id === estacaoIdxSel)
+                    const todasInsEst = lotesDaEstacao.flatMap(l => l.inseminacoes || [])
+                    // Matrizes distintas — a vaca que entrou na IATF e no repasse conta 1x
+                    const matrizesExpostas = new Set(todasInsEst.map(i => i.animal_id)).size
+                    const matrizesPrenhas  = new Set(todasInsEst.filter(i => i.diagnostico === 'P').map(i => i.animal_id)).size
+                    const prenhezAcumulada = matrizesExpostas > 0 ? Math.round(matrizesPrenhas / matrizesExpostas * 100) : null
+                    const comparacaoData = [
+                      ...lotesDaEstacao.map(l => ({ name: `Lote ${l.numero}`, prenhez: calcLoteMetrics(l).txPrenhez ?? 0 })),
+                      { name: 'Acumulada', prenhez: prenhezAcumulada ?? 0 },
+                    ]
+                    return (
+                      <div>
+                        <div style={{ fontSize:'.78rem', color:'#6B7280', marginBottom:10 }}>
+                          {estacaoObj?.inicio ? fmtData(estacaoObj.inicio) : '—'}{estacaoObj?.fim ? ` – ${fmtData(estacaoObj.fim)}` : ''}
+                          {estacaoObj?.observacoes && <> · {estacaoObj.observacoes}</>}
+                        </div>
+                        <div style={{ display:'flex', flexWrap:'wrap', gap:8, marginBottom:14 }}>
+                          {lotesDaEstacao.length === 0
+                            ? <span style={{ fontSize:'.82rem', color:'#9CA3AF' }}>Nenhum lote vinculado a esta estação ainda.</span>
+                            : lotesDaEstacao.map(l => (
+                                <Badge key={l.id} color="gray">Lote {l.numero} — {l.touro} ({l.inseminacoes?.length||0} insem.)</Badge>
+                              ))
+                          }
+                        </div>
+                        <div className="grid-3" style={{ marginBottom:14 }}>
+                          <div style={{ background:'white',border:'.5px solid #E5E7EB',borderRadius:10,padding:'10px 12px',textAlign:'center' }}>
+                            <div style={{ fontSize:'1.35rem',fontWeight:700,color:'#374151' }}>{matrizesExpostas}</div>
+                            <div style={{ fontSize:'.72rem',color:'#6B7280',marginTop:2 }}>Matrizes expostas</div>
+                          </div>
+                          <div style={{ background:'white',border:'.5px solid #E5E7EB',borderRadius:10,padding:'10px 12px',textAlign:'center' }}>
+                            <div style={{ fontSize:'1.35rem',fontWeight:700,color:'#1E55B0' }}>{matrizesPrenhas}</div>
+                            <div style={{ fontSize:'.72rem',color:'#6B7280',marginTop:2 }}>Matrizes prenhas</div>
+                          </div>
+                          <div style={{ background:'#E8F0FC',border:'.5px solid #1BA89C',borderRadius:10,padding:'10px 12px',textAlign:'center' }}>
+                            <div style={{ fontSize:'1.35rem',fontWeight:700,color:'#1E55B0' }}>{prenhezAcumulada!=null?`${prenhezAcumulada}%`:'—'}</div>
+                            <div style={{ fontSize:'.72rem',color:'#6B7280',marginTop:2 }}>Prenhez acumulada da estação</div>
+                          </div>
+                        </div>
+                        <div style={{ fontSize:'.76rem', color:'#6B7280', marginBottom:6 }}>Prenhez por lote (IATF x repasses) vs. acumulada:</div>
+                        <ResponsiveContainer width="100%" height={180}>
+                          <BarChart data={comparacaoData} margin={{ top:4, right:10, left:-20, bottom:5 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" />
+                            <XAxis dataKey="name" tick={{ fontSize:10 }} />
+                            <YAxis tick={{ fontSize:10 }} domain={[0,100]} unit="%" />
+                            <Tooltip formatter={v => `${v}%`} />
+                            <Bar dataKey="prenhez" name="Prenhez %" radius={[4,4,0,0]}>
+                              {comparacaoData.map((d, i) => (
+                                <Cell key={i} fill={d.name === 'Acumulada' ? '#1E55B0' : '#7B2FBE'} />
+                              ))}
+                            </Bar>
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                    )
+                  })()}
+                </>
+              )}
             </div>
 
             {/* Seção 2 — Bar chart comparativo */}
@@ -1222,7 +1462,35 @@ export default function Reprodutivo() {
           <Field label="Protocolo">
             <input value={form.protocolo||''} onChange={e=>setForm(p=>({...p,protocolo:e.target.value}))} placeholder="ex: IATF P4" />
           </Field>
+          <Field label="Estação de monta" hint="Agrupa este lote com a IATF/repasses da mesma estação">
+            <select
+              value={form.criandoEstacao ? '__nova__' : (form.estacao_monta_id || '')}
+              onChange={e => {
+                const v = e.target.value
+                if (v === '__nova__') setForm(p => ({ ...p, estacao_monta_id: '', criandoEstacao: true }))
+                else setForm(p => ({ ...p, estacao_monta_id: v || null, criandoEstacao: false }))
+              }}>
+              <option value="">— nenhuma (lote avulso) —</option>
+              {estacoes.map(es => (
+                <option key={es.id} value={es.id}>{es.nome} ({fmtData(es.inicio)}{es.fim ? ` – ${fmtData(es.fim)}` : ''})</option>
+              ))}
+              <option value="__nova__">+ Criar nova estação de monta…</option>
+            </select>
+          </Field>
         </div>
+        {form.criandoEstacao && (
+          <div className="grid-form3" style={{ marginTop:-4 }}>
+            <Field label="Nome da estação" required>
+              <input value={form.nova_estacao_nome||''} onChange={e=>setForm(p=>({...p,nova_estacao_nome:e.target.value}))} placeholder="ex: Estação 2025/26" />
+            </Field>
+            <Field label="Início" required>
+              <input type="date" value={form.nova_estacao_inicio||''} onChange={e=>setForm(p=>({...p,nova_estacao_inicio:e.target.value}))} />
+            </Field>
+            <Field label="Fim">
+              <input type="date" value={form.nova_estacao_fim||''} onChange={e=>setForm(p=>({...p,nova_estacao_fim:e.target.value}))} />
+            </Field>
+          </div>
+        )}
         {!loteEdit && (
         <div style={{ marginBottom:10 }}>
           <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
@@ -1357,6 +1625,37 @@ export default function Reprodutivo() {
             {saving ? 'Adicionando...' : <><i className="ti ti-check" /> Adicionar ao lote</>}
           </button>
           <button className="btn btn-secondary" onClick={()=>setModal(null)}>Cancelar</button>
+        </div>
+      </Modal>
+
+      {/* ── Modal registrar aborto ── */}
+      <Modal open={modal==='aborto'} onClose={()=>{ setModal(null); setAbortoAlvo(null) }}
+        title={`Registrar aborto — Brinco ${abortoAlvo?.brinco || ''}`} width={460}>
+        <div className="grid-form">
+          <Field label="Data do aborto" required>
+            <input type="date" value={formAborto.data||''} onChange={e=>setFormAborto(p=>({...p,data:e.target.value}))} />
+          </Field>
+          <Field label="Causa">
+            <select value={formAborto.causa||'desconhecido'} onChange={e=>setFormAborto(p=>({...p,causa:e.target.value}))}>
+              <option value="infeccioso">Infeccioso</option>
+              <option value="nutricional">Nutricional</option>
+              <option value="traumatico">Traumático</option>
+              <option value="desconhecido">Desconhecido</option>
+              <option value="outro">Outro (ver observações)</option>
+            </select>
+          </Field>
+        </div>
+        <Field label="Observações">
+          <textarea value={formAborto.observacoes||''} onChange={e=>setFormAborto(p=>({...p,observacoes:e.target.value}))} placeholder="opcional" />
+        </Field>
+        <div style={{ fontSize:'.75rem', color:'#9CA3AF', marginTop:4 }}>
+          A situação reprodutiva do animal volta para "vazia". O diagnóstico de prenhez original é mantido — o aborto fica registrado como um evento separado.
+        </div>
+        <div className="modal-actions" style={{ marginTop:14 }}>
+          <button className="btn btn-primary" onClick={salvarAborto} disabled={saving || !podeEditarReprodCiclo}>
+            {saving ? 'Registrando...' : <><i className="ti ti-check" /> Registrar aborto</>}
+          </button>
+          <button className="btn btn-secondary" onClick={()=>{ setModal(null); setAbortoAlvo(null) }}>Cancelar</button>
         </div>
       </Modal>
 

@@ -2,7 +2,7 @@
 import { supabase } from '../lib/supabase'
 import { useFazenda } from '../lib/FazendaContext'
 import { useCicloLocal } from '../lib/useCicloLocal'
-import { fmtMoeda, calcCategoria, calcTaxaPrenhez, contarMatrizes } from '../lib/helpers'
+import { fmtMoeda, calcCategoria, calcTaxaPrenhez, contarExpostas, contarPrenhas, contarMatrizes } from '../lib/helpers'
 import { Loading, EmptyState, SeletorCicloLocal } from '../components/UI'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -54,7 +54,7 @@ export default function Comparativo() {
       const [rL, rT, rLI] = await Promise.all([
         supabase.from('lancamentos_financeiros').select('tipo,valor').eq('ciclo_id', ciclo.id).eq('fazenda_id', fid),
         supabase.from('transacoes_animais').select('tipo,valor_total').eq('ciclo_id', ciclo.id).eq('fazenda_id', fid),
-        supabase.from('lotes_inseminacao').select('inseminacoes(diagnostico)').eq('ciclo_id', ciclo.id).eq('fazenda_id', fid),
+        supabase.from('lotes_inseminacao').select('inseminacoes(animal_id,diagnostico)').eq('ciclo_id', ciclo.id).eq('fazenda_id', fid),
       ])
       if (rL.error)  console.error(`[Comparativo] "${fazenda.nome}": erro ao buscar lancamentos_financeiros:`, rL.error)
       if (rT.error)  console.error(`[Comparativo] "${fazenda.nome}": erro ao buscar transacoes_animais:`, rT.error)
@@ -89,8 +89,10 @@ export default function Comparativo() {
 
     // Taxa de prenhez: fórmula oficial única (helpers.calcTaxaPrenhez), a partir
     // das inseminações do ciclo — mesma fonte usada em Dashboard/Reprodutivo/Rebanho,
-    // em vez do campo sit_reprodutiva/contagem de matrizes.
-    const prenhas   = inseminacoes.filter(i => i.diagnostico === 'P').length
+    // em vez do campo sit_reprodutiva/contagem de matrizes. prenhas deduplica por
+    // animal_id (contarPrenhas), senão a coluna não bate com Tx. Prenhez ao lado.
+    const expostas  = contarExpostas(inseminacoes)
+    const prenhas   = contarPrenhas(inseminacoes)
     const txPrenhez = calcTaxaPrenhez(inseminacoes) ?? 0
 
     return {
@@ -102,6 +104,7 @@ export default function Comparativo() {
       totalHa,
       animais:    animais.length,
       matrizes,
+      expostas,
       prenhas,
       txPrenhez,
       cats,
@@ -267,6 +270,7 @@ export default function Comparativo() {
                     <th style={{ padding:'8px 12px', textAlign:'left', fontWeight:600, color:'#374151' }}>Fazenda</th>
                     <th style={{ padding:'8px 12px', textAlign:'right', fontWeight:600, color:'#374151' }}>Animais</th>
                     <th style={{ padding:'8px 12px', textAlign:'right', fontWeight:600, color:'#374151' }}>Matrizes</th>
+                    <th style={{ padding:'8px 12px', textAlign:'right', fontWeight:600, color:'#374151' }}>Expostas</th>
                     <th style={{ padding:'8px 12px', textAlign:'right', fontWeight:600, color:'#374151' }}>Prenhas</th>
                     <th style={{ padding:'8px 12px', textAlign:'right', fontWeight:600, color:'#374151' }}>Tx. Prenhez</th>
                     <th style={{ padding:'8px 12px', textAlign:'right', fontWeight:600, color:'#374151' }}>Área (ha)</th>
@@ -278,6 +282,7 @@ export default function Comparativo() {
                       <td style={{ padding:'8px 12px', fontWeight:500 }}>{d.fazenda.nome}</td>
                       <td style={{ padding:'8px 12px', textAlign:'right' }}>{d.animais}</td>
                       <td style={{ padding:'8px 12px', textAlign:'right' }}>{d.matrizes}</td>
+                      <td style={{ padding:'8px 12px', textAlign:'right' }}>{d.expostas}</td>
                       <td style={{ padding:'8px 12px', textAlign:'right' }}>{d.prenhas}</td>
                       <td style={{ padding:'8px 12px', textAlign:'right', fontWeight:600, color:d.txPrenhez>=85?'#2B6CD9':'#D97706' }}>{d.txPrenhez}%</td>
                       <td style={{ padding:'8px 12px', textAlign:'right' }}>{d.totalHa.toFixed(1)}</td>

@@ -1,7 +1,7 @@
 ﻿import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase, db } from '../lib/supabase'
-import { calcCategoria, calcCategoriaRebanho, calcTaxaPrenhez, fmtMoeda, valorPropLanc, contarMatrizes } from '../lib/helpers'
+import { calcCategoria, calcCategoriaRebanho, calcTaxaPrenhez, contarExpostas, contarPrenhas, fmtMoeda, valorPropLanc, contarMatrizes } from '../lib/helpers'
 import { Loading, FullLoading, AlertBox, IndexCard, ErroCarregamento } from '../components/UI'
 import { useFazenda } from '../lib/FazendaContext'
 import { useCiclo } from '../lib/CicloContext'
@@ -132,10 +132,12 @@ export default function Dashboard({ perfil }) {
 
   const matrizes = contarMatrizes(filtAnimais)
 
-  // Taxa de prenhez: fórmula oficial única (helpers.calcTaxaPrenhez) — prenhas / inseminadas no ciclo atual
+  // Taxa de prenhez: fórmula oficial única (helpers.calcTaxaPrenhez) — matrizes
+  // distintas prenhas / matrizes distintas expostas no ciclo atual. kpiIns/kpiPrn
+  // usam a mesma deduplicação por animal_id, senão o contador não bate com a taxa.
   const insemDashboard = lotesInsem.flatMap(l => l.inseminacoes || [])
-  const kpiIns = insemDashboard.length
-  const kpiPrn = insemDashboard.filter(i => i.diagnostico === 'P').length
+  const kpiIns = contarExpostas(insemDashboard)
+  const kpiPrn = contarPrenhas(insemDashboard)
   const txPrenhez = calcTaxaPrenhez(insemDashboard)
 
   // Valor do rebanho (resumo)

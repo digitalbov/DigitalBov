@@ -118,16 +118,36 @@ export const db = {
   lotesInseminacao: {
     list: (cicloId) => T('lotes_inseminacao').select(`
       *, inseminacoes(*, animal:animais(brinco,proprietario_id)),
-      partos(id,bezerro_id,data_parto,bezerro:animais!bezerro_id(situacao))
+      partos(id,bezerro_id,data_parto,bezerro:animais!bezerro_id(situacao,data_desmame,pesagens(data,tipo,peso_kg))),
+      abortos(id,animal_id,data,causa),
+      estacao:estacoes_monta(id,nome,inicio,fim)
     `).eq('ciclo_id', cicloId).order('data', { ascending: false }),
     listAll: () => T('lotes_inseminacao').select(`
       *, ciclo:ciclos_financeiros(id,nome,inicio,fim),
       inseminacoes(*, animal:animais(brinco,proprietario_id,proprietario:proprietarios(nome))),
-      partos(id,bezerro_id,data_parto,bezerro:animais!bezerro_id(situacao))
+      partos(id,bezerro_id,data_parto,bezerro:animais!bezerro_id(situacao,data_desmame,pesagens(data,tipo,peso_kg))),
+      abortos(id,animal_id,data,causa),
+      estacao:estacoes_monta(id,nome,inicio,fim)
     `).order('data', { ascending: true }),
     insert: (data)  => T('lotes_inseminacao').insertOne(data).select().single(),
     update: (id, d) => escopo(T('lotes_inseminacao').raw().update(d).eq('id', id)).select().single(),
     delete: (id)    => escopo(T('lotes_inseminacao').raw().delete().eq('id', id)),
+  },
+
+  estacoesMonta: {
+    list:    (cicloId) => T('estacoes_monta').select('*').eq('ciclo_id', cicloId).order('inicio', { ascending: false }),
+    listAll: ()         => T('estacoes_monta').select('*, ciclo:ciclos_financeiros(id,nome)').order('inicio', { ascending: false }),
+    insert:  (data)     => T('estacoes_monta').insertOne(data).select().single(),
+    update:  (id, d)    => escopo(T('estacoes_monta').raw().update(d).eq('id', id)).select().single(),
+    delete:  (id)       => escopo(T('estacoes_monta').raw().delete().eq('id', id)),
+  },
+
+  abortos: {
+    list:     (cicloId)   => T('abortos').select('*, animal:animais(brinco), lote:lotes_inseminacao(numero,touro)').eq('ciclo_id', cicloId).order('data', { ascending: false }),
+    byAnimal: (animalId)  => T('abortos').select('*, lote:lotes_inseminacao(numero,touro)').eq('animal_id', animalId).order('data', { ascending: false }),
+    insert:   (data)      => T('abortos').insertOne(data).select().single(),
+    update:   (id, d)     => escopo(T('abortos').raw().update(d).eq('id', id)).select().single(),
+    delete:   (id)        => escopo(T('abortos').raw().delete().eq('id', id)),
   },
 
   inseminacoes: {

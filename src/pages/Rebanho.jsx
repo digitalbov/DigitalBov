@@ -4,7 +4,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { db } from '../lib/supabase'
-import { calcCategoria, calcCategoriaRebanho, calcTaxaPrenhez, calcGMD, pct, fmtMoeda, ehMatriz } from '../lib/helpers'
+import { calcCategoria, calcCategoriaRebanho, calcTaxaPrenhez, contarExpostas, contarPrenhas, calcGMD, pct, fmtMoeda, ehMatriz } from '../lib/helpers'
 import { Loading, IndexCard, BotaoPDF, ErroCarregamento, SeletorCicloLocal, Badge, EmptyState } from '../components/UI'
 import { useCicloLocal } from '../lib/useCicloLocal'
 import {
@@ -131,10 +131,13 @@ export function Rebanho() {
   const matrizes = ativos.filter(a => ehMatriz(a))
 
   // Índices reprodutivos do ciclo atual — fórmula oficial única (helpers.calcTaxaPrenhez):
-  // prenhas diagnosticadas / inseminadas no ciclo — não usa matrizes por idade nem sit_reprodutiva atual
+  // matrizes distintas prenhas / matrizes distintas expostas no ciclo — não usa
+  // matrizes por idade nem sit_reprodutiva atual. kpiIns/kpiPrn deduplicam por
+  // animal_id (contarExpostas/contarPrenhas), senão o card não bate com a taxa.
   const insemRebanho = lotesInsem.flatMap(l => l.inseminacoes || [])
-  const kpiIns = insemRebanho.length
-  const kpiPrn = insemRebanho.filter(i => i.diagnostico === 'P').length
+  const kpiInsServicos = insemRebanho.length
+  const kpiIns = contarExpostas(insemRebanho)
+  const kpiPrn = contarPrenhas(insemRebanho)
   const txPrenNum = calcTaxaPrenhez(insemRebanho)
   const txPren = txPrenNum !== null ? txPrenNum + '%' : '—'
 
@@ -184,8 +187,9 @@ export function Rebanho() {
   const statsPorCiclo = ciclosOrdenados.map(c => {
     const lotesDoCiclo = todosLotesInsem.filter(l => l.ciclo_id === c.id)
     const insemDoCiclo = lotesDoCiclo.flatMap(l => l.inseminacoes || [])
-    const inseminacoes = insemDoCiclo.length
-    const prenhas      = insemDoCiclo.filter(i => i.diagnostico === 'P').length
+    const inseminacoesServicos = insemDoCiclo.length
+    const inseminacoes = contarExpostas(insemDoCiclo)
+    const prenhas      = contarPrenhas(insemDoCiclo)
     const txPrenhez    = calcTaxaPrenhez(insemDoCiclo)
     const nascimentos  = partosTodos.filter(p => p.ciclo_id === c.id).length
     const lancs        = lancsPorCiclo[c.id] || []
@@ -305,9 +309,10 @@ export function Rebanho() {
           <div className="sl">Índices reprodutivos</div>
           <div className="grid-4" style={{marginBottom:16}}>
             <IndexCard value={txPren} label="Taxa de prenhez" meta="≥85%" ok={txPrenNum !== null && txPrenNum >= 85}/>
-            <IndexCard value={kpiIns} label="Inseminadas no ciclo" color="#2B6CD9"/>
+            <IndexCard value={kpiIns} label="Matrizes expostas no ciclo" color="#2B6CD9"/>
             <IndexCard value={kpiPrn} label="Prenhas no ciclo" color="#2B6CD9"/>
             <IndexCard value={partosTodos.filter(p => p.ciclo_id === cicloLocal?.id).length} label="Nascimentos no ciclo" color="#0C447C"/>
+            <IndexCard value={kpiInsServicos} label="Inseminações (serviços)" color="#9CA3AF"/>
           </div>
 
           <div className="sl">GMD terneiros (0–12 meses)</div>
@@ -350,8 +355,12 @@ export function Rebanho() {
                 </thead>
                 <tbody>
                   <tr>
-                    <td>Inseminações</td>
+                    <td>Matrizes expostas</td>
                     {statsPorCiclo.map(s => <td key={s.ciclo.id} style={{textAlign:'right'}}>{s.inseminacoes || '—'}</td>)}
+                  </tr>
+                  <tr>
+                    <td style={{ color:'#9CA3AF' }}>Inseminações (serviços)</td>
+                    {statsPorCiclo.map(s => <td key={s.ciclo.id} style={{textAlign:'right',color:'#9CA3AF'}}>{s.inseminacoesServicos || '—'}</td>)}
                   </tr>
                   <tr>
                     <td>Prenhas</td>

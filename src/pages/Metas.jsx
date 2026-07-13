@@ -1,6 +1,6 @@
 ﻿import { useState, useEffect, useRef } from 'react'
 import { db } from '../lib/supabase'
-import { calcCategoria, calcGMD, calcTaxaPrenhez } from '../lib/helpers'
+import { calcCategoria, calcGMD, calcTaxaPrenhez, contarPrenhas } from '../lib/helpers'
 import { Loading, Modal, toast, BotaoPDF, EmptyState, ErroCarregamento } from '../components/UI'
 import { usePermissoes } from '../lib/PermissoesContext'
 import { useCiclo } from '../lib/CicloContext'
@@ -151,8 +151,10 @@ export default function Metas() {
       ])
 
       // ── taxa_prenhez (fórmula oficial única — helpers.calcTaxaPrenhez) ──
+      // prenhas deduplica por animal_id (contarPrenhas), senão nem o número bate
+      // com taxaPrenhez nem o denominador de taxa_paricao fica correto.
       const todasInseminacoes = (rLotes.data || []).flatMap(lote => lote.inseminacoes || [])
-      const prenhas      = todasInseminacoes.filter(i => i.diagnostico === 'P').length
+      const prenhas      = contarPrenhas(todasInseminacoes)
       const taxaPrenhez  = calcTaxaPrenhez(todasInseminacoes)
 
       // ── taxa_paricao ──

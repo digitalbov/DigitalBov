@@ -114,17 +114,26 @@ export const numeroPositivo = (v) => {
 export const dataNaoFutura = (d) => !!d && d <= new Date().toISOString().slice(0, 10)
 
 // ── Taxa de prenhez (fórmula única e oficial, usada em todas as telas) ────────
-// Padrão oficial: prenhas / total de inseminações do ciclo (inclui pendentes,
-// sem diagnóstico ainda). Passe { incluirPendentes: false } para calcular sobre
-// apenas as inseminações já diagnosticadas (prenha ou vazia).
-export function calcTaxaPrenhez(inseminacoes, { incluirPendentes = true } = {}) {
-  const lista = inseminacoes || []
-  const prenhas = lista.filter(i => i.diagnostico === 'P').length
-  const denominador = incluirPendentes
-    ? lista.length
-    : lista.filter(i => i.diagnostico === 'P' || i.diagnostico === 'V').length
-  return denominador > 0 ? Math.round((prenhas / denominador) * 100) : null
+// Padrão oficial: fêmeas DISTINTAS prenhas / fêmeas DISTINTAS expostas —
+// nunca conta linhas de inseminação. Um ciclo costuma ter vários lotes (IATF +
+// repasses); a mesma vaca que entra em mais de um lote não pode ser contada
+// mais de uma vez nem no numerador nem no denominador. Uma vaca vazia na IATF
+// e prenha no repasse conta como 1 exposta e 1 prenha — é a "prenhez acumulada"
+// da estação/ciclo, o número que o pecuarista quer ver.
+export function calcTaxaPrenhez(inseminacoes) {
+  if (!inseminacoes?.length) return null
+  const expostas = new Set(inseminacoes.map(i => i.animal_id))
+  const prenhas  = new Set(inseminacoes.filter(i => i.diagnostico === 'P').map(i => i.animal_id))
+  return expostas.size > 0 ? Math.round((prenhas.size / expostas.size) * 100) : null
 }
+
+// Contagens distintas por animal_id que acompanham calcTaxaPrenhez — os
+// contadores exibidos na tela (ex: "Prenhas: X", "Inseminadas: Y") devem usar
+// estas funções, nunca `.length`, senão o número mostrado não bate com a taxa
+// ao lado (que já deduplica). O total de LINHAS de inseminação (serviços) é uma
+// métrica diferente — mostre-o separadamente, nunca como denominador de taxa.
+export const contarExpostas = (inseminacoes) => new Set((inseminacoes || []).map(i => i.animal_id)).size
+export const contarPrenhas  = (inseminacoes) => new Set((inseminacoes || []).filter(i => i.diagnostico === 'P').map(i => i.animal_id)).size
 
 // ── Cores por categoria ───────────────────────────────────────────────────────
 export const catCor = {
