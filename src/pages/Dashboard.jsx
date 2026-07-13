@@ -61,7 +61,7 @@ export default function Dashboard({ perfil }) {
         const [{ data: lData }, { data: tData }, { data: liData }] = await Promise.all([
           db.lancamentos.list(cicloSelecionado.id),
           db.transacoes.list(cicloSelecionado.id),
-          db.lotesInseminacao.list(cicloSelecionado.id),
+          db.lotesInseminacao.listInseminacoesResumo(cicloSelecionado.id),
         ])
         setLancamentos(lData || [])
         setTransacoes(tData || [])

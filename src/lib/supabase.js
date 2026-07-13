@@ -132,6 +132,15 @@ export const db = {
     insert: (data)  => T('lotes_inseminacao').insertOne(data).select().single(),
     update: (id, d) => escopo(T('lotes_inseminacao').raw().update(d).eq('id', id)).select().single(),
     delete: (id)    => escopo(T('lotes_inseminacao').raw().delete().eq('id', id)),
+    // Versão leve: só animal_id/diagnostico por lote — usada em telas que só
+    // precisam da taxa de prenhez (Dashboard, Rebanho), sem os embeds pesados
+    // de partos/pesagens/abortos/estação que só o funil do Reprodutivo usa.
+    // Sem cicloId, traz de todos os ciclos.
+    listInseminacoesResumo: (cicloId) => {
+      let q = T('lotes_inseminacao').select('ciclo_id, inseminacoes(animal_id,diagnostico)')
+      if (cicloId) q = q.eq('ciclo_id', cicloId)
+      return q
+    },
   },
 
   estacoesMonta: {

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { supabase, db } from '../lib/supabase'
 import { usePermissoes } from '../lib/PermissoesContext'
 import { useFazenda } from '../lib/FazendaContext'
@@ -16,6 +16,9 @@ const TABS = ['Lotes de Inseminação','Nascimentos','Índices']
 const GESTACAO_ANGUS_DIAS = 283
 const GESTACAO_MIN_DIAS = 260
 const GESTACAO_MAX_DIAS = 300
+// Intervalo entre partos plausível para bovinos (usado no cálculo do intervalo médio)
+const INTERVALO_PARTOS_MIN_DIAS = 300
+const INTERVALO_PARTOS_MAX_DIAS = 700
 
 // Card único do funil da safra reprodutiva (Matrizes aptas → Aproveitamento →
 // Inseminadas → Prenhez → Partos/Parição → Perdas). Reaproveitado tanto no
@@ -87,7 +90,6 @@ export default function Reprodutivo() {
   const [tab,     setTab]    = useState(0)
   const [animais, setAnimais]= useState([])
   const [lotes,   setLotes]  = useState([])
-  const [partos,  setPartos] = useState([])
   const [loading,   setLoading]  = useState(true)
   const [loadError, setLoadError]= useState(false)
   const [modal,   setModal]  = useState(null)
@@ -101,8 +103,14 @@ export default function Reprodutivo() {
   const [selLote,     setSelLote]    = useState(null)
   const [selInsem,    setSelInsem]   = useState([])
   const [removendoLote, setRemovendoLote] = useState(false)
+  // todosLotes/todosPartos cobrem TODOS os ciclos (necessário pro histórico da
+  // aba Índices e pra localizar a monta de uma mãe fora do ciclo selecionado).
+  // É a query mais pesada da tela (embeds aninhados de inseminações, partos,
+  // pesagens e abortos) — só é buscada quando a aba Nascimentos ou Índices é
+  // aberta (ver useEffect abaixo), nunca no carregamento inicial da aba Lotes.
   const [todosLotes,  setTodosLotes] = useState([])
   const [todosPartos, setTodosPartos]= useState([])
+  const [todosStale,  setTodosStale] = useState(true)
   const [loadingIdx,  setLoadingIdx] = useState(false)
   const [sortCol,     setSortCol]    = useState('data')
   const [sortAsc,     setSortAsc]    = useState(false)
@@ -117,16 +125,21 @@ export default function Reprodutivo() {
 
   // Nascimentos tab state
   const [partosNasc,    setPartosNasc]    = useState(null)
-  const [lotesNasc,     setLotesNasc]     = useState([])
   const [loadingNasc,   setLoadingNasc]   = useState(false)
   const [filtroNasc,    setFiltroNasc]    = useState('todos')
   const [proprietarios, setProprietarios] = useState([])
   const [editParto,     setEditParto]     = useState(null)
 
   useEffect(() => { loadAll() }, [])
-  useEffect(() => { if (cicloLocal) loadLotesPartos(cicloLocal.id) }, [cicloLocal?.id])
+  useEffect(() => { if (cicloLocal) loadCicloScoped(cicloLocal.id) }, [cicloLocal?.id])
   useEffect(() => { setSelInsem([]) }, [selLote?.id])
-  useEffect(() => { if (tab === 2) loadIndices() }, [tab])
+  // Atualiza selLote com dados frescos sempre que `lotes` muda (evita estado obsoleto após saves)
+  useEffect(() => {
+    setSelLote(prev => prev ? (lotes.find(l => l.id === prev.id) || prev) : null)
+  }, [lotes])
+  // todosLotes/todosPartos (todos os ciclos) só são buscados quando o usuário
+  // realmente precisa deles: aba Nascimentos (vínculo da safra) ou Índices.
+  useEffect(() => { if ((tab === 1 || tab === 2) && todosStale) loadTodos() }, [tab, todosStale])
   useEffect(() => { setPartosNasc(null) }, [cicloLocal?.id])
   useEffect(() => {
     if (tab === 1 && cicloLocal && partosNasc === null) loadPartosNasc(cicloLocal.id)
@@ -135,22 +148,18 @@ export default function Reprodutivo() {
   const loadAll = async (showLoading = true) => {
     if (showLoading) { setLoading(true); setLoadError(false) }
     try {
-      const [ra, rprops, ls, rlAll, rpAll] = await Promise.all([
+      const [ra, rprops, ls] = await Promise.all([
         db.animais.list({ situacao:'ativo' }),
         db.proprietarios.list(),
         db.lotes.list(),
-        db.lotesInseminacao.listAll(),
-        db.partos.listAll()
       ])
       setAnimais(ra.data || [])
       setProprietarios(rprops.data || [])
       setLotesSistema(ls.data || [])
-      // Também alimenta todosLotes/todosPartos (usados na aba Índices e para
-      // localizar o lote de uma mãe fora do ciclo selecionado), assim eles ficam
-      // atualizados sempre que loadAll roda, não só quando a aba Índices é aberta.
-      setTodosLotes(rlAll.data || [])
-      setTodosPartos(rpAll.data || [])
-      if (cicloLocal) await loadLotesPartos(cicloLocal.id)
+      // Qualquer carregamento/mutação pode ter afetado o histórico completo —
+      // marca para recarregar na próxima vez que a aba Nascimentos/Índices abrir.
+      setTodosStale(true)
+      if (cicloLocal) await loadCicloScoped(cicloLocal.id)
     } catch (e) {
       console.error('[Reprodutivo] erro ao carregar:', e)
       if (showLoading) setLoadError(true)
@@ -159,32 +168,26 @@ export default function Reprodutivo() {
     }
   }
 
-  const loadLotesPartos = async (cicloId) => {
-    const [rl, rp, re] = await Promise.all([
+  // Dados do CICLO selecionado — leve, buscado sempre (aba Lotes é a tela inicial)
+  const loadCicloScoped = async (cicloId) => {
+    const [rl, re] = await Promise.all([
       db.lotesInseminacao.list(cicloId),
-      db.partos.list(cicloId),
       db.estacoesMonta.list(cicloId)
     ])
-    const newLotes = rl.data || []
-    setLotes(newLotes)
-    setPartos(rp.data || [])
+    setLotes(rl.data || [])
     setEstacoes(re.data || [])
-    // Atualiza selLote com dados frescos do banco (evita estado obsoleto após saves)
-    setSelLote(prev => prev ? (newLotes.find(l => l.id === prev.id) || prev) : null)
   }
 
   const loadPartosNasc = async (cicloId) => {
     setLoadingNasc(true)
-    const [rp, rl] = await Promise.all([
-      db.partos.list(cicloId),
-      db.lotesInseminacao.list(cicloId)
-    ])
-    setPartosNasc(rp.data || [])
-    setLotesNasc(rl.data || [])
+    const { data, error } = await db.partos.list(cicloId)
+    if (error) console.error('[Reprodutivo] erro ao buscar nascimentos:', error)
+    setPartosNasc(data || [])
     setLoadingNasc(false)
   }
 
-  const loadIndices = async () => {
+  // Histórico completo (todos os ciclos) — carregado sob demanda, ver useEffect acima
+  const loadTodos = async () => {
     setLoadingIdx(true)
     const [rl, rp] = await Promise.all([
       db.lotesInseminacao.listAll(),
@@ -192,6 +195,7 @@ export default function Reprodutivo() {
     ])
     setTodosLotes(rl.data || [])
     setTodosPartos(rp.data || [])
+    setTodosStale(false)
     setLoadingIdx(false)
   }
 
@@ -470,8 +474,8 @@ export default function Reprodutivo() {
     if (!mae) { toast('Mãe não encontrada.','error'); setSaving(false); return }
     const cicloDoParto = cicloDaData(form.data_parto)
 
-    // Criar bezerro
-    const nBrinco = 'SN-' + String(partos.length + 1).padStart(2,'0')
+    // Criar bezerro (numeração provisória com base nos nascimentos já carregados do ciclo)
+    const nBrinco = 'SN-' + String((partosNasc?.length || 0) + 1).padStart(2,'0')
     const { data: bezData } = await db.animais.insert({
       brinco: nBrinco, sexo: form.sexo_bezerro,
       data_nascimento: form.data_parto,
@@ -597,14 +601,6 @@ export default function Reprodutivo() {
     if (ok) toast(`Brinco ${br} → ${isPrenha ? 'Prenha' : 'Vazia'}`)
   }
 
-  if (loading) return <Loading />
-  if (loadError) return <ErroCarregamento onRetry={loadAll} />
-
-  // Cálculos ciclo selecionado (usados na aba Lotes)
-  const totalIns  = lotes.reduce((s,l) => s + (l.inseminacoes?.length||0), 0)
-  const totalPrn  = lotes.reduce((s,l) => s + (l.inseminacoes?.filter(i=>i.diagnostico==='P').length||0), 0)
-  const totalNasc = partos.length
-
   // ─── Índices: dados derivados ────────────────────────────────────────────────
   // Safra reprodutiva: os índices de parição/perda/mortalidade são ancorados no
   // LOTE (a monta), não na data do parto — a gestação (~283 dias) costuma
@@ -695,122 +691,142 @@ export default function Reprodutivo() {
     return dias < GESTACAO_ANGUS_DIAS
   }
 
-  const lotesCicloAtual = todosLotes.filter(l => l.ciclo_id === cicloLocal?.id)
-  const insCicloAtual = lotesCicloAtual.flatMap(l => l.inseminacoes || [])
-  const kpiInsTotal = insCicloAtual.length                          // total de serviços/inseminações (informativo)
-  // Matrizes expostas/prenhas DISTINTAS do ciclo: um ciclo pode ter vários lotes
-  // (IATF + repasses) e a mesma vaca não pode ser contada mais de uma vez.
-  const kpiIns  = distintos(insCicloAtual)
-  const kpiPrn  = distintos(insCicloAtual, i => i.diagnostico === 'P')
-  const kpiPartosArr = lotesCicloAtual.flatMap(l => l.partos || [])
-  const kpiPartos = kpiPartosArr.length
-  const kpiMortos = kpiPartosArr.filter(p => p.bezerro?.situacao === 'morto').length
-  const kpiMortalidade = kpiPartos > 0 ? Math.round(kpiMortos / kpiPartos * 100) : null
-  const kpiAbortos = lotesCicloAtual.reduce((s, l) => s + (l.abortos?.length || 0), 0)
-  const kpiPerdasNaoIdentificadas = Math.max(0, kpiPrn - kpiPartos - kpiAbortos)
-  const kpiPerdaGestacional = kpiPrn > 0 ? Math.round((kpiAbortos + kpiPerdasNaoIdentificadas) / kpiPrn * 100) : null
-  const primeiraMontaCiclo = lotesCicloAtual.map(l => l.data).filter(Boolean).sort()[0] || null
-  const kpiMatrizesAptas = primeiraMontaCiclo ? contarMatrizes(animais, primeiraMontaCiclo) : 0
-  // Sem teto em 100%: uma taxa de aproveitamento acima de 100% é esperada e
-  // correta quando novilhas com menos de 24 meses (fora da definição de "matriz
-  // apta") são expostas à reprodução — não é um erro de cálculo.
-  const kpiTxAproveitamento = kpiMatrizesAptas > 0 ? Math.round(kpiIns / kpiMatrizesAptas * 100) : null
-  const kpiDesmame = calcDesmameMetrics(kpiPartosArr, kpiIns)
-  const safraCicloEmAndamento = lotesCicloAtual.some(l => safraEmAndamento(l, cicloLocal))
-  const previsaoSafraCiclo = (() => {
-    const emAndamento = lotesCicloAtual.filter(l => safraEmAndamento(l, cicloLocal))
-    if (emAndamento.length === 0) return null
-    const datas = emAndamento.map(l => {
-      const d = new Date(l.data + 'T12:00:00'); d.setDate(d.getDate() + GESTACAO_ANGUS_DIAS); return d
-    })
-    return new Date(Math.min(...datas))
-  })()
-  // Intervalo entre partos: para cada mãe com 2+ partos, mede o intervalo entre
-  // partos consecutivos; só considera intervalos plausíveis para bovinos (300–700 dias)
-  const INTERVALO_PARTOS_MIN_DIAS = 300
-  const INTERVALO_PARTOS_MAX_DIAS = 700
-  const intervalosPartosValidos = (() => {
-    const partosPorMae = {}
-    todosPartos.forEach(p => {
-      if (!p.mae_id || !p.data_parto) return
-      partosPorMae[p.mae_id] = partosPorMae[p.mae_id] || []
-      partosPorMae[p.mae_id].push(p.data_parto)
-    })
-    const intervalos = []
-    Object.values(partosPorMae).forEach(datas => {
-      const ordenadas = datas.slice().sort()
-      for (let i = 1; i < ordenadas.length; i++) {
-        const dias = Math.round((new Date(ordenadas[i]) - new Date(ordenadas[i-1])) / 86400000)
-        if (Number.isFinite(dias) && dias >= INTERVALO_PARTOS_MIN_DIAS && dias <= INTERVALO_PARTOS_MAX_DIAS) {
-          intervalos.push(dias)
+  // Todo este bloco só depende de todosLotes/todosPartos/cicloLocal/animais/
+  // sortCol/sortAsc — memoizado para não recalcular a cada render (ex: digitar
+  // num campo de outro modal não deve re-somar/re-ordenar todo o histórico).
+  const idx = useMemo(() => {
+    const lotesCicloAtual = todosLotes.filter(l => l.ciclo_id === cicloLocal?.id)
+    const insCicloAtual = lotesCicloAtual.flatMap(l => l.inseminacoes || [])
+    const kpiInsTotal = insCicloAtual.length                          // total de serviços/inseminações (informativo)
+    // Matrizes expostas/prenhas DISTINTAS do ciclo: um ciclo pode ter vários lotes
+    // (IATF + repasses) e a mesma vaca não pode ser contada mais de uma vez.
+    const kpiIns  = distintos(insCicloAtual)
+    const kpiPrn  = distintos(insCicloAtual, i => i.diagnostico === 'P')
+    const kpiPartosArr = lotesCicloAtual.flatMap(l => l.partos || [])
+    const kpiPartos = kpiPartosArr.length
+    const kpiMortos = kpiPartosArr.filter(p => p.bezerro?.situacao === 'morto').length
+    const kpiMortalidade = kpiPartos > 0 ? Math.round(kpiMortos / kpiPartos * 100) : null
+    const kpiAbortos = lotesCicloAtual.reduce((s, l) => s + (l.abortos?.length || 0), 0)
+    const kpiPerdasNaoIdentificadas = Math.max(0, kpiPrn - kpiPartos - kpiAbortos)
+    const kpiPerdaGestacional = kpiPrn > 0 ? Math.round((kpiAbortos + kpiPerdasNaoIdentificadas) / kpiPrn * 100) : null
+    const primeiraMontaCiclo = lotesCicloAtual.map(l => l.data).filter(Boolean).sort()[0] || null
+    const kpiMatrizesAptas = primeiraMontaCiclo ? contarMatrizes(animais, primeiraMontaCiclo) : 0
+    // Sem teto em 100%: uma taxa de aproveitamento acima de 100% é esperada e
+    // correta quando novilhas com menos de 24 meses (fora da definição de "matriz
+    // apta") são expostas à reprodução — não é um erro de cálculo.
+    const kpiTxAproveitamento = kpiMatrizesAptas > 0 ? Math.round(kpiIns / kpiMatrizesAptas * 100) : null
+    const kpiDesmame = calcDesmameMetrics(kpiPartosArr, kpiIns)
+    const safraCicloEmAndamento = lotesCicloAtual.some(l => safraEmAndamento(l, cicloLocal))
+    const previsaoSafraCiclo = (() => {
+      const emAndamento = lotesCicloAtual.filter(l => safraEmAndamento(l, cicloLocal))
+      if (emAndamento.length === 0) return null
+      const datas = emAndamento.map(l => {
+        const d = new Date(l.data + 'T12:00:00'); d.setDate(d.getDate() + GESTACAO_ANGUS_DIAS); return d
+      })
+      return new Date(Math.min(...datas))
+    })()
+    // Intervalo entre partos: para cada mãe com 2+ partos, mede o intervalo entre
+    // partos consecutivos; só considera intervalos plausíveis para bovinos (300–700 dias)
+    const intervalosPartosValidos = (() => {
+      const partosPorMae = {}
+      todosPartos.forEach(p => {
+        if (!p.mae_id || !p.data_parto) return
+        partosPorMae[p.mae_id] = partosPorMae[p.mae_id] || []
+        partosPorMae[p.mae_id].push(p.data_parto)
+      })
+      const intervalos = []
+      Object.values(partosPorMae).forEach(datas => {
+        const ordenadas = datas.slice().sort()
+        for (let i = 1; i < ordenadas.length; i++) {
+          const dias = Math.round((new Date(ordenadas[i]) - new Date(ordenadas[i-1])) / 86400000)
+          if (Number.isFinite(dias) && dias >= INTERVALO_PARTOS_MIN_DIAS && dias <= INTERVALO_PARTOS_MAX_DIAS) {
+            intervalos.push(dias)
+          }
         }
-      }
+      })
+      return intervalos
+    })()
+    const kpiIntervalo = intervalosPartosValidos.length === 0
+      ? '—'
+      : `${Math.round(intervalosPartosValidos.reduce((s, d) => s + d, 0) / intervalosPartosValidos.length)} dias`
+
+    const cicloMapIdx = new Map()
+    todosLotes.forEach(l => { if (l.ciclo) cicloMapIdx.set(l.ciclo_id, l.ciclo) })
+    const ciclosUnicos = [...cicloMapIdx.values()].sort((a, b) => (a.inicio||'').localeCompare(b.inicio||''))
+
+    const barData = todosLotes
+      .filter(l => l.ciclo_id === cicloLocal?.id)
+      .map(l => { const m = calcLoteMetrics(l); return { name: `L${l.numero}·${l.touro}`, prenhez: m.txPrenhez ?? 0, paricao: m.txParicao } })
+
+    const lineData = ciclosUnicos.map(c => {
+      const lc = todosLotes.filter(l => l.ciclo_id === c.id)
+      const insLc = lc.flatMap(l => l.inseminacoes || [])
+      // Distintos: um ciclo pode ter vários lotes (IATF + repasses) — a mesma vaca
+      // não pode ser contada 2x nem no total exposto nem nas prenhas.
+      const tExp = distintos(insLc)
+      const tP   = distintos(insLc, i => i.diagnostico === 'P')
+      const tN   = lc.reduce((s, l) => s + (l.partos?.length || 0), 0)
+      return { ciclo: c.nome, prenhez: tExp > 0 ? Math.round(tP / tExp * 100) : 0, paricao: tP > 0 ? Math.round(tN/tP*100) : 0 }
     })
-    return intervalos
-  })()
-  const kpiIntervalo = intervalosPartosValidos.length === 0
-    ? '—'
-    : `${Math.round(intervalosPartosValidos.reduce((s, d) => s + d, 0) / intervalosPartosValidos.length)} dias`
 
-  const cicloMapIdx = new Map()
-  todosLotes.forEach(l => { if (l.ciclo) cicloMapIdx.set(l.ciclo_id, l.ciclo) })
-  const ciclosUnicos = [...cicloMapIdx.values()].sort((a, b) => (a.inicio||'').localeCompare(b.inicio||''))
+    const pieData = [
+      { name:'Prenha',   value: lotesCicloAtual.reduce((s,l) => s + (l.inseminacoes?.filter(i => i.diagnostico==='P').length||0), 0), color:'#7B2FBE' },
+      { name:'Vazia',    value: lotesCicloAtual.reduce((s,l) => s + (l.inseminacoes?.filter(i => i.diagnostico==='V').length||0), 0), color:'#DC2626' },
+      { name:'Pendente', value: lotesCicloAtual.reduce((s,l) => s + (l.inseminacoes?.filter(i => !i.diagnostico).length||0), 0),      color:'#D97706' },
+    ].filter(d => d.value > 0)
 
-  const barData = todosLotes
-    .filter(l => l.ciclo_id === cicloLocal?.id)
-    .map(l => { const m = calcLoteMetrics(l); return { name: `L${l.numero}·${l.touro}`, prenhez: m.txPrenhez ?? 0, paricao: m.txParicao } })
-
-  const lineData = ciclosUnicos.map(c => {
-    const lc = todosLotes.filter(l => l.ciclo_id === c.id)
-    const insLc = lc.flatMap(l => l.inseminacoes || [])
-    // Distintos: um ciclo pode ter vários lotes (IATF + repasses) — a mesma vaca
-    // não pode ser contada 2x nem no total exposto nem nas prenhas.
-    const tExp = distintos(insLc)
-    const tP   = distintos(insLc, i => i.diagnostico === 'P')
-    const tN   = lc.reduce((s, l) => s + (l.partos?.length || 0), 0)
-    return { ciclo: c.nome, prenhez: tExp > 0 ? Math.round(tP / tExp * 100) : 0, paricao: tP > 0 ? Math.round(tN/tP*100) : 0 }
-  })
-
-  const pieData = [
-    { name:'Prenha',   value: lotesCicloAtual.reduce((s,l) => s + (l.inseminacoes?.filter(i => i.diagnostico==='P').length||0), 0), color:'#7B2FBE' },
-    { name:'Vazia',    value: lotesCicloAtual.reduce((s,l) => s + (l.inseminacoes?.filter(i => i.diagnostico==='V').length||0), 0), color:'#DC2626' },
-    { name:'Pendente', value: lotesCicloAtual.reduce((s,l) => s + (l.inseminacoes?.filter(i => !i.diagnostico).length||0), 0),      color:'#D97706' },
-  ].filter(d => d.value > 0)
-
-  const tabelaLotes = [...todosLotes]
-    .map(l => ({ ...l, _m: calcLoteMetrics(l) }))
-    .sort((a, b) => {
-      const get = r => {
-        switch (sortCol) {
-          case 'ciclo':       return r.ciclo?.nome || ''
-          case 'numero':      return r.numero
-          case 'touro':       return r.touro || ''
-          case 'data':        return r.data || ''
-          case 'total':       return r._m.total
-          case 'prenhas':     return r._m.prenhas
-          case 'vazias':      return r._m.vazias
-          case 'txPrenhez':   return r._m.txPrenhez
-          case 'nascimentos': return r._m.nascimentos
-          case 'txParicao':   return r._m.txParicao
-          default:            return r.data || ''
+    const tabelaLotes = [...todosLotes]
+      .map(l => ({ ...l, _m: calcLoteMetrics(l) }))
+      .sort((a, b) => {
+        const get = r => {
+          switch (sortCol) {
+            case 'ciclo':       return r.ciclo?.nome || ''
+            case 'numero':      return r.numero
+            case 'touro':       return r.touro || ''
+            case 'data':        return r.data || ''
+            case 'total':       return r._m.total
+            case 'prenhas':     return r._m.prenhas
+            case 'vazias':      return r._m.vazias
+            case 'txPrenhez':   return r._m.txPrenhez
+            case 'nascimentos': return r._m.nascimentos
+            case 'txParicao':   return r._m.txParicao
+            default:            return r.data || ''
+          }
         }
-      }
-      const va = get(a), vb = get(b)
-      if (typeof va === 'string') return sortAsc ? va.localeCompare(vb) : vb.localeCompare(va)
-      return sortAsc ? va - vb : vb - va
-    })
+        const va = get(a), vb = get(b)
+        if (typeof va === 'string') return sortAsc ? va.localeCompare(vb) : vb.localeCompare(va)
+        return sortAsc ? va - vb : vb - va
+      })
 
-  const touroDados = {}
-  todosLotes.forEach(l => {
-    if (!l.touro) return
-    const m = calcLoteMetrics(l)
-    if (!touroDados[l.touro]) touroDados[l.touro] = { touro: l.touro, totalIns: 0, totalPrn: 0 }
-    touroDados[l.touro].totalIns += m.total
-    touroDados[l.touro].totalPrn += m.prenhas
-  })
-  const tourosRanking = Object.values(touroDados)
-    .map(t => ({ ...t, txPrenhez: t.totalIns > 0 ? Math.round(t.totalPrn/t.totalIns*100) : 0 }))
-    .sort((a, b) => b.txPrenhez - a.txPrenhez)
+    const touroDados = {}
+    todosLotes.forEach(l => {
+      if (!l.touro) return
+      const m = calcLoteMetrics(l)
+      if (!touroDados[l.touro]) touroDados[l.touro] = { touro: l.touro, totalIns: 0, totalPrn: 0 }
+      touroDados[l.touro].totalIns += m.total
+      touroDados[l.touro].totalPrn += m.prenhas
+    })
+    const tourosRanking = Object.values(touroDados)
+      .map(t => ({ ...t, txPrenhez: t.totalIns > 0 ? Math.round(t.totalPrn/t.totalIns*100) : 0 }))
+      .sort((a, b) => b.txPrenhez - a.txPrenhez)
+
+    return {
+      lotesCicloAtual, kpiInsTotal, kpiIns, kpiPrn, kpiPartos, kpiMortalidade, kpiAbortos,
+      kpiPerdasNaoIdentificadas, kpiPerdaGestacional, kpiMatrizesAptas, kpiTxAproveitamento,
+      kpiDesmame, safraCicloEmAndamento, previsaoSafraCiclo, kpiIntervalo,
+      barData, lineData, pieData, tabelaLotes, tourosRanking,
+    }
+  }, [todosLotes, todosPartos, cicloLocal, animais, sortCol, sortAsc])
+
+  if (loading) return <Loading />
+  if (loadError) return <ErroCarregamento onRetry={loadAll} />
+
+  const {
+    lotesCicloAtual, kpiInsTotal, kpiIns, kpiPrn, kpiPartos, kpiMortalidade, kpiAbortos,
+    kpiPerdasNaoIdentificadas, kpiPerdaGestacional, kpiMatrizesAptas, kpiTxAproveitamento,
+    kpiDesmame, safraCicloEmAndamento, previsaoSafraCiclo, kpiIntervalo,
+    barData, lineData, pieData, tabelaLotes, tourosRanking,
+  } = idx
 
   // Previsão de parto do lote selecionado (data da inseminação + gestação padrão)
   const previsaoPartoLote = selLote?.data ? (() => {

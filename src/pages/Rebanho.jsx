@@ -85,7 +85,7 @@ export function Rebanho() {
         db.animais.list(),
         db.proprietarios.list(),
         db.categoriasPreco.list(),
-        db.lotesInseminacao.listAll(),
+        db.lotesInseminacao.listInseminacoesResumo(),
       ])
       const propsData   = rp.data || []
       const animaisData = ra.data || []

@@ -144,7 +144,7 @@ export default function Metas() {
 
       // Carregar dados para cálculo em paralelo
       const [rLotes, rPartos, rAnimais, rPesagens] = await Promise.all([
-        ciclo ? db.lotesInseminacao.list(ciclo.id) : { data: [] },
+        ciclo ? db.lotesInseminacao.listInseminacoesResumo(ciclo.id) : { data: [] },
         ciclo ? db.partos.list(ciclo.id)           : { data: [] },
         db.animais.list(),
         db.pesagens.listAll()
