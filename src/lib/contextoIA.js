@@ -30,10 +30,11 @@ export async function coletarContexto() {
     return acc
   }, {})
 
-  // Lotes de inseminação — usa helper existente, calcula prenhas/vazias pelas inseminacoes
+  // Lotes de inseminação — versão leve (sem partos/pesagens/abortos/estação
+  // aninhados, que este resumo não usa), calcula prenhas/vazias pelas inseminacoes
   let inseminacoes = []
   if (ciclo) {
-    const { data: lotesIns } = await db.lotesInseminacao.list(ciclo.id)
+    const { data: lotesIns } = await db.lotesInseminacao.listInseminacoesResumo(ciclo.id)
     inseminacoes = (lotesIns || []).map(l => {
       const ins      = l.inseminacoes || []
       const nPrenhas = ins.filter(i => i.diagnostico === 'P').length

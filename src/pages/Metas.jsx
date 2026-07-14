@@ -1,6 +1,6 @@
 ﻿import { useState, useEffect, useRef } from 'react'
 import { db } from '../lib/supabase'
-import { calcCategoria, calcGMD, calcTaxaPrenhez, contarPrenhas } from '../lib/helpers'
+import { calcCategoria, calcGMD, calcTaxaPrenhez, contarPrenhas, algumErro } from '../lib/helpers'
 import { Loading, Modal, toast, BotaoPDF, EmptyState, ErroCarregamento } from '../components/UI'
 import { usePermissoes } from '../lib/PermissoesContext'
 import { useCiclo } from '../lib/CicloContext'
@@ -143,12 +143,14 @@ export default function Metas() {
       setCicloNome(ciclo?.nome || '')
 
       // Carregar dados para cálculo em paralelo
-      const [rLotes, rPartos, rAnimais, rPesagens] = await Promise.all([
+      const resultados = await Promise.all([
         ciclo ? db.lotesInseminacao.listInseminacoesResumo(ciclo.id) : { data: [] },
         ciclo ? db.partos.list(ciclo.id)           : { data: [] },
         db.animais.list(),
         db.pesagens.listAll()
       ])
+      if (algumErro('[Metas]', resultados)) { setLoadError(true); return }
+      const [rLotes, rPartos, rAnimais, rPesagens] = resultados
 
       // ── taxa_prenhez (fórmula oficial única — helpers.calcTaxaPrenhez) ──
       // prenhas deduplica por animal_id (contarPrenhas), senão nem o número bate

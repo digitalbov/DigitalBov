@@ -5,7 +5,7 @@ import { useFazenda } from '../lib/FazendaContext'
 import { useConta } from '../lib/ContaContext'
 import { useCiclo, statusCiclo } from '../lib/CicloContext'
 import { useCicloLocal } from '../lib/useCicloLocal'
-import { fmtData, pct, contarMatrizes } from '../lib/helpers'
+import { fmtData, pct, contarMatrizes, contarExpostas, contarPrenhas, calcTaxaPrenhez, algumErro } from '../lib/helpers'
 import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, AlertBox, BotaoPDF, ErroCarregamento, BannerCicloEncerrado, SeletorCicloLocal } from '../components/UI'
 import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
@@ -148,11 +148,13 @@ export default function Reprodutivo() {
   const loadAll = async (showLoading = true) => {
     if (showLoading) { setLoading(true); setLoadError(false) }
     try {
-      const [ra, rprops, ls] = await Promise.all([
+      const base = await Promise.all([
         db.animais.list({ situacao:'ativo' }),
         db.proprietarios.list(),
         db.lotes.list(),
       ])
+      if (algumErro('[Reprodutivo]', base)) { if (showLoading) setLoadError(true); return }
+      const [ra, rprops, ls] = base
       setAnimais(ra.data || [])
       setProprietarios(rprops.data || [])
       setLotesSistema(ls.data || [])
@@ -170,12 +172,19 @@ export default function Reprodutivo() {
 
   // Dados do CICLO selecionado — leve, buscado sempre (aba Lotes é a tela inicial)
   const loadCicloScoped = async (cicloId) => {
-    const [rl, re] = await Promise.all([
-      db.lotesInseminacao.list(cicloId),
-      db.estacoesMonta.list(cicloId)
-    ])
-    setLotes(rl.data || [])
-    setEstacoes(re.data || [])
+    try {
+      const results = await Promise.all([
+        db.lotesInseminacao.list(cicloId),
+        db.estacoesMonta.list(cicloId)
+      ])
+      if (algumErro('[Reprodutivo]', results)) { setLoadError(true); return }
+      const [rl, re] = results
+      setLotes(rl.data || [])
+      setEstacoes(re.data || [])
+    } catch (e) {
+      console.error('[Reprodutivo] erro ao carregar dados do ciclo:', e)
+      setLoadError(true)
+    }
   }
 
   const loadPartosNasc = async (cicloId) => {
@@ -189,10 +198,12 @@ export default function Reprodutivo() {
   // Histórico completo (todos os ciclos) — carregado sob demanda, ver useEffect acima
   const loadTodos = async () => {
     setLoadingIdx(true)
-    const [rl, rp] = await Promise.all([
+    const results = await Promise.all([
       db.lotesInseminacao.listAll(),
       db.partos.listAll()
     ])
+    algumErro('[Reprodutivo]', results) // histórico é dado secundário/lazy — loga mas não derruba a tela
+    const [rl, rp] = results
     setTodosLotes(rl.data || [])
     setTodosPartos(rp.data || [])
     setTodosStale(false)
@@ -640,19 +651,18 @@ export default function Reprodutivo() {
     }
   }
 
-  // Conta animal_id DISTINTOS de uma lista de inseminações — "matrizes expostas"
-  // nunca é o número de inseminações: se a mesma vaca entra na IATF e depois no
-  // repasse, ela é 1 matriz exposta, não 2 (mesmo valendo 2 serviços/inseminações).
-  const distintos = (lista, filtro) => new Set((filtro ? lista.filter(filtro) : lista).map(i => i.animal_id)).size
-
   const calcLoteMetrics = (lote) => {
     const ins = lote.inseminacoes || []
     const totalInseminacoes = ins.length                                  // total de serviços (informativo)
-    const total     = distintos(ins)                                      // matrizes expostas (distintas)
-    const prenhas   = distintos(ins, i => i.diagnostico === 'P')          // matrizes prenhas (distintas)
+    // "Matrizes expostas" nunca é o número de inseminações: se a mesma vaca entra
+    // na IATF e depois no repasse, ela é 1 matriz exposta, não 2. contarExpostas/
+    // contarPrenhas/calcTaxaPrenhez são os helpers únicos (helpers.js) usados em
+    // todas as telas (Dashboard, Rebanho, Comparativo, Metas) — mesma lógica aqui.
+    const total     = contarExpostas(ins)                                 // matrizes expostas (distintas)
+    const prenhas   = contarPrenhas(ins)                                  // matrizes prenhas (distintas)
     const vazias    = ins.filter(i => i.diagnostico === 'V').length
     const pendentes = ins.filter(i => !i.diagnostico).length
-    const txPrenhez = total > 0 ? Math.round(prenhas / total * 100) : null
+    const txPrenhez = calcTaxaPrenhez(ins)
     const partosLote  = lote.partos || []
     const nascimentos = partosLote.length
     const txParicao   = prenhas > 0 ? Math.round(nascimentos / prenhas * 100) : 0
@@ -700,8 +710,8 @@ export default function Reprodutivo() {
     const kpiInsTotal = insCicloAtual.length                          // total de serviços/inseminações (informativo)
     // Matrizes expostas/prenhas DISTINTAS do ciclo: um ciclo pode ter vários lotes
     // (IATF + repasses) e a mesma vaca não pode ser contada mais de uma vez.
-    const kpiIns  = distintos(insCicloAtual)
-    const kpiPrn  = distintos(insCicloAtual, i => i.diagnostico === 'P')
+    const kpiIns  = contarExpostas(insCicloAtual)
+    const kpiPrn  = contarPrenhas(insCicloAtual)
     const kpiPartosArr = lotesCicloAtual.flatMap(l => l.partos || [])
     const kpiPartos = kpiPartosArr.length
     const kpiMortos = kpiPartosArr.filter(p => p.bezerro?.situacao === 'morto').length
@@ -763,8 +773,8 @@ export default function Reprodutivo() {
       const insLc = lc.flatMap(l => l.inseminacoes || [])
       // Distintos: um ciclo pode ter vários lotes (IATF + repasses) — a mesma vaca
       // não pode ser contada 2x nem no total exposto nem nas prenhas.
-      const tExp = distintos(insLc)
-      const tP   = distintos(insLc, i => i.diagnostico === 'P')
+      const tExp = contarExpostas(insLc)
+      const tP   = contarPrenhas(insLc)
       const tN   = lc.reduce((s, l) => s + (l.partos?.length || 0), 0)
       return { ciclo: c.nome, prenhez: tExp > 0 ? Math.round(tP / tExp * 100) : 0, paricao: tP > 0 ? Math.round(tN/tP*100) : 0 }
     })
@@ -932,27 +942,45 @@ export default function Reprodutivo() {
             <BotaoPDF contentRef={refDiag} filename="reprodutivo-diagnostico" titulo="Reprodutivo: Diagnóstico do Lote" />
           </div>
           <div ref={refDiag}>
-          <div className="grid-4" style={{ marginBottom:14 }}>
-            {[
-              ['Inseminadas', selLote.inseminacoes?.length||0,'#111'],
-              ['Prenhas',     selLote.inseminacoes?.filter(i=>i.diagnostico==='P').length||0,'#1E55B0'],
-              ['Vazias',      selLote.inseminacoes?.filter(i=>i.diagnostico==='V').length||0,'#791F1F'],
-              ['Pendentes',   selLote.inseminacoes?.filter(i=>!i.diagnostico).length||0,'#9CA3AF'],
-            ].map(([l,v,c]) => (
-              <div key={l} style={{ background:'white',border:'.5px solid #E5E7EB',borderRadius:10,padding:'10px 12px',textAlign:'center' }}>
-                <div style={{ fontSize:'1.4rem',fontWeight:600,color:c }}>{v}</div>
-                <div style={{ fontSize:'.75rem',color:'#6B7280',marginTop:2 }}>{l}</div>
-              </div>
-            ))}
-          </div>
+          {(() => {
+            // Resumo do lote — mesmos helpers usados em todo o sistema (contarExpostas/
+            // contarPrenhas/calcTaxaPrenhez), garantindo que a taxa aqui bate com a do
+            // Dashboard/Rebanho/Comparativo/Metas para o mesmo lote/ciclo.
+            const sm = calcLoteMetrics(selLote)
+            return (
+              <>
+                <div className="card-title" style={{ marginBottom:8 }}><i className="ti ti-clipboard-list" /> Resumo do lote</div>
+                <div className="grid-4" style={{ marginBottom:8 }}>
+                  {[
+                    ['Matrizes expostas', sm.total,     '#111'],
+                    ['Prenhas',           sm.prenhas,   '#1E55B0'],
+                    ['Vazias',            sm.vazias,    '#791F1F'],
+                    ['Pendentes',         sm.pendentes, '#9CA3AF'],
+                  ].map(([l,v,c]) => (
+                    <div key={l} style={{ background:'white',border:'.5px solid #E5E7EB',borderRadius:10,padding:'10px 12px',textAlign:'center' }}>
+                      <div style={{ fontSize:'1.4rem',fontWeight:600,color:c }}>{v}</div>
+                      <div style={{ fontSize:'.75rem',color:'#6B7280',marginTop:2 }}>{l}</div>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ display:'flex', alignItems:'center', gap:14, flexWrap:'wrap', marginBottom:14 }}>
+                  <div style={{ background:'#E8F0FC', border:'.5px solid #1BA89C', borderRadius:10, padding:'8px 16px' }}>
+                    <span style={{ fontSize:'.78rem', color:'#6B7280' }}>Taxa de prenhez do lote: </span>
+                    <strong style={{ fontSize:'1rem', color:'#1E55B0' }}>{sm.txPrenhez != null ? `${sm.txPrenhez}%` : '—'}</strong>
+                  </div>
+                  <span style={{ fontSize:'.78rem', color:'#9CA3AF' }}>{sm.totalInseminacoes} inseminação{sm.totalInseminacoes!==1?'ões':''} (serviços)</span>
+                </div>
 
-          {/* Resultado da safra — índices ancorados nesta monta, mesmo que os partos ocorram no ciclo seguinte */}
-          <CardResultadoSafra
-            titulo="Resultado da safra"
-            sm={calcLoteMetrics(selLote)}
-            andamento={safraEmAndamento(selLote, cicloLocal)}
-            previsao={previsaoPartoLote}
-          />
+                {/* Resultado da safra — índices ancorados nesta monta, mesmo que os partos ocorram no ciclo seguinte */}
+                <CardResultadoSafra
+                  titulo="Resultado da safra"
+                  sm={sm}
+                  andamento={safraEmAndamento(selLote, cicloLocal)}
+                  previsao={previsaoPartoLote}
+                />
+              </>
+            )
+          })()}
 
           <div className="card">
             <div className="card-title">
@@ -1258,9 +1286,9 @@ export default function Reprodutivo() {
                     const lotesDaEstacao = lotesCicloAtual.filter(l => l.estacao_monta_id === estacaoIdxSel)
                     const todasInsEst = lotesDaEstacao.flatMap(l => l.inseminacoes || [])
                     // Matrizes distintas — a vaca que entrou na IATF e no repasse conta 1x
-                    const matrizesExpostas = new Set(todasInsEst.map(i => i.animal_id)).size
-                    const matrizesPrenhas  = new Set(todasInsEst.filter(i => i.diagnostico === 'P').map(i => i.animal_id)).size
-                    const prenhezAcumulada = matrizesExpostas > 0 ? Math.round(matrizesPrenhas / matrizesExpostas * 100) : null
+                    const matrizesExpostas = contarExpostas(todasInsEst)
+                    const matrizesPrenhas  = contarPrenhas(todasInsEst)
+                    const prenhezAcumulada = calcTaxaPrenhez(todasInsEst)
                     const comparacaoData = [
                       ...lotesDaEstacao.map(l => ({ name: `Lote ${l.numero}`, prenhez: calcLoteMetrics(l).txPrenhez ?? 0 })),
                       { name: 'Acumulada', prenhez: prenhezAcumulada ?? 0 },

@@ -1,7 +1,7 @@
 ﻿import { useState, useEffect, useRef } from 'react'
 import { db } from '../lib/supabase'
-import { calcCategoria, calcCategoriaRebanho, fmtData, fmtMoeda, pct, ehMatriz } from '../lib/helpers'
-import { Loading, Badge, AlertBox, toast, SeletorCicloLocal } from '../components/UI'
+import { calcCategoria, calcCategoriaRebanho, fmtData, fmtMoeda, pct, ehMatriz, algumErro, somaFinita } from '../lib/helpers'
+import { Loading, Badge, AlertBox, toast, SeletorCicloLocal, ErroCarregamento } from '../components/UI'
 import { useFazenda } from '../lib/FazendaContext'
 import { useCicloLocal } from '../lib/useCicloLocal'
 
@@ -19,12 +19,14 @@ export default function Relatorios() {
   const [tab,       setTab]      = useState(0)
   const [animais,   setAnimais]  = useState([])
   const [lancs,     setLancs]    = useState([])
+  const [transacoes,setTransacoes]=useState([])
   const [lotes,     setLotes]    = useState([])
   const [partos,    setPartos]   = useState([])
   const [sanidade,  setSanidade] = useState([])
   const [props,     setProps]    = useState([])
   const [catPrecos, setCatPrecos]= useState([])
   const [loading,   setLoading]  = useState(true)
+  const [loadError, setLoadError]= useState(false)
   const [generating,setGenerating]=useState(false)
   const { fazendaAtual } = useFazenda()
   const { cicloLocal, setCicloLocal, ciclos } = useCicloLocal()
@@ -39,28 +41,40 @@ export default function Relatorios() {
 
   const loadAll = async () => {
     setLoading(true)
-    const [ra, rs, rp, rcp] = await Promise.all([
-      db.animais.list(),
-      db.sanidade.list(),
-      db.proprietarios.list(),
-      db.categoriasPreco.list()
-    ])
-    const animList  = ra.data || []
-    setAnimais(animList)
-    setSanidade(rs.data  || [])
-    setProps(rp.data     || [])
-    setCatPrecos(rcp.data|| [])
-    if (cicloLocal) {
-      const [rl, rli, rpt] = await Promise.all([
-        db.lancamentos.list(cicloLocal.id),
-        db.lotesInseminacao.list(cicloLocal.id),
-        db.partos.list(cicloLocal.id)
+    setLoadError(false)
+    try {
+      const base = await Promise.all([
+        db.animais.list(),
+        db.sanidade.list(),
+        db.proprietarios.list(),
+        db.categoriasPreco.list()
       ])
-      setLancs(rl.data   || [])
-      setLotes(rli.data  || [])
-      setPartos(rpt.data || [])
+      if (algumErro('[Relatorios]', base)) { setLoadError(true); return }
+      const [ra, rs, rp, rcp] = base
+      setAnimais(ra.data || [])
+      setSanidade(rs.data  || [])
+      setProps(rp.data     || [])
+      setCatPrecos(rcp.data|| [])
+      if (cicloLocal) {
+        const doCiclo = await Promise.all([
+          db.lancamentos.list(cicloLocal.id),
+          db.transacoes.list(cicloLocal.id),
+          db.lotesInseminacao.listInseminacoesResumo(cicloLocal.id),
+          db.partos.list(cicloLocal.id)
+        ])
+        if (algumErro('[Relatorios]', doCiclo)) { setLoadError(true); return }
+        const [rl, rt, rli, rpt] = doCiclo
+        setLancs(rl.data       || [])
+        setTransacoes(rt.data  || [])
+        setLotes(rli.data      || [])
+        setPartos(rpt.data     || [])
+      }
+    } catch (e) {
+      console.error('[Relatorios] erro ao carregar:', e)
+      setLoadError(true)
+    } finally {
+      setLoading(false)
     }
-    setLoading(false)
   }
 
   const gerarPDF = async (ref, filename, titulo = '') => {
@@ -90,8 +104,12 @@ export default function Relatorios() {
   const inativos = animais.filter(a => a.situacao !== 'ativo')
   const matrizes = ativos.filter(a => ehMatriz(a))
   const prenhas  = ativos.filter(a => a.sit_reprodutiva === 'prenha').length
-  const rec      = lancs.filter(l=>l.tipo==='R').reduce((s,l)=>s+Number(l.valor),0)
-  const desp     = lancs.filter(l=>l.tipo==='D').reduce((s,l)=>s+Number(l.valor),0)
+  // Receitas/despesas: lançamentos usam a coluna `valor`, transações de animais
+  // usam `valor_total` — soma protegida (helpers.somaFinita) para não deixar o
+  // campo errado/ausente virar NaN. Sem transações, os Relatórios ficavam
+  // incompletos para fazendas que vendem/compram animais pelo fluxo do Financeiro.
+  const rec      = somaFinita(lancs.filter(l=>l.tipo==='R'), 'valor') + somaFinita(transacoes.filter(t=>t.tipo==='V'), 'valor_total')
+  const desp     = somaFinita(lancs.filter(l=>l.tipo==='D'), 'valor') + somaFinita(transacoes.filter(t=>t.tipo==='C'), 'valor_total')
   const resu     = rec - desp
 
   const totalIns = lotes.reduce((s,l)=>s+(l.inseminacoes?.length||0),0)
@@ -129,6 +147,7 @@ export default function Relatorios() {
   )
 
   if (loading) return <Loading />
+  if (loadError) return <ErroCarregamento onRetry={loadAll} />
 
   return (
     <div className="relatorios-page">

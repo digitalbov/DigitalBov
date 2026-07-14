@@ -4,7 +4,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { db } from '../lib/supabase'
-import { calcCategoria, calcCategoriaRebanho, calcTaxaPrenhez, contarExpostas, contarPrenhas, calcGMD, pct, fmtMoeda, ehMatriz } from '../lib/helpers'
+import { calcCategoria, calcCategoriaRebanho, calcTaxaPrenhez, contarExpostas, contarPrenhas, calcGMD, pct, fmtMoeda, ehMatriz, somaFinita, algumErro } from '../lib/helpers'
 import { Loading, IndexCard, BotaoPDF, ErroCarregamento, SeletorCicloLocal, Badge, EmptyState } from '../components/UI'
 import { useCicloLocal } from '../lib/useCicloLocal'
 import {
@@ -81,12 +81,14 @@ export function Rebanho() {
     setLoading(true)
     setLoadError(false)
     try {
-      const [ra, rp, rc, rli] = await Promise.all([
+      const base = await Promise.all([
         db.animais.list(),
         db.proprietarios.list(),
         db.categoriasPreco.list(),
         db.lotesInseminacao.listInseminacoesResumo(),
       ])
+      if (algumErro('[Rebanho]', base)) { setLoadError(true); return }
+      const [ra, rp, rc, rli] = base
       const propsData   = rp.data || []
       const animaisData = ra.data || []
       setAnimais(animaisData)
@@ -94,9 +96,6 @@ export function Rebanho() {
       setCatPrecos(rc.data || [])
       setTodosLotesInsem(rli.data || [])
       setSelProps(prev => prev.length === 0 ? propsData.map(p => p.id) : prev)
-
-      if (ra.error)  console.error('[Rebanho] erro ao buscar animais:', ra.error)
-      if (rli.error) console.error('[Rebanho] erro ao buscar lotes de inseminação:', rli.error)
 
       // Pesagens dos terneiros/terneiras ativos, para o GMD — uma única query
       // com .in('animal_id', ids) em vez de 1 query por terneiro em loop.
@@ -194,10 +193,10 @@ export function Rebanho() {
     const nascimentos  = partosTodos.filter(p => p.ciclo_id === c.id).length
     const lancs        = lancsPorCiclo[c.id] || []
     const transacs     = transacsPorCiclo[c.id] || []
-    const receitas     = lancs.filter(l => l.tipo === 'R').reduce((s, l) => s + Number(l.valor), 0)
-                       + transacs.filter(t => t.tipo === 'V').reduce((s, t) => s + Number(t.valor_total), 0)
-    const despesas     = lancs.filter(l => l.tipo === 'D').reduce((s, l) => s + Number(l.valor), 0)
-                       + transacs.filter(t => t.tipo === 'C').reduce((s, t) => s + Number(t.valor_total), 0)
+    const receitas     = somaFinita(lancs.filter(l => l.tipo === 'R'), 'valor')
+                       + somaFinita(transacs.filter(t => t.tipo === 'V'), 'valor_total')
+    const despesas     = somaFinita(lancs.filter(l => l.tipo === 'D'), 'valor')
+                       + somaFinita(transacs.filter(t => t.tipo === 'C'), 'valor_total')
     const resultado    = receitas - despesas
     const vendas       = transacs.filter(t => t.tipo === 'V').reduce((s, t) => s + (parseInt(t.quantidade) || 0), 0)
     const compras      = transacs.filter(t => t.tipo === 'C').reduce((s, t) => s + (parseInt(t.quantidade) || 0), 0)

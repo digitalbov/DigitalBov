@@ -9,8 +9,8 @@ import { db, supabase } from '../lib/supabase'
 import { useFazenda } from '../lib/FazendaContext'
 import { useConta } from '../lib/ContaContext'
 import { usePermissoes } from '../lib/PermissoesContext'
-import { diasDesde, fmtMoeda, calcCategoriaRebanho } from '../lib/helpers'
-import { Loading, Modal, Field, Badge, toast, EmptyState, Confirm } from '../components/UI'
+import { diasDesde, fmtMoeda, calcCategoriaRebanho, algumErro } from '../lib/helpers'
+import { Loading, Modal, Field, Badge, toast, EmptyState, Confirm, ErroCarregamento } from '../components/UI'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   Legend, ResponsiveContainer, ReferenceLine
@@ -239,6 +239,7 @@ export default function Propriedade() {
   const [cicloAtual, setCicloAtual] = useState(null)
   const [resultadoLiquido, setResultadoLiquido] = useState(null)
   const [loading,    setLoading]    = useState(true)
+  const [loadError,  setLoadError]  = useState(false)
   const [modal,      setModal]      = useState(null)
   const [form,       setForm]       = useState({})
   const [saving,     setSaving]     = useState(false)
@@ -256,49 +257,63 @@ export default function Propriedade() {
   const [filtroPropLote, setFiltroPropLote] = useState('')
 
   const carregarInativas = async () => {
-    const { data } = await db.fazendas.listInativas()
+    const { data, error } = await db.fazendas.listInativas()
+    if (error) { console.error('[Propriedade] erro ao buscar fazendas inativas:', error); return }
     setFazendasInativas(data || [])
   }
 
   const loadAll = useCallback(async () => {
     if (!fazendaAtual) { setLoading(false); return }
     setLoading(true)
-    carregarInativas()
-    const [rp, rq, rl, rplan, rb, ra] = await Promise.all([
-      db.proprietarios.listAll(),
-      db.piquetes.list(),
-      db.lotes.list(),
-      db.planejamentos.get(),
-      db.benchmarks.list(),
-      db.animais.list({ situacao:'ativo' }),
-    ])
-    setProps(rp.data  || [])
-    setPiqs(rq.data   || [])
-    setLotes(rl.data  || [])
-    setBenchmarks(rb.data || [])
-    setAnimais(ra.data || [])
-    const planData = rplan.data
-    setPlan(planData)
-    if (planData) {
-      const { data: aData } = await db.planejamentoAcoes.list(planData.id)
-      setAcoes(aData || [])
-    }
-    // Resultado líquido do ciclo atual
-    const { data: ciclo } = await db.ciclos.current()
-    setCicloAtual(ciclo)
-    if (ciclo) {
-      const [{ data: lancs }, { data: transacs }] = await Promise.all([
-        db.lancamentos.list(ciclo.id),
-        db.transacoes.list(ciclo.id),
+    setLoadError(false)
+    try {
+      carregarInativas()
+      const base = await Promise.all([
+        db.proprietarios.listAll(),
+        db.piquetes.list(),
+        db.lotes.list(),
+        db.planejamentos.get(),
+        db.benchmarks.list(),
+        db.animais.list({ situacao:'ativo' }),
       ])
-      const todasReceitas = [...(lancs||[]).filter(l=>l.tipo==='R'), ...(transacs||[]).filter(t=>t.tipo==='V')]
-      const todasDespesas = [...(lancs||[]).filter(l=>l.tipo==='D'), ...(transacs||[]).filter(t=>t.tipo==='C')]
-      const valorDe = (x) => parseFloat(x.valor ?? x.valor_total ?? 0) || 0
-      const rec  = todasReceitas.reduce((s, l) => s + valorDe(l), 0)
-      const desp = todasDespesas.reduce((s, l) => s + valorDe(l), 0)
-      setResultadoLiquido(rec - desp)
+      if (algumErro('[Propriedade]', base)) { setLoadError(true); return }
+      const [rp, rq, rl, rplan, rb, ra] = base
+      setProps(rp.data  || [])
+      setPiqs(rq.data   || [])
+      setLotes(rl.data  || [])
+      setBenchmarks(rb.data || [])
+      setAnimais(ra.data || [])
+      const planData = rplan.data
+      setPlan(planData)
+      if (planData) {
+        const { data: aData, error: erroAcoes } = await db.planejamentoAcoes.list(planData.id)
+        if (erroAcoes) console.error('[Propriedade] erro ao buscar ações do planejamento:', erroAcoes)
+        setAcoes(aData || [])
+      }
+      // Resultado líquido do ciclo atual
+      const { data: ciclo, error: erroCiclo } = await db.ciclos.current()
+      if (erroCiclo) console.error('[Propriedade] erro ao buscar ciclo atual:', erroCiclo)
+      setCicloAtual(ciclo)
+      if (ciclo) {
+        const rCiclo = await Promise.all([
+          db.lancamentos.list(ciclo.id),
+          db.transacoes.list(ciclo.id),
+        ])
+        if (algumErro('[Propriedade]', rCiclo)) { setLoadError(true); return }
+        const [{ data: lancs }, { data: transacs }] = rCiclo
+        const todasReceitas = [...(lancs||[]).filter(l=>l.tipo==='R'), ...(transacs||[]).filter(t=>t.tipo==='V')]
+        const todasDespesas = [...(lancs||[]).filter(l=>l.tipo==='D'), ...(transacs||[]).filter(t=>t.tipo==='C')]
+        const valorDe = (x) => parseFloat(x.valor ?? x.valor_total ?? 0) || 0
+        const rec  = todasReceitas.reduce((s, l) => s + valorDe(l), 0)
+        const desp = todasDespesas.reduce((s, l) => s + valorDe(l), 0)
+        setResultadoLiquido(rec - desp)
+      }
+    } catch (e) {
+      console.error('[Propriedade] erro ao carregar:', e)
+      setLoadError(true)
+    } finally {
+      setLoading(false)
     }
-    setLoading(false)
   }, [fazendaAtual])
 
   useEffect(() => { loadAll() }, [loadAll])
@@ -600,6 +615,7 @@ export default function Propriedade() {
   const acoesConcl  = acoes.filter(a => a.status === 'concluida')
 
   if (loading) return <Loading />
+  if (loadError) return <ErroCarregamento onRetry={loadAll} />
 
   const voltar = () => setSection('resumo')
   const SecHeader = ({ title, icon, onNew, newLabel }) => (

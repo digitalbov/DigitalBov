@@ -1,7 +1,7 @@
 ﻿import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase, db } from '../lib/supabase'
-import { calcCategoria, calcCategoriaRebanho, calcTaxaPrenhez, contarExpostas, contarPrenhas, fmtMoeda, valorPropLanc, contarMatrizes } from '../lib/helpers'
+import { calcCategoria, calcCategoriaRebanho, calcTaxaPrenhez, contarExpostas, contarPrenhas, fmtMoeda, valorPropLanc, contarMatrizes, somaFinita, algumErro } from '../lib/helpers'
 import { Loading, FullLoading, AlertBox, IndexCard, ErroCarregamento } from '../components/UI'
 import { useFazenda } from '../lib/FazendaContext'
 import { useCiclo } from '../lib/CicloContext'
@@ -41,13 +41,15 @@ export default function Dashboard({ perfil }) {
     setLoading(true)
     setLoadError(false)
     try {
-      const [ra, rp, rpiq, rplan, rcp] = await Promise.all([
+      const base = await Promise.all([
         db.animais.list({ situacao:'ativo' }),
         db.proprietarios.list(),
         db.piquetes.list(),
         db.planejamentos.get(),
         db.categoriasPreco.list(),
       ])
+      if (algumErro('[Dashboard]', base)) { setLoadError(true); return }
+      const [ra, rp, rpiq, rplan, rcp] = base
       const animList  = ra.data   || []
       const propList  = rp.data   || []
       const piqList   = rpiq.data || []
@@ -58,17 +60,20 @@ export default function Dashboard({ perfil }) {
       setPlan(planData)
       setCatPrecos(rcp.data || [])
       if (cicloSelecionado) {
-        const [{ data: lData }, { data: tData }, { data: liData }] = await Promise.all([
+        const doCiclo = await Promise.all([
           db.lancamentos.list(cicloSelecionado.id),
           db.transacoes.list(cicloSelecionado.id),
           db.lotesInseminacao.listInseminacoesResumo(cicloSelecionado.id),
         ])
+        if (algumErro('[Dashboard]', doCiclo)) { setLoadError(true); return }
+        const [{ data: lData }, { data: tData }, { data: liData }] = doCiclo
         setLancamentos(lData || [])
         setTransacoes(tData || [])
         setLotesInsem(liData || [])
       }
       if (planData) {
-        const { data: aData } = await db.planejamentoAcoes.list(planData.id)
+        const { data: aData, error: erroAcoes } = await db.planejamentoAcoes.list(planData.id)
+        if (erroAcoes) console.error('[Dashboard] erro ao buscar ações do planejamento:', erroAcoes)
         setAcoes(aData || [])
       }
     } catch (e) {
@@ -92,11 +97,13 @@ export default function Dashboard({ perfil }) {
   })
 
   // Financeiro (lançamentos com rateio por proprietário + transações de animais, sem rateio)
+  // lancamentos_financeiros usa a coluna `valor`; transacoes_animais usa
+  // `valor_total` — somar com o campo errado dá NaN e contamina rec/desp/resu inteiros.
   const filtPropId  = filtProp === 0 ? '' : filtProp
   const recLanc     = valorPropLanc(lancamentos, 'R', filtPropId)
   const despLanc    = valorPropLanc(lancamentos, 'D', filtPropId)
-  const recTransac  = filtProp === 0 ? transacoes.filter(t=>t.tipo==='V').reduce((s,t)=>s+Number(t.valor),0) : 0
-  const despTransac = filtProp === 0 ? transacoes.filter(t=>t.tipo==='C').reduce((s,t)=>s+Number(t.valor),0) : 0
+  const recTransac  = filtProp === 0 ? somaFinita(transacoes.filter(t=>t.tipo==='V'), 'valor_total') : 0
+  const despTransac = filtProp === 0 ? somaFinita(transacoes.filter(t=>t.tipo==='C'), 'valor_total') : 0
   const rec  = recLanc + recTransac
   const desp = despLanc + despTransac
   const resu = rec - desp

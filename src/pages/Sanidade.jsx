@@ -5,7 +5,7 @@ import { useConta } from '../lib/ContaContext'
 import { useFazenda } from '../lib/FazendaContext'
 import { useCiclo, statusCiclo } from '../lib/CicloContext'
 import { useCicloLocal } from '../lib/useCicloLocal'
-import { fmtData, diasDesde, calcCategoriaRebanho } from '../lib/helpers'
+import { fmtData, diasDesde, calcCategoriaRebanho, algumErro } from '../lib/helpers'
 import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, AlertBox, BotaoPDF, Confirm, ErroCarregamento, BannerCicloEncerrado, SeletorCicloLocal } from '../components/UI'
 
 const TABS   = ['Registros','Alertas','Histórico']
@@ -58,12 +58,14 @@ export default function Sanidade() {
     setLoading(true)
     setLoadError(false)
     try {
-      const [{ data: sanData }, { data: lotesData }, { data: animaisData }, { data: propsData }] = await Promise.all([
+      const results = await Promise.all([
         db.sanidade.list(),
         db.lotes.list(),
         db.animais.list({ situacao: 'ativo' }),
         db.proprietarios.list()
       ])
+      if (algumErro('[Sanidade]', results)) { setLoadError(true); return }
+      const [{ data: sanData }, { data: lotesData }, { data: animaisData }, { data: propsData }] = results
       setDados(sanData       || [])
       setLotes(lotesData     || [])
       setAnimais(animaisData || [])

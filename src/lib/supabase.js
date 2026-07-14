@@ -132,14 +132,17 @@ export const db = {
     insert: (data)  => T('lotes_inseminacao').insertOne(data).select().single(),
     update: (id, d) => escopo(T('lotes_inseminacao').raw().update(d).eq('id', id)).select().single(),
     delete: (id)    => escopo(T('lotes_inseminacao').raw().delete().eq('id', id)),
-    // Versão leve: só animal_id/diagnostico por lote — usada em telas que só
-    // precisam da taxa de prenhez (Dashboard, Rebanho), sem os embeds pesados
-    // de partos/pesagens/abortos/estação que só o funil do Reprodutivo usa.
-    // Sem cicloId, traz de todos os ciclos.
+    // Versão leve: dados básicos do lote + inseminações (com brinco do animal) —
+    // usada em telas que não precisam do funil completo do Reprodutivo, sem os
+    // embeds pesados de partos/pesagens/abortos/estação (Dashboard, Rebanho,
+    // Metas, Calendario, Relatorios, contextoIA). Sem cicloId, traz de todos os ciclos.
     listInseminacoesResumo: (cicloId) => {
-      let q = T('lotes_inseminacao').select('ciclo_id, inseminacoes(animal_id,diagnostico)')
+      let q = T('lotes_inseminacao').select(`
+        ciclo_id, numero, touro, data,
+        inseminacoes(animal_id, diagnostico, animal:animais(brinco))
+      `)
       if (cicloId) q = q.eq('ciclo_id', cicloId)
-      return q
+      return q.order('data', { ascending: false })
     },
   },
 

@@ -3,7 +3,7 @@ import { db } from '../lib/supabase'
 import { usePermissoes } from '../lib/PermissoesContext'
 import { useCiclo, statusCiclo } from '../lib/CicloContext'
 import { useCicloLocal } from '../lib/useCicloLocal'
-import { fmtData, calcGMD, fmtPeso, numeroPositivo, dataNaoFutura, calcCategoria, mesesDeVida } from '../lib/helpers'
+import { fmtData, calcGMD, fmtPeso, numeroPositivo, dataNaoFutura, calcCategoria, mesesDeVida, algumErro } from '../lib/helpers'
 import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, IndexCard, BotaoPDF, Confirm, ErroCarregamento, BannerCicloEncerrado, SeletorCicloLocal } from '../components/UI'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 
@@ -49,11 +49,13 @@ export default function Pesagens() {
     setLoading(true)
     setLoadError(false)
     try {
-      const [ra, rp, rl] = await Promise.all([
+      const results = await Promise.all([
         db.animais.list({ situacao:'ativo' }),
         db.pesagens.listAll(),
         db.lotes.list()
       ])
+      if (algumErro('[Pesagens]', results)) { setLoadError(true); return }
+      const [ra, rp, rl] = results
       setAnimais(ra.data  || [])
       setPesagens(rp.data || [])
       setLotesSistema(rl.data || [])

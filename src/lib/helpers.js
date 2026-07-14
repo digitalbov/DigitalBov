@@ -1,6 +1,20 @@
 import { format, differenceInMonths, differenceInDays, parseISO, isValid } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 
+// ── Erros de query ───────────────────────────────────────────────────────────
+// O Supabase retorna {data:null, error:{...}} em falha — NÃO lança exceção, então
+// um try/catch em volta de um Promise.all não pega isso, e a tela trata como "sem
+// dados" silenciosamente. Chame após todo Promise.all de queries: loga cada erro
+// individualmente e devolve true se alguma falhou, pra tela decidir mostrar um
+// estado de erro visível em vez de renderizar vazio.
+export function algumErro(tag, resultados) {
+  let houveErro = false
+  resultados.forEach((r, i) => {
+    if (r?.error) { console.error(`${tag} erro na query ${i}:`, r.error); houveErro = true }
+  })
+  return houveErro
+}
+
 // ── Formatação ────────────────────────────────────────────────────────────────
 export const fmtData = (dt) => {
   if (!dt) return '—'
@@ -80,14 +94,6 @@ export const calcCategoriaRebanho = (dataNasc, sexo, sitReprodutiva, isTouro) =>
     if (m <= 36) return 'Novilho 25-36m'
     return 'Boi'
   }
-}
-
-// ── Ciclo financeiro ──────────────────────────────────────────────────────────
-export const getCicloNome = (dt) => {
-  const d = dt ? parseISO(dt) : new Date()
-  const m = d.getMonth(), y = d.getFullYear()
-  if (m >= 6) return `${y}/${String(y + 1).slice(2)}`
-  return `${y - 1}/${String(y).slice(2)}`
 }
 
 // ── GMD ──────────────────────────────────────────────────────────────────────
@@ -185,17 +191,22 @@ export const GRUPOS_DES = [
   'Realização de Lucro', 'Inseminação'
 ]
 
+// ── Soma financeira segura ──────────────────────────────────────────────────
+// lancamentos_financeiros usa a coluna `valor`; transacoes_animais usa
+// `valor_total` — cada origem tem que somar o campo certo. Number.isFinite
+// evita que um campo errado (ex: `valor` num registro que só tem `valor_total`)
+// vire NaN e contamine a soma inteira.
+export const somaFinita = (lista, campo) => (lista || []).reduce((s, item) => {
+  const v = Number(item[campo])
+  return s + (Number.isFinite(v) ? v : 0)
+}, 0)
+
 // ── Valor de lançamentos por proprietário (via rateio) ─────────────────────────
 export const valorPropLanc = (lancamentos, tipo, propId) => {
-  if (!propId) return lancamentos.filter(l=>l.tipo===tipo).reduce((s,l)=>s+Number(l.valor),0)
+  if (!propId) return somaFinita(lancamentos.filter(l=>l.tipo===tipo), 'valor')
   return lancamentos.filter(l=>l.tipo===tipo).reduce((s,l) => {
     const rateio = l.rateios?.find(r => r.proprietario_id === propId)
-    return s + (rateio ? Number(rateio.valor) : 0)
+    const v = rateio ? Number(rateio.valor) : 0
+    return s + (Number.isFinite(v) ? v : 0)
   }, 0)
-}
-
-// ── Debounce ─────────────────────────────────────────────────────────────────
-export const debounce = (fn, ms) => {
-  let t
-  return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms) }
 }

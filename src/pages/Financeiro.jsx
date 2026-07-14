@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useLocation } from 'react-router-dom'
 import { db } from '../lib/supabase'
-import { fmtMoeda, fmtData, GRUPOS_REC, GRUPOS_DES, valorPropLanc, numeroPositivo } from '../lib/helpers'
+import { fmtMoeda, fmtData, GRUPOS_REC, GRUPOS_DES, valorPropLanc, numeroPositivo, algumErro } from '../lib/helpers'
 import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, AlertBox, BotaoPDF, ErroCarregamento, BannerCicloEncerrado, SeletorCicloLocal } from '../components/UI'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import { usePermissoes } from '../lib/PermissoesContext'
@@ -56,7 +56,8 @@ export default function Financeiro() {
   const loadResultadosPorCiclo = async () => {
     setLoadingResultados(true)
     const pares = await Promise.all(ciclos.map(async c => {
-      const { data } = await db.lancamentos.list(c.id)
+      const { data, error } = await db.lancamentos.list(c.id)
+      if (error) console.error(`[Financeiro] erro ao buscar lançamentos do ciclo ${c.nome}:`, error)
       return [c.id, data || []]
     }))
     setLancsPorCiclo(Object.fromEntries(pares))
@@ -66,7 +67,9 @@ export default function Financeiro() {
   const loadBase = async () => {
     setLoadError(false)
     try {
-      const [rcp, rp] = await Promise.all([db.categoriasPreco.list(), db.proprietarios.list()])
+      const results = await Promise.all([db.categoriasPreco.list(), db.proprietarios.list()])
+      if (algumErro('[Financeiro]', results)) { setLoadError(true); return }
+      const [rcp, rp] = results
       setCatPrecos(rcp.data || [])
       setProps(rp.data || [])
     } catch (e) {
@@ -157,9 +160,16 @@ export default function Financeiro() {
 
   const loadCiclo = async () => {
     if (!cicloLocal) return
-    const [rl, rt] = await Promise.all([db.lancamentos.list(cicloLocal.id), db.transacoes.list(cicloLocal.id)])
-    setLancs(rl.data  || [])
-    setTransacs(rt.data || [])
+    try {
+      const results = await Promise.all([db.lancamentos.list(cicloLocal.id), db.transacoes.list(cicloLocal.id)])
+      if (algumErro('[Financeiro]', results)) { setLoadError(true); return }
+      const [rl, rt] = results
+      setLancs(rl.data  || [])
+      setTransacs(rt.data || [])
+    } catch (e) {
+      console.error('[Financeiro] erro ao carregar ciclo:', e)
+      setLoadError(true)
+    }
   }
 
   const rec  = valorPropLanc(lancs, 'R', filtProp)

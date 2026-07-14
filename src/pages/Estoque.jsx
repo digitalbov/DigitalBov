@@ -3,7 +3,7 @@ import { db } from '../lib/supabase'
 import { usePermissoes } from '../lib/PermissoesContext'
 import { useCiclo, statusCiclo } from '../lib/CicloContext'
 import { useCicloLocal } from '../lib/useCicloLocal'
-import { fmtData, numeroPositivo } from '../lib/helpers'
+import { fmtData, numeroPositivo, algumErro } from '../lib/helpers'
 import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, AlertBox, BotaoPDF, Confirm, ErroCarregamento, BannerCicloEncerrado, SeletorCicloLocal } from '../components/UI'
 
 const TABS = ['Inventário','Movimentar','Alertas']
@@ -49,7 +49,9 @@ export default function Estoque() {
     setLoading(true)
     setLoadError(false)
     try {
-      const [ri, rm] = await Promise.all([db.estoque.list(), db.movEstoque.list()])
+      const results = await Promise.all([db.estoque.list(), db.movEstoque.list()])
+      if (algumErro('[Estoque]', results)) { setLoadError(true); return }
+      const [ri, rm] = results
       setItens(ri.data || [])
       setMovs(rm.data  || [])
     } catch (e) {

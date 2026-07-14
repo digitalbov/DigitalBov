@@ -1,6 +1,6 @@
 ﻿import { useState, useEffect, useRef } from 'react'
 import { db } from '../lib/supabase'
-import { fmtData } from '../lib/helpers'
+import { fmtData, algumErro } from '../lib/helpers'
 import { Loading, BotaoPDF, EmptyState, ErroCarregamento, SeletorCicloLocal } from '../components/UI'
 import { useCiclo } from '../lib/CicloContext'
 import { useCicloLocal } from '../lib/useCicloLocal'
@@ -132,12 +132,14 @@ export default function Calendario() {
         catch { return null }
       }
 
-      const [rLotes, rSanidade, rEstoque, rAnimais] = await Promise.all([
-        db.lotesInseminacao.listAll(),
+      const resultados = await Promise.all([
+        db.lotesInseminacao.listInseminacoesResumo(),
         db.sanidade.list(),
         db.estoque.list(),
         db.animais.list({ situacao: 'ativo' })
       ])
+      if (algumErro('[Calendario]', resultados)) { setLoadError(true); return }
+      const [rLotes, rSanidade, rEstoque, rAnimais] = resultados
 
       const evs = []
 

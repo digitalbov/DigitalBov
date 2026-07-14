@@ -2,8 +2,8 @@
 import { supabase } from '../lib/supabase'
 import { useFazenda } from '../lib/FazendaContext'
 import { useCicloLocal } from '../lib/useCicloLocal'
-import { fmtMoeda, calcCategoria, calcTaxaPrenhez, contarExpostas, contarPrenhas, contarMatrizes } from '../lib/helpers'
-import { Loading, EmptyState, SeletorCicloLocal } from '../components/UI'
+import { fmtMoeda, calcCategoria, calcTaxaPrenhez, contarExpostas, contarPrenhas, contarMatrizes, somaFinita, algumErro } from '../lib/helpers'
+import { Loading, EmptyState, SeletorCicloLocal, AlertBox } from '../components/UI'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   Legend, ResponsiveContainer
@@ -14,6 +14,7 @@ export default function Comparativo() {
   const [tab,     setTab]     = useState('financeiro')
   const [dados,   setDados]   = useState([])
   const [loading, setLoading] = useState(true)
+  const [temErro, setTemErro] = useState(false)
 
   // Seletor de ciclo LOCAL desta tela. Como cada fazenda tem seus próprios
   // registros de ciclos_financeiros, o alinhamento entre fazendas é feito
@@ -29,21 +30,21 @@ export default function Comparativo() {
     setLoading(true)
     const resultados = await Promise.all(fazendas.map(f => carregarFazenda(f, cicloLocal.nome)))
     setDados(resultados)
+    setTemErro(resultados.some(d => d.erroFazenda))
     setLoading(false)
   }
 
   const carregarFazenda = async (fazenda, nomeCiclo) => {
     const fid = fazenda.id
+    let erroFazenda = false
 
-    const [rAnimais, rCiclo, rPiqs] = await Promise.all([
+    const base = await Promise.all([
       supabase.from('animais').select('*').eq('fazenda_id', fid).eq('situacao', 'ativo'),
       supabase.from('ciclos_financeiros').select('*').eq('fazenda_id', fid).eq('nome', nomeCiclo).maybeSingle(),
       supabase.from('piquetes').select('area_ha').eq('fazenda_id', fid),
     ])
-
-    if (rAnimais.error) console.error(`[Comparativo] "${fazenda.nome}": erro ao buscar animais:`, rAnimais.error)
-    if (rCiclo.error)   console.error(`[Comparativo] "${fazenda.nome}": erro ao buscar ciclo "${nomeCiclo}":`, rCiclo.error)
-    if (rPiqs.error)    console.error(`[Comparativo] "${fazenda.nome}": erro ao buscar piquetes:`, rPiqs.error)
+    if (algumErro(`[Comparativo] "${fazenda.nome}":`, base)) erroFazenda = true
+    const [rAnimais, rCiclo, rPiqs] = base
 
     const animais = rAnimais.data || []
     const ciclo   = rCiclo.data
@@ -51,27 +52,21 @@ export default function Comparativo() {
 
     let lancamentos = [], transacoes = [], inseminacoes = []
     if (ciclo) {
-      const [rL, rT, rLI] = await Promise.all([
+      const doCiclo = await Promise.all([
         supabase.from('lancamentos_financeiros').select('tipo,valor').eq('ciclo_id', ciclo.id).eq('fazenda_id', fid),
         supabase.from('transacoes_animais').select('tipo,valor_total').eq('ciclo_id', ciclo.id).eq('fazenda_id', fid),
         supabase.from('lotes_inseminacao').select('inseminacoes(animal_id,diagnostico)').eq('ciclo_id', ciclo.id).eq('fazenda_id', fid),
       ])
-      if (rL.error)  console.error(`[Comparativo] "${fazenda.nome}": erro ao buscar lancamentos_financeiros:`, rL.error)
-      if (rT.error)  console.error(`[Comparativo] "${fazenda.nome}": erro ao buscar transacoes_animais:`, rT.error)
-      if (rLI.error) console.error(`[Comparativo] "${fazenda.nome}": erro ao buscar lotes_inseminacao:`, rLI.error)
+      if (algumErro(`[Comparativo] "${fazenda.nome}":`, doCiclo)) erroFazenda = true
+      const [rL, rT, rLI] = doCiclo
       lancamentos   = rL.data || []
       transacoes    = rT.data || []
       inseminacoes  = (rLI.data || []).flatMap(l => l.inseminacoes || [])
     }
 
     // Receitas/despesas: lançamentos usam a coluna `valor`, transações de
-    // animais usam `valor_total` — cada origem soma o campo certo, protegido
-    // com Number.isFinite para não deixar NaN contaminar o total.
-    const somaFinita = (lista, campo) => lista.reduce((s, item) => {
-      const v = Number(item[campo])
-      return s + (Number.isFinite(v) ? v : 0)
-    }, 0)
-
+    // animais usam `valor_total` — cada origem soma o campo certo (helpers.somaFinita,
+    // protegido com Number.isFinite para não deixar NaN contaminar o total).
     const receitas  = somaFinita(lancamentos.filter(l => l.tipo === 'R'), 'valor')
                      + somaFinita(transacoes.filter(t => t.tipo === 'V'), 'valor_total')
     const despesas  = somaFinita(lancamentos.filter(l => l.tipo === 'D'), 'valor')
@@ -108,6 +103,7 @@ export default function Comparativo() {
       prenhas,
       txPrenhez,
       cats,
+      erroFazenda,
     }
   }
 
@@ -148,6 +144,11 @@ export default function Comparativo() {
       <div style={{ marginBottom:14 }}>
         <SeletorCicloLocal cicloLocal={cicloLocal} setCicloLocal={setCicloLocal} ciclos={ciclos} />
       </div>
+
+      {temErro && (
+        <AlertBox type="amber" icon="ti-alert-triangle" title="Alguns dados podem estar incompletos"
+          body="Não foi possível carregar todas as informações de uma ou mais fazendas. Veja o console para detalhes ou tente recarregar a página." />
+      )}
 
       {/* Resumo consolidado */}
       <div className="grid-4" style={{ marginBottom:24 }}>

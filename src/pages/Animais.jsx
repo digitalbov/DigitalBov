@@ -1,7 +1,7 @@
 ﻿import { useState, useEffect, useRef } from 'react'
 import { usePermissoes } from '../lib/PermissoesContext'
 import { db } from '../lib/supabase'
-import { calcCategoria, calcCategoriaRebanho, idadeFormatada, fmtData, catCor, sitCor, repCor, sortBrinco, dataNaoFutura } from '../lib/helpers'
+import { calcCategoria, calcCategoriaRebanho, idadeFormatada, fmtData, catCor, sitCor, repCor, sortBrinco, dataNaoFutura, algumErro } from '../lib/helpers'
 import { Loading, EmptyState, Modal, Field, MicButton, Badge, toast, BotaoPDF, ErroCarregamento } from '../components/UI'
 import { baixarModeloAnimais, lerPlanilhaAnimais, validarLinhas } from '../lib/importacaoAnimais'
 
@@ -343,11 +343,13 @@ export default function Animais() {
     setLoading(true)
     setLoadError(false)
     try {
-      const [ra, rp, rl] = await Promise.all([
+      const results = await Promise.all([
         db.animais.list(),
         db.proprietarios.list(),
         db.lotes.list()
       ])
+      if (algumErro('[Animais]', results)) { setLoadError(true); return }
+      const [ra, rp, rl] = results
       setAnimais(ra.data || [])
       setProps(rp.data   || [])
       setLotes(rl.data   || [])
@@ -473,24 +475,29 @@ export default function Animais() {
   }
 
   // Motivos que impedem a exclusão definitiva de um animal (histórico vinculado)
+  // Retorna { motivos, erro } — se alguma query falhar (erro:true), o chamador
+  // deve BLOQUEAR a exclusão, nunca tratar como "sem vínculos" e deixar passar.
   const temVinculos = async (animalId) => {
-    const [pes, insem, comoMae, comoBezerro] = await Promise.all([
+    const results = await Promise.all([
       db.pesagens.countByAnimal(animalId),
       db.inseminacoes.byAnimal(animalId),
       db.partos.byMae(animalId),
       db.partos.byBezerro(animalId),
     ])
+    if (algumErro('[Animais] temVinculos', results)) return { motivos: [], erro: true }
+    const [pes, insem, comoMae, comoBezerro] = results
     const motivos = []
     if ((pes?.count || 0) > 0)            motivos.push('pesagens')
     if ((insem?.data?.length || 0) > 0)   motivos.push('inseminações')
     if ((comoMae?.data?.length || 0) > 0) motivos.push('partos como mãe')
     if (comoBezerro?.data)                motivos.push('nascimento registrado')
-    return motivos
+    return { motivos, erro: false }
   }
 
   const excluirAnimal = async (animal) => {
     if (!podeEditarAnimais) return
-    const motivos = await temVinculos(animal.id)
+    const { motivos, erro } = await temVinculos(animal.id)
+    if (erro) { toast('Não foi possível verificar o histórico do animal. Tente novamente.', 'error'); return }
     if (motivos.length > 0) {
       toast(`Não é possível excluir: o animal tem histórico (${motivos.join(', ')}). Use "vender" ou "marcar como morto" para dar baixa.`, 'error')
       return
@@ -518,9 +525,10 @@ export default function Animais() {
     if (!confirm(`Excluir definitivamente ${selecionados.length} animal(is) selecionado(s)? Esta ação não pode ser desfeita.`)) return
     setExcluindoLote(true)
     const animaisSel = animais.filter(a => selecionados.includes(a.id))
-    const resultados  = await Promise.all(animaisSel.map(async a => ({ a, motivos: await temVinculos(a.id) })))
-    const bloqueados  = resultados.filter(r => r.motivos.length > 0).map(r => r.a.brinco)
-    const liberados   = resultados.filter(r => r.motivos.length === 0).map(r => r.a)
+    const resultados  = await Promise.all(animaisSel.map(async a => ({ a, ...(await temVinculos(a.id)) })))
+    const comErro     = resultados.filter(r => r.erro).map(r => r.a.brinco)
+    const bloqueados  = resultados.filter(r => !r.erro && r.motivos.length > 0).map(r => r.a.brinco)
+    const liberados   = resultados.filter(r => !r.erro && r.motivos.length === 0).map(r => r.a)
     if (liberados.length > 0) {
       await Promise.all(liberados.map(a => db.animais.delete(a.id)))
     }
@@ -529,7 +537,8 @@ export default function Animais() {
     const partes = []
     if (liberados.length  > 0) partes.push(`${liberados.length} animais excluídos`)
     if (bloqueados.length > 0) partes.push(`${bloqueados.length} não puderam ser excluídos por terem histórico: ${bloqueados.join(', ')}`)
-    toast(partes.join('. ') || 'Nenhum animal excluído.', bloqueados.length > 0 && liberados.length === 0 ? 'error' : 'success')
+    if (comErro.length    > 0) partes.push(`${comErro.length} não puderam ser verificados (erro ao consultar histórico): ${comErro.join(', ')}`)
+    toast(partes.join('. ') || 'Nenhum animal excluído.', (bloqueados.length > 0 || comErro.length > 0) && liberados.length === 0 ? 'error' : 'success')
     loadAll()
   }
 
