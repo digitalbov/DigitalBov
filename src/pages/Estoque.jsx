@@ -3,18 +3,18 @@ import { db } from '../lib/supabase'
 import { usePermissoes } from '../lib/PermissoesContext'
 import { useCiclo, statusCiclo } from '../lib/CicloContext'
 import { useCicloLocal } from '../lib/useCicloLocal'
-import { fmtData, numeroPositivo, algumErro } from '../lib/helpers'
+import { fmtData, numeroPositivo, algumErro, calcLotesFEFO, diasAteValidade } from '../lib/helpers'
 import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, AlertBox, BotaoPDF, Confirm, ErroCarregamento, BannerCicloEncerrado, SeletorCicloLocal } from '../components/UI'
 
 const TABS = ['Inventário','Movimentar','Alertas']
 const CATS = ['Medicamento','Vacina','Sêmen','Suplemento','Ração','Outro']
+const LIMITE_VENCENDO_DIAS = 30
 
-// Retorna dias até a validade (negativo = já venceu, null = sem validade)
-const calcValidade = (validade) => {
-  if (!validade) return null
-  const hoje = new Date(); hoje.setHours(0, 0, 0, 0)
-  const venc = new Date(validade + 'T00:00:00')
-  return Math.round((venc - hoje) / 86400000)
+// mm/yyyy — usado na exibição compacta dos lotes de validade
+const fmtMesAno = (validade) => {
+  if (!validade) return '—'
+  const d = new Date(validade + 'T00:00:00')
+  return `${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`
 }
 
 export default function Estoque() {
@@ -42,6 +42,7 @@ export default function Estoque() {
   const [saving,     setSaving]     = useState(false)
   const [confirmDel, setConfirmDel] = useState(null)
   const [loadError,  setLoadError]  = useState(false)
+  const [itemExpandido, setItemExpandido] = useState(null)
 
   useEffect(() => { loadAll() }, [])
 
@@ -74,20 +75,51 @@ export default function Estoque() {
       toast('Preencha item, categoria e unidade.', 'error'); return
     }
     setSaving(true)
+    const qtdInicial = parseFloat(form.quantidade) || 0
     const payload = {
       item:       form.item,
       categoria:  form.categoria,
       unidade:    form.unidade,
-      quantidade: parseFloat(form.quantidade) || 0,
+      quantidade: qtdInicial,
       minimo:     parseFloat(form.minimo) || 0,
       preco_unit: parseFloat(form.preco_unit) || 0,
     }
-    const { error } = form._edit && form.id
-      ? await db.estoque.update(form.id, payload)
-      : await db.estoque.insert(payload)
+
+    if (form._edit && form.id) {
+      const { error } = await db.estoque.update(form.id, payload)
+      setSaving(false)
+      if (error) { toast('Erro: ' + error.message, 'error'); return }
+      toast('Item atualizado!')
+      setModal(null); setForm({}); loadAll()
+      return
+    }
+
+    // Item novo: a quantidade inicial vira uma ENTRADA (tipo 'E') com data e
+    // validade, em vez de um valor solto no item — assim ela entra no controle
+    // por lote (FEFO) como qualquer outra entrada, e o saldo do item continua
+    // batendo com a soma das movimentações.
+    const { data: novoItem, error: errItem } = await db.estoque.insert(payload)
+    if (errItem || !novoItem) {
+      setSaving(false); toast('Erro: ' + (errItem?.message || ''), 'error'); return
+    }
+    if (qtdInicial > 0) {
+      const { error: errMov } = await db.movEstoque.insert({
+        item_id:    novoItem.id,
+        data:       form.entrada_data || new Date().toISOString().split('T')[0],
+        tipo:       'E',
+        quantidade: qtdInicial,
+        motivo:     'Quantidade inicial',
+        validade:   form.entrada_validade || null,
+      })
+      if (errMov) {
+        setSaving(false)
+        toast('Item criado, mas houve erro ao registrar a entrada inicial: ' + errMov.message, 'error')
+        setModal(null); setForm({}); loadAll()
+        return
+      }
+    }
     setSaving(false)
-    if (error) { toast('Erro: ' + error.message, 'error'); return }
-    toast(form._edit ? 'Item atualizado!' : 'Item cadastrado!')
+    toast('Item cadastrado!')
     setModal(null); setForm({}); loadAll()
   }
 
@@ -117,7 +149,10 @@ export default function Estoque() {
         data:       form.data,
         tipo:       form.tipo,
         quantidade: qt,
-        motivo:     form.motivo || '—'
+        motivo:     form.motivo || '—',
+        // Validade pertence à ENTRADA (cada compra/lote tem a sua); a saída
+        // consome dos lotes existentes (FEFO), não tem validade própria.
+        validade:   form.tipo === 'E' ? (form.validade || null) : null,
       })
     ])
     setSaving(false)
@@ -143,10 +178,25 @@ export default function Estoque() {
   // Alertas: estoque baixo
   const baixo = itens.filter(i => parseFloat(i.quantidade) < parseFloat(i.minimo))
 
-  // Alertas: vencimentos (vencidos ou vencendo em ≤60 dias), ordenados por data
+  // Saldo por lote de validade (FEFO): cada item pode ter vários lotes com
+  // validades diferentes, calculados a partir das movimentações (entradas por
+  // validade, menos as saídas consumidas dos lotes que vencem antes).
+  const lotesPorItem = {}
+  itens.forEach(item => {
+    lotesPorItem[item.id] = calcLotesFEFO(movs.filter(m => m.item_id === item.id))
+  })
+  // Próxima validade com saldo > 0 (lotes já vêm ordenados, validade mais próxima primeiro)
+  const proximaValidade = (itemId) => lotesPorItem[itemId]?.[0]?.validade || null
+
+  // Alertas: lotes vencidos (validade < hoje) ou vencendo em até 30 dias, com saldo > 0
   const alertasValidade = itens
-    .filter(i => { const d = calcValidade(i.validade); return d !== null && d <= 60 })
+    .flatMap(item => (lotesPorItem[item.id] || [])
+      .filter(l => l.validade)
+      .map(l => ({ item, validade: l.validade, saldo: l.saldo, dias: diasAteValidade(l.validade) }))
+    )
+    .filter(a => a.dias !== null && a.dias <= LIMITE_VENCENDO_DIAS)
     .sort((a, b) => a.validade.localeCompare(b.validade))
+  const itensComAlertaValidade = new Set(alertasValidade.map(a => a.item.id))
 
   const totalAlertas = baixo.length + alertasValidade.length
   const catList = [...new Set(itens.map(i => i.categoria))].sort()
@@ -185,7 +235,7 @@ export default function Estoque() {
             <span style={{ fontSize: '.85rem', color: '#6B7280' }}>
               {itens.length} itens
               {baixo.length > 0 && <span style={{ color: '#791F1F', fontWeight: 500 }}> · {baixo.length} abaixo do mínimo</span>}
-              {alertasValidade.length > 0 && <span style={{ color: '#633806', fontWeight: 500 }}> · {alertasValidade.length} vencendo</span>}
+              {alertasValidade.length > 0 && <span style={{ color: '#633806', fontWeight: 500 }}> · {alertasValidade.length} lote{alertasValidade.length !== 1 ? 's' : ''} vencendo</span>}
             </span>
             <div style={{ display: 'flex', gap: 8 }}>
               {podeEditarEstoque && (
@@ -205,13 +255,21 @@ export default function Estoque() {
                 <div key={cat} className="card" style={{ marginBottom: 10 }}>
                   <div className="card-title"><i className="ti ti-tag" /> {cat}</div>
                   {itens.filter(i => i.categoria === cat).map(item => {
-                    const pct  = item.minimo > 0 ? Math.min(100, Math.round(parseFloat(item.quantidade) / parseFloat(item.minimo) * 100)) : 100
-                    const ok   = parseFloat(item.quantidade) >= parseFloat(item.minimo)
-                    const dias = calcValidade(item.validade)
+                    const pct    = item.minimo > 0 ? Math.min(100, Math.round(parseFloat(item.quantidade) / parseFloat(item.minimo) * 100)) : 100
+                    const ok     = parseFloat(item.quantidade) >= parseFloat(item.minimo)
+                    const lotes  = lotesPorItem[item.id] || []
+                    const lotesComValidade = lotes.filter(l => l.validade)
+                    const proxima = proximaValidade(item.id)
+                    const dias    = diasAteValidade(proxima)
+                    const temAlertaValidade = itensComAlertaValidade.has(item.id)
                     return (
-                      <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 0', borderBottom: '.5px solid #F3F4F6' }}>
+                      <div key={item.id} style={{ padding: '8px 0', borderBottom: '.5px solid #F3F4F6' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                         <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontWeight: 500, fontSize: '.88rem' }}>{item.item}</div>
+                          <div style={{ fontWeight: 500, fontSize: '.88rem', display: 'flex', alignItems: 'center', gap: 6 }}>
+                            {item.item}
+                            {temAlertaValidade && <i className="ti ti-alert-triangle-filled" style={{ color: '#E24B4A', fontSize: 14 }} title="Lote vencido ou vencendo" />}
+                          </div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
                             <div style={{ flex: 1, maxWidth: 120 }}>
                               <div className="progress-bg">
@@ -222,15 +280,30 @@ export default function Estoque() {
                               {parseFloat(item.quantidade).toFixed(1)} {item.unidade} / mín {parseFloat(item.minimo).toFixed(1)}
                             </span>
                           </div>
-                          {/* Validade */}
-                          {dias !== null && (
-                            <div style={{ marginTop: 4 }}>
+                          {/* Próxima validade (calculada por lote, FEFO) */}
+                          {proxima !== null && (
+                            <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                               {dias < 0
                                 ? <Badge color="red">Vencido há {Math.abs(dias)} dia{Math.abs(dias) !== 1 ? 's' : ''}</Badge>
-                                : dias <= 60
+                                : dias <= LIMITE_VENCENDO_DIAS
                                   ? <Badge color="amber">Vence em {dias} dia{dias !== 1 ? 's' : ''}</Badge>
-                                  : <span style={{ fontSize: '.72rem', color: '#9CA3AF' }}>Val: {fmtData(item.validade)}</span>
+                                  : <span style={{ fontSize: '.72rem', color: '#9CA3AF' }}>Próx. validade: {fmtData(proxima)}</span>
                               }
+                              {lotesComValidade.length > 0 && (
+                                <button type="button" onClick={() => setItemExpandido(p => p === item.id ? null : item.id)}
+                                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#2B6CD9', fontSize: '.72rem', padding: 0 }}>
+                                  {itemExpandido === item.id ? 'Ocultar lotes' : `Ver lotes (${lotesComValidade.length})`}
+                                </button>
+                              )}
+                            </div>
+                          )}
+                          {itemExpandido === item.id && lotesComValidade.length > 0 && (
+                            <div style={{ marginTop: 6, background: '#F9FAFB', border: '.5px solid #E5E7EB', borderRadius: 8, padding: '6px 10px' }}>
+                              {lotesComValidade.map((l, i) => (
+                                <div key={i} style={{ fontSize: '.75rem', color: '#374151', padding: '2px 0' }}>
+                                  {parseFloat(l.saldo).toFixed(1)} {item.unidade} — vence {fmtMesAno(l.validade)}
+                                </div>
+                              ))}
                             </div>
                           )}
                         </div>
@@ -248,6 +321,7 @@ export default function Estoque() {
                             <i className="ti ti-trash" style={{ fontSize: 15 }} />
                           </button>
                         )}
+                      </div>
                       </div>
                     )
                   })}
@@ -320,28 +394,27 @@ export default function Estoque() {
               ))
             }
 
-            {/* Vencimentos */}
+            {/* Vencimentos (por lote — um item pode ter mais de um lote vencendo) */}
             {alertasValidade.length > 0 ? (
               <div style={{ marginTop: baixo.length > 0 ? 16 : 0 }}>
                 <div className="sl" style={{ marginBottom: 8 }}>Vencimentos</div>
-                {alertasValidade.map(item => {
-                  const d       = calcValidade(item.validade)
-                  const vencido = d < 0
+                {alertasValidade.map((a, i) => {
+                  const vencido = a.dias < 0
                   return (
-                    <AlertBox key={`val-${item.id}`}
+                    <AlertBox key={`val-${a.item.id}-${i}`}
                       type={vencido ? 'red' : 'amber'}
-                      title={`${item.item} — ${vencido ? 'produto vencido' : 'próximo do vencimento'}`}
-                      body={`Validade: ${fmtData(item.validade)} · ${vencido
-                        ? `Vencido há ${Math.abs(d)} dia${Math.abs(d) !== 1 ? 's' : ''}`
-                        : `Vence em ${d} dia${d !== 1 ? 's' : ''}`
-                      } · Quantidade em estoque: ${parseFloat(item.quantidade).toFixed(1)} ${item.unidade}`}
+                      title={`${a.item.item} — ${vencido ? 'lote vencido' : 'lote próximo do vencimento'}`}
+                      body={`Validade: ${fmtData(a.validade)} · ${vencido
+                        ? `Vencido há ${Math.abs(a.dias)} dia${Math.abs(a.dias) !== 1 ? 's' : ''}`
+                        : `Vence em ${a.dias} dia${a.dias !== 1 ? 's' : ''}`
+                      } · Saldo do lote: ${parseFloat(a.saldo).toFixed(1)} ${a.item.unidade}`}
                     />
                   )
                 })}
               </div>
             ) : (
               totalAlertas === 0 && (
-                <AlertBox type="green" title="Sem vencimentos próximos" body="Nenhum item vence nos próximos 60 dias." />
+                <AlertBox type="green" title="Sem vencimentos próximos" body={`Nenhum lote vence nos próximos ${LIMITE_VENCENDO_DIAS} dias.`} />
               )
             )}
 
@@ -394,9 +467,22 @@ export default function Estoque() {
             <input type="number" step="0.1" value={form.minimo || ''} onChange={e => setForm(p => ({ ...p, minimo: e.target.value }))} placeholder="0" />
           </Field>
         </div>
-        <Field label="Validade (opcional)">
-          <input type="date" value={form.validade || ''} onChange={e => setForm(p => ({ ...p, validade: e.target.value }))} />
-        </Field>
+        {!form._edit && parseFloat(form.quantidade) > 0 && (
+          <div className="grid-form">
+            <Field label="Data da entrada" hint="A quantidade inicial vira uma entrada de estoque, com data e validade próprias.">
+              <input type="date" value={form.entrada_data || new Date().toISOString().split('T')[0]}
+                onChange={e => setForm(p => ({ ...p, entrada_data: e.target.value }))} />
+            </Field>
+            <Field label="Validade" hint="Opcional — nem todo item tem (ex: ferramentas).">
+              <input type="date" value={form.entrada_validade || ''} onChange={e => setForm(p => ({ ...p, entrada_validade: e.target.value }))} />
+            </Field>
+          </div>
+        )}
+        {form._edit && (
+          <div style={{ fontSize: '.75rem', color: '#9CA3AF', marginTop: -4, marginBottom: 4 }}>
+            A validade é registrada por lote, na entrada de estoque (aba Movimentar), não aqui.
+          </div>
+        )}
         <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
           <button className="btn btn-primary" onClick={salvarItem} disabled={saving}>
             {saving ? 'Salvando...' : <><i className="ti ti-check" />{form._edit ? 'Salvar' : 'Cadastrar'}</>}
@@ -442,6 +528,11 @@ export default function Estoque() {
           <Field label="Quantidade" required>
             <input type="number" step="0.1" value={form.quantidade || ''} onChange={e => setForm(p => ({ ...p, quantidade: e.target.value }))} placeholder="0" />
           </Field>
+          {form.tipo === 'E' && (
+            <Field label="Validade" hint="Opcional — nem todo item tem (ex: ferramentas). Cada entrada forma um lote com sua própria validade.">
+              <input type="date" value={form.validade || ''} onChange={e => setForm(p => ({ ...p, validade: e.target.value }))} />
+            </Field>
+          )}
         </div>
         <Field label="Motivo">
           <input value={form.motivo || ''} onChange={e => setForm(p => ({ ...p, motivo: e.target.value }))} placeholder="ex: Vermifugação geral" />

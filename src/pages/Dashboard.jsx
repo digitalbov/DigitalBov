@@ -1,7 +1,7 @@
 ﻿import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase, db } from '../lib/supabase'
-import { calcCategoria, calcCategoriaRebanho, calcTaxaPrenhez, contarExpostas, contarPrenhas, fmtMoeda, valorPropLanc, contarMatrizes, somaFinita, algumErro } from '../lib/helpers'
+import { calcCategoria, calcCategoriaRebanho, calcTaxaPrenhez, contarExpostas, contarPrenhas, fmtMoeda, valorPropLanc, contarMatrizes, somaFinita, algumErro, calcLotesFEFO, diasAteValidade } from '../lib/helpers'
 import { Loading, FullLoading, AlertBox, IndexCard, ErroCarregamento } from '../components/UI'
 import { useFazenda } from '../lib/FazendaContext'
 import { useCiclo } from '../lib/CicloContext'
@@ -33,6 +33,8 @@ export default function Dashboard({ perfil }) {
   const [props,      setProps]      = useState([])
   const [catPrecos,  setCatPrecos]  = useState([])
   const [lotesInsem, setLotesInsem] = useState([])
+  const [itensEstoque, setItensEstoque] = useState([])
+  const [movsEstoque,  setMovsEstoque]  = useState([])
   const primeiroCarregamento = useRef(true)
 
   useEffect(() => { loadData() }, [fazendaAtual?.id, cicloSelecionado?.id])
@@ -47,9 +49,11 @@ export default function Dashboard({ perfil }) {
         db.piquetes.list(),
         db.planejamentos.get(),
         db.categoriasPreco.list(),
+        db.estoque.list(),
+        db.movEstoque.list(),
       ])
       if (algumErro('[Dashboard]', base)) { setLoadError(true); return }
-      const [ra, rp, rpiq, rplan, rcp] = base
+      const [ra, rp, rpiq, rplan, rcp, rest, rmovest] = base
       const animList  = ra.data   || []
       const propList  = rp.data   || []
       const piqList   = rpiq.data || []
@@ -59,6 +63,8 @@ export default function Dashboard({ perfil }) {
       setPiqs(piqList)
       setPlan(planData)
       setCatPrecos(rcp.data || [])
+      setItensEstoque(rest.data || [])
+      setMovsEstoque(rmovest.data || [])
       if (cicloSelecionado) {
         const doCiclo = await Promise.all([
           db.lancamentos.list(cicloSelecionado.id),
@@ -136,6 +142,18 @@ export default function Dashboard({ perfil }) {
     const s = hoje.toLocaleDateString('pt-BR', { weekday:'long', day:'numeric', month:'long', year:'numeric' })
     return s.charAt(0).toUpperCase() + s.slice(1)
   })()
+
+  // Estoque: lotes vencidos ou vencendo em até 30 dias (FEFO — helpers.calcLotesFEFO)
+  const movsEstoquePorItem = {}
+  movsEstoque.forEach(m => {
+    movsEstoquePorItem[m.item_id] = movsEstoquePorItem[m.item_id] || []
+    movsEstoquePorItem[m.item_id].push(m)
+  })
+  const lotesEstoqueVencendo = itensEstoque.flatMap(item =>
+    calcLotesFEFO(movsEstoquePorItem[item.id] || [])
+      .filter(l => l.validade)
+      .map(l => ({ item, dias: diasAteValidade(l.validade) }))
+  ).filter(l => l.dias !== null && l.dias <= 30)
 
   const matrizes = contarMatrizes(filtAnimais)
 
@@ -467,6 +485,11 @@ export default function Dashboard({ perfil }) {
       {desp > rec && rec > 0 && (
         <AlertBox type="red" title="Despesas superam as receitas no ciclo atual"
           body={`Resultado negativo de ${fmtMoeda(Math.abs(resu))}`} />
+      )}
+      {lotesEstoqueVencendo.length > 0 && (
+        <AlertBox type={lotesEstoqueVencendo.some(l => l.dias < 0) ? 'red' : 'amber'}
+          title={`${lotesEstoqueVencendo.length} lote${lotesEstoqueVencendo.length !== 1 ? 's' : ''} de estoque vencido${lotesEstoqueVencendo.length !== 1 ? 's' : ''} ou vencendo`}
+          body={`${[...new Set(lotesEstoqueVencendo.map(l => l.item.item))].slice(0, 4).join(', ')}${lotesEstoqueVencendo.length > 4 ? '...' : ''} · Veja detalhes em Estoque → Alertas`} />
       )}
       <AlertBox type="green" title="Sistema operacional"
         body={`${filtAnimais.length} animais ativos · Ciclo ${cicloSelecionado?.nome || '2025/26'} em andamento`} />

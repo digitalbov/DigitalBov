@@ -240,18 +240,18 @@ export function StatRow({ label, value, color, extra }) {
 }
 
 // ── Index card ────────────────────────────────────────────────────
-export function IndexCard({ value, label, meta, ok, color }) {
+export function IndexCard({ value, label, meta, ok, color, compact }) {
   return (
     <div style={{
       background:'#F9FAFB', border:'.5px solid #E5E7EB',
-      borderRadius:10, padding:'12px 8px', textAlign:'center'
+      borderRadius:10, padding: compact ? '8px 6px' : '12px 8px', textAlign:'center'
     }}>
-      <div style={{ fontSize:'1.25rem', fontWeight:600, color: color || (ok ? '#2B6CD9' : '#BA7517') }}>
+      <div style={{ fontSize: compact ? '1.05rem' : '1.25rem', fontWeight:600, color: color || (ok ? '#2B6CD9' : '#BA7517') }}>
         {value}
       </div>
-      <div style={{ fontSize:'.72rem', color:'#6B7280', marginTop:3, lineHeight:1.3 }}>{label}</div>
+      <div style={{ fontSize: compact ? '.66rem' : '.72rem', color:'#6B7280', marginTop:3, lineHeight:1.3 }}>{label}</div>
       {meta && (
-        <div style={{ fontSize:'.65rem', marginTop:3, color: ok ? '#1E55B0' : '#BA7517' }}>
+        <div style={{ fontSize: compact ? '.6rem' : '.65rem', marginTop:3, color: ok ? '#1E55B0' : '#BA7517' }}>
           meta: {meta} {ok ? '✓' : '↑'}
         </div>
       )}
@@ -273,14 +273,17 @@ export function ProgressBar({ value, max, color = '#2B6CD9', height = 6 }) {
 }
 
 // ── Alert box ─────────────────────────────────────────────────────
-export function AlertBox({ type = 'green', icon, title, body }) {
+export function AlertBox({ type = 'green', icon, title, body, action }) {
   const icons = { green:'ti-circle-check', amber:'ti-alert-triangle', red:'ti-alert-circle', purple:'ti-brain' }
   return (
     <div className={`alert alert-${type}`}>
       <i className={`ti ${icon || icons[type]}`} style={{ fontSize:16, flexShrink:0, marginTop:1 }} />
-      <div>
-        {title && <div className="alert-title">{title}</div>}
-        {body  && <div className="alert-body">{body}</div>}
+      <div style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'space-between', gap:10, flexWrap:'wrap' }}>
+        <div>
+          {title && <div className="alert-title">{title}</div>}
+          {body  && <div className="alert-body">{body}</div>}
+        </div>
+        {action}
       </div>
     </div>
   )

@@ -5,7 +5,7 @@ import { useFazenda } from '../lib/FazendaContext'
 import { useConta } from '../lib/ContaContext'
 import { useCiclo, statusCiclo } from '../lib/CicloContext'
 import { useCicloLocal } from '../lib/useCicloLocal'
-import { fmtData, pct, contarMatrizes, contarExpostas, contarPrenhas, calcTaxaPrenhez, algumErro } from '../lib/helpers'
+import { fmtData, pct, contarMatrizes, contarExpostas, contarPrenhas, calcTaxaPrenhez, calcCategoriaRebanho, algumErro } from '../lib/helpers'
 import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, AlertBox, BotaoPDF, ErroCarregamento, BannerCicloEncerrado, SeletorCicloLocal } from '../components/UI'
 import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
@@ -72,6 +72,30 @@ function CardResultadoSafra({ titulo, sm, andamento, previsao }) {
   )
 }
 
+// Painel de filtros unificado para a seleção de animais (lote + proprietário +
+// categoria), usado nos modais "Novo lote" e "Adicionar animais ao lote".
+function PainelFiltroAnimais({ lotesSistema, proprietarios, categorias, filtroLote, setFiltroLote, filtroProp, setFiltroProp, filtroCateg, setFiltroCateg }) {
+  return (
+    <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginBottom:8 }}>
+      <select value={filtroLote} onChange={e => setFiltroLote(e.target.value)}
+        className="input" style={{ flex:'1 1 150px', minWidth:0 }}>
+        <option value="">Todos os lotes</option>
+        {lotesSistema.map(l => <option key={l.id} value={l.id}>{l.nome}</option>)}
+      </select>
+      <select value={filtroProp} onChange={e => setFiltroProp(e.target.value)}
+        className="input" style={{ flex:'1 1 150px', minWidth:0 }}>
+        <option value="">Todos os proprietários</option>
+        {proprietarios.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}
+      </select>
+      <select value={filtroCateg} onChange={e => setFiltroCateg(e.target.value)}
+        className="input" style={{ flex:'1 1 150px', minWidth:0 }}>
+        <option value="">Todas as categorias</option>
+        {categorias.map(c => <option key={c} value={c}>{c}</option>)}
+      </select>
+    </div>
+  )
+}
+
 export default function Reprodutivo() {
   const { podeEditar } = usePermissoes()
   const podeEditarReprod = podeEditar('reprodutivo')
@@ -98,11 +122,15 @@ export default function Reprodutivo() {
   const [loteEdit, setLoteEdit] = useState(null)
   const [lotesSistema, setLotesSistema] = useState([])
   const [filtroLoteInsem, setFiltroLoteInsem] = useState('')
+  const [filtroPropInsem, setFiltroPropInsem] = useState('')
+  const [filtroCategInsem, setFiltroCategInsem] = useState('')
   const [selBrsAdd, setSelBrsAdd] = useState([])
   const [saving,  setSaving] = useState(false)
   const [selLote,     setSelLote]    = useState(null)
   const [selInsem,    setSelInsem]   = useState([])
   const [removendoLote, setRemovendoLote] = useState(false)
+  const [filtroPropLote, setFiltroPropLote] = useState('') // filtro visual dos animais dentro do detalhe do lote
+  const [filtroPropIdx,  setFiltroPropIdx]  = useState('') // filtra o funil da aba Índices por proprietário
   // todosLotes/todosPartos cobrem TODOS os ciclos (necessário pro histórico da
   // aba Índices e pra localizar a monta de uma mãe fora do ciclo selecionado).
   // É a query mais pesada da tela (embeds aninhados de inseminações, partos,
@@ -118,6 +146,8 @@ export default function Reprodutivo() {
   // Estação de monta (agrupador de lotes: IATF + repasses)
   const [estacoes,     setEstacoes]     = useState([])
   const [estacaoIdxSel, setEstacaoIdxSel] = useState('')
+  const [estacaoEdit,  setEstacaoEdit]  = useState(null) // {id, nome, inicio, fim} em edição
+  const [savingEstacao, setSavingEstacao] = useState(false)
 
   // Aborto (registrado a partir de uma inseminação com diagnóstico 'P')
   const [abortoAlvo, setAbortoAlvo] = useState(null)
@@ -132,7 +162,15 @@ export default function Reprodutivo() {
 
   useEffect(() => { loadAll() }, [])
   useEffect(() => { if (cicloLocal) loadCicloScoped(cicloLocal.id) }, [cicloLocal?.id])
-  useEffect(() => { setSelInsem([]) }, [selLote?.id])
+  useEffect(() => { setSelInsem([]); setFiltroPropLote('') }, [selLote?.id])
+  useEffect(() => { setFiltroPropIdx('') }, [cicloLocal?.id])
+  // Seleciona a primeira estação do ciclo por padrão (senão o painel — e o botão
+  // Editar, que só aparece com uma estação selecionada — ficam vazios até o
+  // usuário escolher manualmente no dropdown).
+  useEffect(() => {
+    if (estacoes.length === 0) { if (estacaoIdxSel) setEstacaoIdxSel(''); return }
+    if (!estacoes.some(es => es.id === estacaoIdxSel)) setEstacaoIdxSel(estacoes[0].id)
+  }, [estacoes])
   // Atualiza selLote com dados frescos sempre que `lotes` muda (evita estado obsoleto após saves)
   useEffect(() => {
     setSelLote(prev => prev ? (lotes.find(l => l.id === prev.id) || prev) : null)
@@ -212,9 +250,17 @@ export default function Reprodutivo() {
 
   const femsAtivas = animais.filter(a => a.sexo === 'F')
   const femsVazias = femsAtivas.filter(a => a.sit_reprodutiva === 'vazia')
-  const femsVaziasFiltradas = filtroLoteInsem
-    ? femsVazias.filter(a => a.lote_id === filtroLoteInsem)
-    : femsVazias
+  // Filtro unificado: lote + proprietário + categoria, aplicados juntos na
+  // seleção de animais (modais "Novo lote" e "Adicionar animais"). A categoria é
+  // calculada com o mesmo helper usado no resto do sistema (calcCategoriaRebanho).
+  const femsVaziasPreCateg = femsVazias
+    .filter(a => !filtroLoteInsem || a.lote_id === filtroLoteInsem)
+    .filter(a => !filtroPropInsem || a.proprietario_id === filtroPropInsem)
+  const categoriasInsemDisponiveis = [...new Set(
+    femsVaziasPreCateg.map(a => calcCategoriaRebanho(a.data_nascimento, a.sexo, a.sit_reprodutiva, a.is_touro))
+  )].sort()
+  const femsVaziasFiltradas = femsVaziasPreCateg
+    .filter(a => !filtroCategInsem || calcCategoriaRebanho(a.data_nascimento, a.sexo, a.sit_reprodutiva, a.is_touro) === filtroCategInsem)
   const femsForaDoLote = selLote
     ? femsVaziasFiltradas.filter(a => !(selLote.inseminacoes||[]).some(i => i.animal_id === a.id))
     : []
@@ -263,6 +309,65 @@ export default function Reprodutivo() {
     })
     if (error || !data) { toast('Erro ao criar estação: ' + (error?.message || ''), 'error'); return { error: true } }
     return { id: data.id }
+  }
+
+  const abrirEditarEstacao = (es) => {
+    if (!podeEditarReprodCiclo) return
+    setEstacaoEdit({ id: es.id, nome: es.nome, inicio: es.inicio || '', fim: es.fim || '' })
+  }
+
+  // Salva a edição da estação de monta — só permite alterar início/fim se TODOS
+  // os lotes já vinculados a ela couberem no novo intervalo (senão o histórico
+  // da safra fica inconsistente com o período declarado da estação).
+  const salvarEdicaoEstacao = async () => {
+    if (!podeEditarReprodCiclo || !estacaoEdit) return
+    const { id, nome, inicio, fim } = estacaoEdit
+    if (!nome || !inicio) { toast('Preencha nome e início da estação.', 'error'); return }
+    if (fim && fim < inicio) { toast('A data de fim não pode ser anterior ao início.', 'error'); return }
+
+    const lotesDaEstacao = lotes.filter(l => l.estacao_monta_id === id)
+    const foraDoIntervalo = lotesDaEstacao.filter(l =>
+      l.data && (l.data < inicio || (fim && l.data > fim))
+    )
+    if (foraDoIntervalo.length > 0) {
+      const lista = foraDoIntervalo.map(l => `Lote ${l.numero} (${fmtData(l.data)})`).join(', ')
+      toast(
+        `Não é possível alterar: ${lista} ficaria${foraDoIntervalo.length > 1 ? 'm' : ''} fora do novo período. Ajuste as datas para incluir todos os lotes da estação.`,
+        'error'
+      )
+      return
+    }
+
+    setSavingEstacao(true)
+    const { error } = await db.estacoesMonta.update(id, { nome, inicio, fim: fim || null })
+    setSavingEstacao(false)
+    if (error) { toast('Erro ao salvar estação: ' + error.message, 'error'); return }
+    toast('Estação de monta atualizada!')
+    setEstacaoEdit(null)
+    if (cicloLocal) loadCicloScoped(cicloLocal.id)
+  }
+
+  // Exclui a estação de monta. Os lotes vinculados NÃO são apagados — só
+  // desvinculados (estacao_monta_id = null) antes da exclusão, para não deixar
+  // referência quebrada e não perder o histórico das inseminações.
+  const excluirEstacao = async (es) => {
+    if (!podeEditarReprodCiclo || !es) return
+    const lotesDaEstacao = lotes.filter(l => l.estacao_monta_id === es.id)
+    const msg = lotesDaEstacao.length > 0
+      ? `Os ${lotesDaEstacao.length} lote${lotesDaEstacao.length !== 1 ? 's' : ''} desta estação serão desvinculados, mas não excluídos. Confirmar?`
+      : `Excluir a estação "${es.nome}"? Esta ação não pode ser desfeita.`
+    if (!confirm(msg)) return
+
+    setSavingEstacao(true)
+    if (lotesDaEstacao.length > 0) {
+      await Promise.all(lotesDaEstacao.map(l => db.lotesInseminacao.update(l.id, { estacao_monta_id: null })))
+    }
+    const { error } = await db.estacoesMonta.delete(es.id)
+    setSavingEstacao(false)
+    if (error) { toast('Erro ao excluir estação: ' + error.message, 'error'); return }
+    toast('Estação de monta excluída.')
+    if (estacaoIdxSel === es.id) setEstacaoIdxSel('')
+    if (cicloLocal) loadCicloScoped(cicloLocal.id)
   }
 
   // Salvar lote (cria novo ou edita data/touro/protocolo/estação de um existente)
@@ -373,7 +478,7 @@ export default function Reprodutivo() {
     setSaving(false)
     if (error) { toast('Erro ao adicionar animais: ' + error.message, 'error'); return }
     toast(`${ins.length} animal(is) adicionado(s) ao lote!`)
-    setModal(null); setSelBrsAdd([]); setFiltroLoteInsem('')
+    setModal(null); setSelBrsAdd([]); setFiltroLoteInsem(''); setFiltroPropInsem(''); setFiltroCategInsem('')
     await loadAll(false)
   }
 
@@ -391,9 +496,12 @@ export default function Reprodutivo() {
     prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
   )
 
-  const toggleSelInsemTodos = () => {
-    const todosMarcados = selLote?.inseminacoes?.length > 0 && selLote.inseminacoes.every(i => selInsem.includes(i.id))
-    setSelInsem(todosMarcados ? [] : (selLote?.inseminacoes || []).map(i => i.id))
+  // Opera sobre a lista VISÍVEL (respeita o filtro por proprietário do detalhe do lote)
+  const toggleSelInsemTodos = (insVisiveis) => {
+    const todosMarcados = insVisiveis.length > 0 && insVisiveis.every(i => selInsem.includes(i.id))
+    setSelInsem(todosMarcados
+      ? selInsem.filter(id => !insVisiveis.some(i => i.id === id))
+      : [...new Set([...selInsem, ...insVisiveis.map(i => i.id)])])
   }
 
   // Remover várias inseminações do lote de uma vez (com ou sem diagnóstico)
@@ -651,8 +759,9 @@ export default function Reprodutivo() {
     }
   }
 
-  const calcLoteMetrics = (lote) => {
-    const ins = lote.inseminacoes || []
+  const calcLoteMetrics = (lote, propId = null) => {
+    const insAll = lote.inseminacoes || []
+    const ins = propId ? insAll.filter(i => i.animal?.proprietario_id === propId) : insAll
     const totalInseminacoes = ins.length                                  // total de serviços (informativo)
     // "Matrizes expostas" nunca é o número de inseminações: se a mesma vaca entra
     // na IATF e depois no repasse, ela é 1 matriz exposta, não 2. contarExpostas/
@@ -663,20 +772,22 @@ export default function Reprodutivo() {
     const vazias    = ins.filter(i => i.diagnostico === 'V').length
     const pendentes = ins.filter(i => !i.diagnostico).length
     const txPrenhez = calcTaxaPrenhez(ins)
-    const partosLote  = lote.partos || []
+    const partosLoteAll = lote.partos || []
+    const partosLote = propId ? partosLoteAll.filter(p => p.mae?.proprietario_id === propId) : partosLoteAll
     const nascimentos = partosLote.length
     const txParicao   = prenhas > 0 ? Math.round(nascimentos / prenhas * 100) : 0
     // Novos índices da safra — denominador = matrizes expostas distintas
     const txNatalidade      = total > 0 ? Math.round(nascimentos / total * 100) : null
     // Perda gestacional agora é MEDIDA: abortos registrados + a diferença que não
     // foi explicada por parto nem por aborto (perdas não identificadas).
-    const abortosLote = lote.abortos || []
+    const abortosLoteAll = lote.abortos || []
+    const abortosLote = propId ? abortosLoteAll.filter(a => a.animal?.proprietario_id === propId) : abortosLoteAll
     const nAbortos = abortosLote.length
     const perdasNaoIdentificadas = Math.max(0, prenhas - nascimentos - nAbortos)
     const perdaGestacional = prenhas > 0 ? Math.round((nAbortos + perdasNaoIdentificadas) / prenhas * 100) : null
     const mortosBezerros    = partosLote.filter(p => p.bezerro?.situacao === 'morto').length
     const mortalidadeBezerros = nascimentos > 0 ? Math.round(mortosBezerros / nascimentos * 100) : null
-    const matrizesAptas   = lote.data ? contarMatrizes(animais, lote.data) : 0
+    const matrizesAptas   = lote.data ? contarMatrizes(propId ? animais.filter(a => a.proprietario_id === propId) : animais, lote.data) : 0
     // Sem teto em 100%: taxa acima de 100% é esperada e correta quando novilhas
     // com menos de 24 meses (fora da definição de "matriz apta") são expostas.
     const txAproveitamento = matrizesAptas > 0 ? Math.round(total / matrizesAptas * 100) : null
@@ -706,21 +817,34 @@ export default function Reprodutivo() {
   // num campo de outro modal não deve re-somar/re-ordenar todo o histórico).
   const idx = useMemo(() => {
     const lotesCicloAtual = todosLotes.filter(l => l.ciclo_id === cicloLocal?.id)
-    const insCicloAtual = lotesCicloAtual.flatMap(l => l.inseminacoes || [])
+    // Filtro por proprietário: restringe inseminações/partos/abortos aos animais
+    // do proprietário selecionado antes de calcular o funil da safra — matrizes
+    // aptas também passa a considerar só os animais dele.
+    const insCicloAtualBruto = lotesCicloAtual.flatMap(l => l.inseminacoes || [])
+    const insCicloAtual = filtroPropIdx
+      ? insCicloAtualBruto.filter(i => i.animal?.proprietario_id === filtroPropIdx)
+      : insCicloAtualBruto
     const kpiInsTotal = insCicloAtual.length                          // total de serviços/inseminações (informativo)
     // Matrizes expostas/prenhas DISTINTAS do ciclo: um ciclo pode ter vários lotes
     // (IATF + repasses) e a mesma vaca não pode ser contada mais de uma vez.
     const kpiIns  = contarExpostas(insCicloAtual)
     const kpiPrn  = contarPrenhas(insCicloAtual)
-    const kpiPartosArr = lotesCicloAtual.flatMap(l => l.partos || [])
+    const kpiPartosArrBruto = lotesCicloAtual.flatMap(l => l.partos || [])
+    const kpiPartosArr = filtroPropIdx
+      ? kpiPartosArrBruto.filter(p => p.mae?.proprietario_id === filtroPropIdx)
+      : kpiPartosArrBruto
     const kpiPartos = kpiPartosArr.length
     const kpiMortos = kpiPartosArr.filter(p => p.bezerro?.situacao === 'morto').length
     const kpiMortalidade = kpiPartos > 0 ? Math.round(kpiMortos / kpiPartos * 100) : null
-    const kpiAbortos = lotesCicloAtual.reduce((s, l) => s + (l.abortos?.length || 0), 0)
+    const kpiAbortosArrBruto = lotesCicloAtual.flatMap(l => l.abortos || [])
+    const kpiAbortos = (filtroPropIdx
+      ? kpiAbortosArrBruto.filter(a => a.animal?.proprietario_id === filtroPropIdx)
+      : kpiAbortosArrBruto).length
     const kpiPerdasNaoIdentificadas = Math.max(0, kpiPrn - kpiPartos - kpiAbortos)
     const kpiPerdaGestacional = kpiPrn > 0 ? Math.round((kpiAbortos + kpiPerdasNaoIdentificadas) / kpiPrn * 100) : null
     const primeiraMontaCiclo = lotesCicloAtual.map(l => l.data).filter(Boolean).sort()[0] || null
-    const kpiMatrizesAptas = primeiraMontaCiclo ? contarMatrizes(animais, primeiraMontaCiclo) : 0
+    const animaisParaAptas = filtroPropIdx ? animais.filter(a => a.proprietario_id === filtroPropIdx) : animais
+    const kpiMatrizesAptas = primeiraMontaCiclo ? contarMatrizes(animaisParaAptas, primeiraMontaCiclo) : 0
     // Sem teto em 100%: uma taxa de aproveitamento acima de 100% é esperada e
     // correta quando novilhas com menos de 24 meses (fora da definição de "matriz
     // apta") são expostas à reprodução — não é um erro de cálculo.
@@ -739,7 +863,8 @@ export default function Reprodutivo() {
     // partos consecutivos; só considera intervalos plausíveis para bovinos (300–700 dias)
     const intervalosPartosValidos = (() => {
       const partosPorMae = {}
-      todosPartos.forEach(p => {
+      const partosBase = filtroPropIdx ? todosPartos.filter(p => p.mae?.proprietario_id === filtroPropIdx) : todosPartos
+      partosBase.forEach(p => {
         if (!p.mae_id || !p.data_parto) return
         partosPorMae[p.mae_id] = partosPorMae[p.mae_id] || []
         partosPorMae[p.mae_id].push(p.data_parto)
@@ -826,7 +951,7 @@ export default function Reprodutivo() {
       kpiDesmame, safraCicloEmAndamento, previsaoSafraCiclo, kpiIntervalo,
       barData, lineData, pieData, tabelaLotes, tourosRanking,
     }
-  }, [todosLotes, todosPartos, cicloLocal, animais, sortCol, sortAsc])
+  }, [todosLotes, todosPartos, cicloLocal, animais, sortCol, sortAsc, filtroPropIdx])
 
   if (loading) return <Loading />
   if (loadError) return <ErroCarregamento onRetry={loadAll} />
@@ -862,6 +987,38 @@ export default function Reprodutivo() {
       {/* ── Lotes ── */}
       {tab === 0 && !selLote && (
         <div>
+          {estacoes.length > 0 && (() => {
+            const estacaoGerenciada = estacoes.find(es => es.id === estacaoIdxSel) || estacoes[0]
+            return (
+              <div className="card" style={{ marginBottom:14 }}>
+                <div style={{ display:'flex', flexWrap:'wrap', justifyContent:'space-between', alignItems:'center', gap:10 }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>
+                    <i className="ti ti-calendar-stats" style={{ color:'#2B6CD9', fontSize:16 }} />
+                    {estacoes.length > 1 ? (
+                      <select value={estacaoIdxSel} onChange={e => setEstacaoIdxSel(e.target.value)} style={{ maxWidth:260 }}>
+                        {estacoes.map(es => <option key={es.id} value={es.id}>{es.nome}</option>)}
+                      </select>
+                    ) : (
+                      <span style={{ fontWeight:600 }}>{estacaoGerenciada.nome}</span>
+                    )}
+                    <span style={{ fontSize:'.8rem', color:'#6B7280' }}>
+                      {estacaoGerenciada.inicio ? fmtData(estacaoGerenciada.inicio) : '—'}{estacaoGerenciada.fim ? ` – ${fmtData(estacaoGerenciada.fim)}` : ''}
+                    </span>
+                  </div>
+                  {podeEditarReprodCiclo && (
+                    <div style={{ display:'flex', gap:8 }}>
+                      <button className="btn btn-secondary btn-xs" onClick={() => abrirEditarEstacao(estacaoGerenciada)}>
+                        <i className="ti ti-edit" /> Editar
+                      </button>
+                      <button className="btn btn-secondary btn-xs" style={{ color:'#DC2626' }} onClick={() => excluirEstacao(estacaoGerenciada)}>
+                        <i className="ti ti-trash" /> Excluir
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )
+          })()}
           <div style={{ display:'flex', flexWrap:'wrap', justifyContent:'space-between', alignItems:'center', gap:8, marginBottom:12 }}>
             <span style={{ fontSize:'.85rem', color:'#6B7280' }}>{lotes.length} lote{lotes.length!==1?'s':''} · Ciclo {cicloLocal?.nome}</span>
             <div style={{ display:'flex', flexWrap:'wrap', gap:8 }}>
@@ -935,7 +1092,7 @@ export default function Reprodutivo() {
               </button>
             )}
             {podeEditarReprodCiclo && (
-              <button className="btn btn-secondary btn-sm" onClick={() => { setSelBrsAdd([]); setFiltroLoteInsem(''); setModal('addAnimaisLote') }}>
+              <button className="btn btn-secondary btn-sm" onClick={() => { setSelBrsAdd([]); setFiltroLoteInsem(''); setFiltroPropInsem(''); setFiltroCategInsem(''); setModal('addAnimaisLote') }}>
                 <i className="ti ti-plus" /> Adicionar animais
               </button>
             )}
@@ -943,12 +1100,41 @@ export default function Reprodutivo() {
           </div>
           <div ref={refDiag}>
           {(() => {
+            // Proprietários presentes neste lote — nome vem direto do embed da
+            // query (ins.animal.proprietario), não da lista `proprietarios` (que
+            // só traz ativos e derrubaria silenciosamente um dono desativado).
+            // O filtro selecionado aqui vale tanto para o funil (Resultado da
+            // safra) quanto para a lista de diagnóstico, mais abaixo.
+            const propsNoLote = [...new Map(
+              (selLote.inseminacoes || [])
+                .filter(i => i.animal?.proprietario_id)
+                .map(i => [i.animal.proprietario_id, { id: i.animal.proprietario_id, nome: i.animal.proprietario?.nome || '—' }])
+            ).values()]
             // Resumo do lote — mesmos helpers usados em todo o sistema (contarExpostas/
             // contarPrenhas/calcTaxaPrenhez), garantindo que a taxa aqui bate com a do
             // Dashboard/Rebanho/Comparativo/Metas para o mesmo lote/ciclo.
-            const sm = calcLoteMetrics(selLote)
+            const sm = calcLoteMetrics(selLote, filtroPropLote || null)
             return (
               <>
+                {propsNoLote.length > 1 && (
+                  <div style={{ display:'flex', gap:6, flexWrap:'wrap', marginBottom:12 }}>
+                    {[{ id:'', nome:'Todos' }, ...propsNoLote].map(prop => {
+                      const active = filtroPropLote === prop.id
+                      return (
+                        <button key={prop.id || 'todos'} onClick={() => setFiltroPropLote(prop.id)} style={{
+                          padding:'4px 14px', borderRadius:20, fontSize:'.82rem', cursor:'pointer',
+                          fontFamily:'inherit', fontWeight: active ? 600 : 400,
+                          background: active ? '#7B2FBE' : 'white',
+                          color: active ? 'white' : '#374151',
+                          border: active ? '.5px solid #7B2FBE' : '.5px solid #D1D5DB',
+                          transition: 'all .15s'
+                        }}>
+                          {prop.id === '' ? 'Todos' : prop.nome.split(' ')[0]}
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
                 <div className="card-title" style={{ marginBottom:8 }}><i className="ti ti-clipboard-list" /> Resumo do lote</div>
                 <div className="grid-4" style={{ marginBottom:8 }}>
                   {[
@@ -1006,15 +1192,23 @@ export default function Reprodutivo() {
                 </button>
               </div>
             )}
-            {podeEditarReprodCiclo && selLote.inseminacoes?.length > 0 && (
-              <div style={{ display:'flex', alignItems:'center', gap:8, padding:'4px 0 8px', borderBottom:'.5px solid #F3F4F6' }}>
-                <input type="checkbox"
-                  checked={selLote.inseminacoes.length > 0 && selLote.inseminacoes.every(i => selInsem.includes(i.id))}
-                  onChange={toggleSelInsemTodos} />
-                <span style={{ fontSize:'.78rem', color:'#6B7280' }}>Marcar/desmarcar todos</span>
-              </div>
-            )}
-            {selLote.inseminacoes?.map(ins => {
+            {(() => {
+              // Filtro por proprietário compartilhado com o Resumo do lote, acima
+              // (pills renderizados uma única vez, junto ao funil).
+              const insLoteFiltradas = filtroPropLote
+                ? (selLote.inseminacoes || []).filter(i => i.animal?.proprietario_id === filtroPropLote)
+                : (selLote.inseminacoes || [])
+              return (
+                <>
+                  {podeEditarReprodCiclo && insLoteFiltradas.length > 0 && (
+                    <div style={{ display:'flex', alignItems:'center', gap:8, padding:'4px 0 8px', borderBottom:'.5px solid #F3F4F6' }}>
+                      <input type="checkbox"
+                        checked={insLoteFiltradas.every(i => selInsem.includes(i.id))}
+                        onChange={() => toggleSelInsemTodos(insLoteFiltradas)} />
+                      <span style={{ fontSize:'.78rem', color:'#6B7280' }}>Marcar/desmarcar todos{filtroPropLote ? ' (filtrados)' : ''}</span>
+                    </div>
+                  )}
+                  {insLoteFiltradas.map(ins => {
               const br = ins.animal?.brinco || '?'
               const d  = ins.diagnostico
               const abortoReg = (selLote.abortos || []).find(ab => ab.animal_id === ins.animal_id)
@@ -1085,6 +1279,9 @@ export default function Reprodutivo() {
                 </div>
               )
             })}
+                </>
+              )
+            })()}
           </div>
           {/* Sugestão IA para vazias */}
           {selLote.inseminacoes?.some(i=>i.diagnostico==='V') && (
@@ -1239,6 +1436,25 @@ export default function Reprodutivo() {
           {loadingIdx ? <Loading /> : <>
           <div ref={refIndices}>
 
+            {/* Filtro por proprietário — reduz o funil da safra a um único dono */}
+            <div style={{ display:'flex', gap:6, flexWrap:'wrap', marginBottom:14 }}>
+              {[{ id:'', nome:'Todos' }, ...proprietarios].map(prop => {
+                const active = filtroPropIdx === prop.id
+                return (
+                  <button key={prop.id || 'todos'} onClick={() => setFiltroPropIdx(prop.id)} style={{
+                    padding:'4px 14px', borderRadius:20, fontSize:'.82rem', cursor:'pointer',
+                    fontFamily:'inherit', fontWeight: active ? 600 : 400,
+                    background: active ? '#7B2FBE' : 'white',
+                    color: active ? 'white' : '#374151',
+                    border: active ? '.5px solid #7B2FBE' : '.5px solid #D1D5DB',
+                    transition: 'all .15s'
+                  }}>
+                    {prop.id === '' ? 'Todos' : prop.nome.split(' ')[0]}
+                  </button>
+                )
+              })}
+            </div>
+
             {/* Seção 1 — Resultado da safra reprodutiva (consolidado do ciclo selecionado) */}
             <div style={{ marginBottom:16 }}>
               <div style={{ display:'flex', gap:10, marginBottom:12, flexWrap:'wrap' }}>
@@ -1284,7 +1500,10 @@ export default function Reprodutivo() {
                   {estacaoIdxSel && (() => {
                     const estacaoObj = estacoes.find(es => es.id === estacaoIdxSel)
                     const lotesDaEstacao = lotesCicloAtual.filter(l => l.estacao_monta_id === estacaoIdxSel)
-                    const todasInsEst = lotesDaEstacao.flatMap(l => l.inseminacoes || [])
+                    const todasInsEstBruto = lotesDaEstacao.flatMap(l => l.inseminacoes || [])
+                    const todasInsEst = filtroPropIdx
+                      ? todasInsEstBruto.filter(i => i.animal?.proprietario_id === filtroPropIdx)
+                      : todasInsEstBruto
                     // Matrizes distintas — a vaca que entrou na IATF e no repasse conta 1x
                     const matrizesExpostas = contarExpostas(todasInsEst)
                     const matrizesPrenhas  = contarPrenhas(todasInsEst)
@@ -1523,17 +1742,22 @@ export default function Reprodutivo() {
           </Field>
         </div>
         {form.criandoEstacao && (
-          <div className="grid-form3" style={{ marginTop:-4 }}>
-            <Field label="Nome da estação" required>
-              <input value={form.nova_estacao_nome||''} onChange={e=>setForm(p=>({...p,nova_estacao_nome:e.target.value}))} placeholder="ex: Estação 2025/26" />
-            </Field>
-            <Field label="Início" required>
-              <input type="date" value={form.nova_estacao_inicio||''} onChange={e=>setForm(p=>({...p,nova_estacao_inicio:e.target.value}))} />
-            </Field>
-            <Field label="Fim">
-              <input type="date" value={form.nova_estacao_fim||''} onChange={e=>setForm(p=>({...p,nova_estacao_fim:e.target.value}))} />
-            </Field>
-          </div>
+          <>
+            <div style={{ fontSize:'.78rem', color:'#6B7280', background:'#F9FAFB', border:'.5px solid #E5E7EB', borderRadius:8, padding:'8px 12px', marginBottom:10 }}>
+              A estação de monta agrupa a IATF e os repasses. Início = data da primeira inseminação; Fim = data prevista para o último repasse (pode deixar em branco e ajustar depois).
+            </div>
+            <div className="grid-form3" style={{ marginTop:-4 }}>
+              <Field label="Nome da estação" required>
+                <input value={form.nova_estacao_nome||''} onChange={e=>setForm(p=>({...p,nova_estacao_nome:e.target.value}))} placeholder="ex: Estação 2025/26" />
+              </Field>
+              <Field label="Início" required>
+                <input type="date" value={form.nova_estacao_inicio||''} onChange={e=>setForm(p=>({...p,nova_estacao_inicio:e.target.value}))} />
+              </Field>
+              <Field label="Fim">
+                <input type="date" value={form.nova_estacao_fim||''} onChange={e=>setForm(p=>({...p,nova_estacao_fim:e.target.value}))} />
+              </Field>
+            </div>
+          </>
         )}
         {!loteEdit && (
         <div style={{ marginBottom:10 }}>
@@ -1560,11 +1784,12 @@ export default function Reprodutivo() {
           <div style={{ fontSize:'.75rem', color:'#6B7280', marginBottom:6 }}>
             Apenas vacas vazias estão disponíveis para inseminação.
           </div>
-          <select value={filtroLoteInsem} onChange={e => setFiltroLoteInsem(e.target.value)}
-            className="input" style={{ width:'100%', marginBottom:8 }}>
-            <option value="">Todos os lotes</option>
-            {lotesSistema.map(l => <option key={l.id} value={l.id}>{l.nome}</option>)}
-          </select>
+          <PainelFiltroAnimais
+            lotesSistema={lotesSistema} proprietarios={proprietarios} categorias={categoriasInsemDisponiveis}
+            filtroLote={filtroLoteInsem} setFiltroLote={setFiltroLoteInsem}
+            filtroProp={filtroPropInsem} setFiltroProp={setFiltroPropInsem}
+            filtroCateg={filtroCategInsem} setFiltroCateg={setFiltroCategInsem}
+          />
           {femsVaziasFiltradas.length > 0 && podeEditarReprodCiclo && (
             <button type="button" className="btn btn-secondary btn-xs" style={{ marginBottom:8 }}
               onClick={() => {
@@ -1591,6 +1816,7 @@ export default function Reprodutivo() {
                     <input type="checkbox" checked={selBrs.includes(a.brinco)} onChange={() => togSel(a.brinco)} />
                     <strong>{a.brinco}</strong>
                     <span style={{ color:'#6B7280' }}>{a.proprietario?.nome?.split(' ')[0]}</span>
+                    <Badge color="gray">{calcCategoriaRebanho(a.data_nascimento, a.sexo, a.sit_reprodutiva, a.is_touro)}</Badge>
                   </label>
                 ))
             }
@@ -1628,11 +1854,12 @@ export default function Reprodutivo() {
           <div style={{ fontSize:'.75rem', color:'#6B7280', marginBottom:6 }}>
             Apenas vacas vazias que ainda não estão neste lote estão disponíveis.
           </div>
-          <select value={filtroLoteInsem} onChange={e => setFiltroLoteInsem(e.target.value)}
-            className="input" style={{ width:'100%', marginBottom:8 }}>
-            <option value="">Todos os lotes</option>
-            {lotesSistema.map(l => <option key={l.id} value={l.id}>{l.nome}</option>)}
-          </select>
+          <PainelFiltroAnimais
+            lotesSistema={lotesSistema} proprietarios={proprietarios} categorias={categoriasInsemDisponiveis}
+            filtroLote={filtroLoteInsem} setFiltroLote={setFiltroLoteInsem}
+            filtroProp={filtroPropInsem} setFiltroProp={setFiltroPropInsem}
+            filtroCateg={filtroCategInsem} setFiltroCateg={setFiltroCategInsem}
+          />
           {femsForaDoLote.length > 0 && (
             <button type="button" className="btn btn-secondary btn-xs" style={{ marginBottom:8 }}
               onClick={() => {
@@ -1659,6 +1886,7 @@ export default function Reprodutivo() {
                     <input type="checkbox" checked={selBrsAdd.includes(a.brinco)} onChange={() => togSelAdd(a.brinco)} />
                     <strong>{a.brinco}</strong>
                     <span style={{ color:'#6B7280' }}>{a.proprietario?.nome?.split(' ')[0]}</span>
+                    <Badge color="gray">{calcCategoriaRebanho(a.data_nascimento, a.sexo, a.sit_reprodutiva, a.is_touro)}</Badge>
                   </label>
                 ))
             }
@@ -1670,6 +1898,39 @@ export default function Reprodutivo() {
           </button>
           <button className="btn btn-secondary" onClick={()=>setModal(null)}>Cancelar</button>
         </div>
+      </Modal>
+
+      {/* ── Modal editar estação de monta ── */}
+      <Modal open={!!estacaoEdit} onClose={() => setEstacaoEdit(null)} title="Editar estação de monta" width={460}>
+        {estacaoEdit && (() => {
+          const lotesDaEstacaoEdit = lotes.filter(l => l.estacao_monta_id === estacaoEdit.id)
+          return (
+            <>
+              {lotesDaEstacaoEdit.length > 0 && (
+                <div style={{ fontSize:'.78rem', color:'#6B7280', background:'#F9FAFB', border:'.5px solid #E5E7EB', borderRadius:8, padding:'8px 12px', marginBottom:12 }}>
+                  {lotesDaEstacaoEdit.length} lote{lotesDaEstacaoEdit.length!==1?'s':''} vinculado{lotesDaEstacaoEdit.length!==1?'s':''} a esta estação. O novo período precisa incluir a data de todos eles: {lotesDaEstacaoEdit.map(l => `Lote ${l.numero} (${fmtData(l.data)})`).join(', ')}.
+                </div>
+              )}
+              <div className="grid-form">
+                <Field label="Nome da estação" required>
+                  <input value={estacaoEdit.nome} onChange={e=>setEstacaoEdit(p=>({...p,nome:e.target.value}))} />
+                </Field>
+                <Field label="Início" required>
+                  <input type="date" value={estacaoEdit.inicio} onChange={e=>setEstacaoEdit(p=>({...p,inicio:e.target.value}))} />
+                </Field>
+                <Field label="Fim">
+                  <input type="date" value={estacaoEdit.fim} onChange={e=>setEstacaoEdit(p=>({...p,fim:e.target.value}))} />
+                </Field>
+              </div>
+              <div className="modal-actions">
+                <button className="btn btn-primary" onClick={salvarEdicaoEstacao} disabled={savingEstacao}>
+                  {savingEstacao ? 'Salvando...' : <><i className="ti ti-check" /> Salvar alterações</>}
+                </button>
+                <button className="btn btn-secondary" onClick={() => setEstacaoEdit(null)}>Cancelar</button>
+              </div>
+            </>
+          )
+        })()}
       </Modal>
 
       {/* ── Modal registrar aborto ── */}

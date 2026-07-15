@@ -208,6 +208,9 @@ tbody tr:hover td { background: #EAF0FB; transition: background 0.15s; }
 .grid-4  { display: grid; grid-template-columns: repeat(4, 1fr);      gap: 10px; }
 .grid-form  { display: grid; grid-template-columns: 1fr 1fr;          gap: 12px; margin-bottom: 12px; }
 .grid-form3 { display: grid; grid-template-columns: 1fr 1fr 1fr;      gap: 10px; margin-bottom: 12px; }
+/* Grid responsivo p/ conjuntos de IndexCard: ajusta a quantidade de colunas por
+   linha conforme a largura disponível, em vez de fixar N colunas e quebrar. */
+.grid-idx-repro { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 8px; }
 
 /* ── Sidebar layout ─────────────────────────────────────────────── */
 .app-shell { display: flex; height: 100vh; overflow: hidden; }

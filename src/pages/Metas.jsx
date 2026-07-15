@@ -1,9 +1,9 @@
 ﻿import { useState, useEffect, useRef } from 'react'
 import { db } from '../lib/supabase'
 import { calcCategoria, calcGMD, calcTaxaPrenhez, contarPrenhas, algumErro } from '../lib/helpers'
-import { Loading, Modal, toast, BotaoPDF, EmptyState, ErroCarregamento } from '../components/UI'
+import { Loading, Modal, toast, BotaoPDF, EmptyState, ErroCarregamento, SeletorCicloLocal } from '../components/UI'
 import { usePermissoes } from '../lib/PermissoesContext'
-import { useCiclo } from '../lib/CicloContext'
+import { useCicloLocal } from '../lib/useCicloLocal'
 
 // ── Metadata de cada indicador ────────────────────────────────────
 const CFG = {
@@ -111,7 +111,6 @@ export default function Metas() {
   const [loading,      setLoading]      = useState(true)
   const [metas,        setMetas]        = useState([])
   const [atuais,       setAtuais]       = useState({})
-  const [cicloNome,    setCicloNome]    = useState('')
   const [semTabela,    setSemTabela]    = useState(false)
   const [loadError,    setLoadError]    = useState(false)
   const [editOpen,     setEditOpen]     = useState(false)
@@ -120,9 +119,9 @@ export default function Metas() {
 
   const { podeEditar } = usePermissoes()
   const podeEditarMetas = podeEditar('metas')
-  const { cicloAtual } = useCiclo()
+  const { cicloLocal, setCicloLocal, ciclos } = useCicloLocal()
 
-  useEffect(() => { loadAll() }, [cicloAtual?.id])
+  useEffect(() => { loadAll() }, [cicloLocal?.id])
 
   const loadAll = async () => {
     setLoading(true)
@@ -136,11 +135,9 @@ export default function Metas() {
       }
       setMetas(metasData || [])
 
-      // Ciclo atual: mesmo critério do resto do app (intervalo inicio..fim contém
-      // hoje, via CicloContext) — não a flag `atual` do banco, que não é mais a
-      // fonte da verdade desde o sistema de ciclos por data.
-      const ciclo = cicloAtual
-      setCicloNome(ciclo?.nome || '')
+      // Ciclo selecionado localmente na tela (SeletorCicloLocal), inicia a
+      // partir do ciclo global mas pode ser trocado sem afetar o resto do app.
+      const ciclo = cicloLocal
 
       // Carregar dados para cálculo em paralelo
       const resultados = await Promise.all([
@@ -238,10 +235,14 @@ export default function Metas() {
 
   return (
     <div>
+      {/* Seletor de ciclo */}
+      <div style={{ marginBottom: 12 }}>
+        <SeletorCicloLocal cicloLocal={cicloLocal} setCicloLocal={setCicloLocal} ciclos={ciclos} />
+      </div>
+
       {/* Ciclo + sumário */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
         <div style={{ fontSize: '.82rem', color: '#6B7280' }}>
-          {cicloNome && <>Ciclo: <strong style={{ color: '#111827' }}>{cicloNome}</strong> · </>}
           <span style={{ color: '#27A838', fontWeight: 600 }}>{nVerde} ✓</span>
           {' · '}
           <span style={{ color: '#D97706', fontWeight: 600 }}>{nAmarelo} ⚠</span>

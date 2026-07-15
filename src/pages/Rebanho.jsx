@@ -4,7 +4,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { db } from '../lib/supabase'
-import { calcCategoria, calcCategoriaRebanho, calcTaxaPrenhez, contarExpostas, contarPrenhas, calcGMD, pct, fmtMoeda, ehMatriz, somaFinita, algumErro } from '../lib/helpers'
+import { calcCategoria, calcCategoriaRebanho, calcTaxaPrenhez, contarExpostas, contarPrenhas, calcGMD, pct, fmtMoeda, ehMatriz, somaFinita, algumErro, valorPropLanc } from '../lib/helpers'
 import { Loading, IndexCard, BotaoPDF, ErroCarregamento, SeletorCicloLocal, Badge, EmptyState } from '../components/UI'
 import { useCicloLocal } from '../lib/useCicloLocal'
 import {
@@ -35,7 +35,6 @@ export function Rebanho() {
   const [loading,      setLoading]      = useState(true)
   const [loadError,    setLoadError]    = useState(false)
   const [catPrecos,    setCatPrecos]    = useState([])
-  const [selProps,     setSelProps]     = useState([])
   const [todosLotesInsem, setTodosLotesInsem] = useState([])
   const [pesagensPorAnimal, setPesagensPorAnimal] = useState({})
 
@@ -95,7 +94,6 @@ export function Rebanho() {
       setProps(propsData)
       setCatPrecos(rc.data || [])
       setTodosLotesInsem(rli.data || [])
-      setSelProps(prev => prev.length === 0 ? propsData.map(p => p.id) : prev)
 
       // Pesagens dos terneiros/terneiras ativos, para o GMD — uma única query
       // com .in('animal_id', ids) em vez de 1 query por terneiro em loop.
@@ -119,10 +117,6 @@ export function Rebanho() {
     }
   }
 
-  const togSelProp = (id) => setSelProps(prev =>
-    prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
-  )
-
   const ativos = animais.filter(a =>
     a.situacao === 'ativo' && (!filtProp || a.proprietario_id === filtProp)
   )
@@ -133,7 +127,9 @@ export function Rebanho() {
   // matrizes distintas prenhas / matrizes distintas expostas no ciclo — não usa
   // matrizes por idade nem sit_reprodutiva atual. kpiIns/kpiPrn deduplicam por
   // animal_id (contarExpostas/contarPrenhas), senão o card não bate com a taxa.
+  // Filtra por proprietário (via animal.proprietario_id, embutido na inseminação).
   const insemRebanho = lotesInsem.flatMap(l => l.inseminacoes || [])
+    .filter(i => !filtProp || i.animal?.proprietario_id === filtProp)
   const kpiInsServicos = insemRebanho.length
   const kpiIns = contarExpostas(insemRebanho)
   const kpiPrn = contarPrenhas(insemRebanho)
@@ -160,11 +156,11 @@ export function Rebanho() {
   })
   const catData = Object.entries(catMap).map(([name, value]) => ({ name, value }))
 
-  // Dados para aba Valor de Mercado do Rebanho
-  const ativosGlobal    = animais.filter(a => a.situacao === 'ativo')
-  const propsSelecionadas = props.filter(p => selProps.includes(p.id))
+  // Dados para aba Valor de Mercado do Rebanho — usa o filtro padrão de
+  // proprietário (`filtProp`, mesmo pill-group do topo, igual às outras abas).
+  const propsSelecionadas = filtProp ? props.filter(p => p.id === filtProp) : props
   const valorRows = CATEGORIAS_VALOR.map(cat => {
-    const animaisCat = ativosGlobal.filter(a =>
+    const animaisCat = ativos.filter(a =>
       calcCategoriaRebanho(a.data_nascimento, a.sexo, a.sit_reprodutiva, a.is_touro) === cat
     )
     const porProp = propsSelecionadas.map(p => ({
@@ -186,20 +182,26 @@ export function Rebanho() {
   const statsPorCiclo = ciclosOrdenados.map(c => {
     const lotesDoCiclo = todosLotesInsem.filter(l => l.ciclo_id === c.id)
     const insemDoCiclo = lotesDoCiclo.flatMap(l => l.inseminacoes || [])
+      .filter(i => !filtProp || i.animal?.proprietario_id === filtProp)
     const inseminacoesServicos = insemDoCiclo.length
     const inseminacoes = contarExpostas(insemDoCiclo)
     const prenhas      = contarPrenhas(insemDoCiclo)
     const txPrenhez    = calcTaxaPrenhez(insemDoCiclo)
-    const nascimentos  = partosTodos.filter(p => p.ciclo_id === c.id).length
+    const nascimentos  = partosTodos.filter(p => p.ciclo_id === c.id && (!filtProp || p.mae?.proprietario_id === filtProp)).length
     const lancs        = lancsPorCiclo[c.id] || []
     const transacs     = transacsPorCiclo[c.id] || []
-    const receitas     = somaFinita(lancs.filter(l => l.tipo === 'R'), 'valor')
-                       + somaFinita(transacs.filter(t => t.tipo === 'V'), 'valor_total')
-    const despesas     = somaFinita(lancs.filter(l => l.tipo === 'D'), 'valor')
-                       + somaFinita(transacs.filter(t => t.tipo === 'C'), 'valor_total')
+    // transacoes_animais não tem proprietario_id (é uma venda/compra em lote, sem
+    // dono definido) — com filtro de proprietário ativo, só os lançamentos (que
+    // têm rateio por proprietário) entram na conta, igual já é feito no Dashboard.
+    const receitas     = filtProp
+      ? valorPropLanc(lancs, 'R', filtProp)
+      : somaFinita(lancs.filter(l => l.tipo === 'R'), 'valor') + somaFinita(transacs.filter(t => t.tipo === 'V'), 'valor_total')
+    const despesas     = filtProp
+      ? valorPropLanc(lancs, 'D', filtProp)
+      : somaFinita(lancs.filter(l => l.tipo === 'D'), 'valor') + somaFinita(transacs.filter(t => t.tipo === 'C'), 'valor_total')
     const resultado    = receitas - despesas
-    const vendas       = transacs.filter(t => t.tipo === 'V').reduce((s, t) => s + (parseInt(t.quantidade) || 0), 0)
-    const compras      = transacs.filter(t => t.tipo === 'C').reduce((s, t) => s + (parseInt(t.quantidade) || 0), 0)
+    const vendas       = filtProp ? 0 : transacs.filter(t => t.tipo === 'V').reduce((s, t) => s + (parseInt(t.quantidade) || 0), 0)
+    const compras      = filtProp ? 0 : transacs.filter(t => t.tipo === 'C').reduce((s, t) => s + (parseInt(t.quantidade) || 0), 0)
     return { ciclo: c, inseminacoes, prenhas, txPrenhez, nascimentos, receitas, despesas, resultado, vendas, compras }
   })
 
@@ -306,19 +308,19 @@ export function Rebanho() {
         <div>
           <div ref={refIndices}>
           <div className="sl">Índices reprodutivos</div>
-          <div className="grid-4" style={{marginBottom:16}}>
-            <IndexCard value={txPren} label="Taxa de prenhez" meta="≥85%" ok={txPrenNum !== null && txPrenNum >= 85}/>
-            <IndexCard value={kpiIns} label="Matrizes expostas no ciclo" color="#2B6CD9"/>
-            <IndexCard value={kpiPrn} label="Prenhas no ciclo" color="#2B6CD9"/>
-            <IndexCard value={partosTodos.filter(p => p.ciclo_id === cicloLocal?.id).length} label="Nascimentos no ciclo" color="#0C447C"/>
-            <IndexCard value={kpiInsServicos} label="Inseminações (serviços)" color="#9CA3AF"/>
+          <div className="grid-idx-repro" style={{marginBottom:16}}>
+            <IndexCard compact value={txPren} label="Taxa de prenhez" meta="≥85%" ok={txPrenNum !== null && txPrenNum >= 85}/>
+            <IndexCard compact value={kpiIns} label="Matrizes expostas no ciclo" color="#2B6CD9"/>
+            <IndexCard compact value={kpiPrn} label="Prenhas no ciclo" color="#2B6CD9"/>
+            <IndexCard compact value={partosTodos.filter(p => p.ciclo_id === cicloLocal?.id && (!filtProp || p.mae?.proprietario_id === filtProp)).length} label="Nascimentos no ciclo" color="#0C447C"/>
+            <IndexCard compact value={kpiInsServicos} label="Inseminações (serviços)" color="#9CA3AF"/>
           </div>
 
           <div className="sl">GMD terneiros (0–12 meses)</div>
-          <div className="grid-3" style={{marginBottom:16}}>
-            <IndexCard value={fmtGMD(gmdTotal)}  label="GMD total"  meta="≥0,80 kg/dia" ok={gmdTotal !== null && gmdTotal >= 0.80}/>
-            <IndexCard value={fmtGMD(gmdFemeas)} label="GMD fêmeas" color="#DB2777"/>
-            <IndexCard value={fmtGMD(gmdMachos)} label="GMD machos" color="#1E55B0"/>
+          <div className="grid-idx-repro" style={{marginBottom:16}}>
+            <IndexCard compact value={fmtGMD(gmdTotal)}  label="GMD total"  meta="≥0,80 kg/dia" ok={gmdTotal !== null && gmdTotal >= 0.80}/>
+            <IndexCard compact value={fmtGMD(gmdFemeas)} label="GMD fêmeas" color="#DB2777"/>
+            <IndexCard compact value={fmtGMD(gmdMachos)} label="GMD machos" color="#1E55B0"/>
           </div>
           <div className="card">
             <div className="card-title"><i className="ti ti-chart-line"/> Evolução dos índices</div>
@@ -337,6 +339,11 @@ export function Rebanho() {
           <div ref={refComp}>
           <div className="card">
           <div className="card-title"><i className="ti ti-columns"/> Comparativo de ciclos</div>
+          {filtProp && (
+            <div style={{ fontSize:'.72rem', color:'#9CA3AF', marginBottom:10 }}>
+              Filtrado por proprietário: nascimentos e lançamentos (com rateio) são filtrados; transações de venda/compra de animais não têm proprietário definido no sistema, então não entram em receitas/despesas com o filtro ativo.
+            </div>
+          )}
           {loadingCiclos ? <Loading /> : ciclosOrdenados.length === 0 ? (
             <EmptyState icon="📊" title="Nenhum ciclo cadastrado" sub="Cadastre um ciclo em Financeiro para ver o comparativo." />
           ) : (
@@ -460,6 +467,7 @@ export function Rebanho() {
               </div>
               <p style={{fontSize:'.72rem',color:'#9CA3AF',marginTop:8}}>
                 Variação líquida = nascimentos − vendas no ciclo (estimativa, já que não há um snapshot histórico do total de animais por ciclo).
+                {filtProp && ' Com filtro de proprietário ativo, vendas/compras não entram (transações de venda/compra não têm proprietário definido no sistema, só nascimentos e lançamentos com rateio são filtráveis).'}
               </p>
             </div>
           )}
@@ -477,17 +485,6 @@ export function Rebanho() {
           <div ref={refValor}>
           <div style={{ marginBottom:14 }}>
             <span style={{ fontSize:'.85rem', color:'#6B7280' }}>Valor de mercado estimado do rebanho, por categoria e proprietário</span>
-          </div>
-
-          {/* Checkboxes de proprietários */}
-          <div style={{ display:'flex', gap:14, flexWrap:'wrap', marginBottom:14, background:'white', border:'.5px solid #E5E7EB', borderRadius:10, padding:'10px 16px', alignItems:'center' }}>
-            <span style={{ fontSize:'.78rem', fontWeight:500, color:'#6B7280' }}>Proprietários:</span>
-            {props.map(p => (
-              <label key={p.id} style={{ display:'flex', alignItems:'center', gap:6, fontSize:'.85rem', cursor:'pointer' }}>
-                <input type="checkbox" checked={selProps.includes(p.id)} onChange={() => togSelProp(p.id)} />
-                {p.nome.split(' ')[0]}
-              </label>
-            ))}
           </div>
 
           {/* Tabela */}

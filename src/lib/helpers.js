@@ -141,6 +141,49 @@ export function calcTaxaPrenhez(inseminacoes) {
 export const contarExpostas = (inseminacoes) => new Set((inseminacoes || []).map(i => i.animal_id)).size
 export const contarPrenhas  = (inseminacoes) => new Set((inseminacoes || []).filter(i => i.diagnostico === 'P').map(i => i.animal_id)).size
 
+// ── Estoque: saldo por lote (FEFO) ─────────────────────────────────────────────
+// Recebe as movimentações de UM item (tipo 'E'/'S') e devolve o saldo por lote de
+// validade, consumindo primeiro os lotes que vencem antes (First Expired, First
+// Out). Como as saídas hoje não são vinculadas a um lote de entrada específico,
+// a saída total do item é "consumida" começando pelos lotes de validade mais
+// próxima — lotes sem validade ficam por último (nunca vencem, então não são
+// prioridade no FEFO). Retorna só lotes com saldo > 0, ordenados por validade
+// (mais próxima primeiro; sem validade por último).
+export function calcLotesFEFO(movsDoItem) {
+  const porValidade = new Map()
+  ;(movsDoItem || []).filter(m => m.tipo === 'E').forEach(m => {
+    const key = m.validade || null
+    porValidade.set(key, (porValidade.get(key) || 0) + (parseFloat(m.quantidade) || 0))
+  })
+  const entradas = [...porValidade.entries()]
+    .map(([validade, qtd]) => ({ validade, qtd }))
+    .sort((a, b) => {
+      if (a.validade === b.validade) return 0
+      if (!a.validade) return 1
+      if (!b.validade) return -1
+      return a.validade.localeCompare(b.validade)
+    })
+  let saidaRestante = (movsDoItem || [])
+    .filter(m => m.tipo === 'S')
+    .reduce((s, m) => s + (parseFloat(m.quantidade) || 0), 0)
+  const lotes = []
+  for (const e of entradas) {
+    const consumido = Math.min(e.qtd, saidaRestante)
+    const saldo = e.qtd - consumido
+    saidaRestante -= consumido
+    if (saldo > 0) lotes.push({ validade: e.validade, saldo })
+  }
+  return lotes
+}
+
+// Dias até a validade (negativo = já venceu, null = sem validade)
+export function diasAteValidade(validade, hoje = new Date()) {
+  if (!validade) return null
+  const h = new Date(hoje); h.setHours(0, 0, 0, 0)
+  const venc = new Date(validade + 'T00:00:00')
+  return Math.round((venc - h) / 86400000)
+}
+
 // ── Cores por categoria ───────────────────────────────────────────────────────
 export const catCor = {
   Terneira: { bg: '#EEEDFE', text: '#3C3489' },

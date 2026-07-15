@@ -46,6 +46,8 @@ export default function Sanidade() {
   const [saving,     setSaving]     = useState(false)
   const [confirmDel, setConfirmDel] = useState(null)
   const [loadError,  setLoadError]  = useState(false)
+  const [concluindoId,   setConcluindoId]   = useState(null)
+  const [ofertaNovoProc, setOfertaNovoProc] = useState(null)
 
   const [modoSelecao,    setModoSelecao]    = useState('lote') // 'lote' | 'individual'
   const [selAnimais,     setSelAnimais]     = useState([])
@@ -174,6 +176,24 @@ export default function Sanidade() {
     load()
   }
 
+  const concluirAlerta = async (d) => {
+    if (!podeEditarSanidadeCiclo) return
+    setConcluindoId(d.id)
+    const { error } = await db.sanidade.update(d.id, { proximo_concluido_em: new Date().toISOString().slice(0, 10) })
+    setConcluindoId(null)
+    if (error) { toast('Erro ao concluir: ' + error.message, 'error'); return }
+    toast('Alerta concluído!')
+    setOfertaNovoProc(d)
+    load()
+  }
+
+  const registrarAplicacaoDoAlerta = (d) => {
+    resetFormSelecao()
+    setForm({ tipo: d.tipo, procedimento: d.procedimento, data: new Date().toISOString().slice(0, 10) })
+    setOfertaNovoProc(null)
+    setModal(true)
+  }
+
   const vozSan = (text) => {
     const t = text.toLowerCase()
     const tipo = TIPOS.find(tp => t.includes(tp.toLowerCase())) || 'Vacina'
@@ -188,8 +208,8 @@ export default function Sanidade() {
 
   const hoje    = new Date()
   const em30    = new Date(); em30.setDate(em30.getDate() + 30)
-  const vencidos = dados.filter(d => d.proximo && new Date(d.proximo + 'T12:00:00') < hoje)
-  const proximos = dados.filter(d => d.proximo && new Date(d.proximo + 'T12:00:00') >= hoje && new Date(d.proximo + 'T12:00:00') <= em30)
+  const vencidos = dados.filter(d => d.proximo && !d.proximo_concluido_em && new Date(d.proximo + 'T12:00:00') < hoje)
+  const proximos = dados.filter(d => d.proximo && !d.proximo_concluido_em && new Date(d.proximo + 'T12:00:00') >= hoje && new Date(d.proximo + 'T12:00:00') <= em30)
 
   // Filtra os registros (Registros/Histórico) pelo ciclo local; Alertas mostra
   // sempre tudo, pois trata de vencimentos futuros, não do período de registro.
@@ -289,18 +309,28 @@ export default function Sanidade() {
             <AlertBox key={d.id} type="red"
               title={`${d.procedimento} — vencido`}
               body={`${d.lote_descricao} · Deveria ter sido aplicado em ${fmtData(d.proximo)} · ${diasDesde(d.proximo)} dias em atraso`}
+              action={podeEditarSanidadeCiclo && (
+                <button className="btn btn-secondary btn-xs" disabled={concluindoId === d.id} onClick={() => concluirAlerta(d)}>
+                  <i className="ti ti-check" /> {concluindoId === d.id ? 'Concluindo...' : 'Marcar como concluído'}
+                </button>
+              )}
             />
           ))}
           {proximos.map(d => (
             <AlertBox key={d.id} type="amber"
               title={`${d.procedimento} — próximo`}
               body={`${d.lote_descricao} · Previsto para ${fmtData(d.proximo)} · ${d.quantidade || ''} animais`}
+              action={podeEditarSanidadeCiclo && (
+                <button className="btn btn-secondary btn-xs" disabled={concluindoId === d.id} onClick={() => concluirAlerta(d)}>
+                  <i className="ti ti-check" /> {concluindoId === d.id ? 'Concluindo...' : 'Marcar como concluído'}
+                </button>
+              )}
             />
           ))}
           <div className="card" style={{ marginTop:12 }}>
             <div className="card-title"><i className="ti ti-calendar-event" /> Calendário sanitário — próximos 90 dias</div>
             {dados
-              .filter(d => d.proximo)
+              .filter(d => d.proximo && !d.proximo_concluido_em)
               .sort((a, b) => a.proximo.localeCompare(b.proximo))
               .slice(0, 8)
               .map(d => {
@@ -374,6 +404,14 @@ export default function Sanidade() {
         title="Excluir procedimento"
         message="Excluir este procedimento? Esta ação não pode ser desfeita."
         danger
+      />
+
+      <Confirm
+        open={!!ofertaNovoProc}
+        onClose={() => setOfertaNovoProc(null)}
+        onConfirm={() => registrarAplicacaoDoAlerta(ofertaNovoProc)}
+        title="Registrar aplicação agora?"
+        message="Alerta concluído. Deseja já registrar esta aplicação como um novo procedimento (com a data de hoje)? Você poderá selecionar o lote/animais e informar a próxima data, se houver."
       />
 
       {/* ── Modal ── */}

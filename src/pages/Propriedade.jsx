@@ -464,7 +464,7 @@ export default function Propriedade() {
       nome:       fazendaForm.nome,
       localizacao:fazendaForm.localizacao||'',
       area_total: parseFloat(fazendaForm.area_total)||0,
-      area_util:  parseFloat(fazendaForm.area_util)||0,
+      area_util:  totalHa, // sempre a soma dos piquetes cadastrados, não editável
     })
     setSaving(false)
     if (error) { toast('Erro: '+error.message,'error'); return }
@@ -684,7 +684,7 @@ export default function Propriedade() {
           </button>
         )}
         {podeEditarProp && fazendas.length > 0 && (
-          <button className="btn btn-secondary btn-sm" onClick={() => { setSection('fazenda'); setFazendaForm({ nome:fazendaAtual?.nome, localizacao:fazendaAtual?.localizacao, area_total:fazendaAtual?.area_total, area_util:fazendaAtual?.area_util }) }}>
+          <button className="btn btn-secondary btn-sm" onClick={() => { setSection('fazenda'); setFazendaForm({ nome:fazendaAtual?.nome, localizacao:fazendaAtual?.localizacao, area_total:fazendaAtual?.area_total }) }}>
             <i className="ti ti-settings" /> Configurar fazenda
           </button>
         )}
@@ -975,11 +975,14 @@ export default function Propriedade() {
               <Field label="Localização / Município">
                 <input value={fazendaForm.localizacao||''} onChange={e=>setFazendaForm(p=>({...p,localizacao:e.target.value}))} placeholder="ex: Viamão, RS" />
               </Field>
-              <Field label="Área total (ha)">
+              <Field label="Área total (ha)" hint="Inclui áreas não cultiváveis (sede, estradas, reserva) — não vem dos piquetes.">
                 <input type="number" step="0.1" value={fazendaForm.area_total||''} onChange={e=>setFazendaForm(p=>({...p,area_total:e.target.value}))} />
               </Field>
-              <Field label="Área útil (ha)">
-                <input type="number" step="0.1" value={fazendaForm.area_util||''} onChange={e=>setFazendaForm(p=>({...p,area_util:e.target.value}))} />
+              <Field label="Área útil (ha)"
+                hint="Área útil calculada automaticamente a partir dos piquetes cadastrados.">
+                <input type="text" readOnly
+                  value={totalHa > 0 ? `${totalHa.toFixed(1)} ha` : 'Cadastre piquetes para calcular'}
+                  style={{ background:'#F9FAFB', color:'#6B7280', cursor:'default' }} />
               </Field>
             </div>
             <div style={{ display:'flex', gap:8 }}>
@@ -1385,6 +1388,40 @@ function PlanProposito({ plan, setPlan, podeEditar }) {
   )
 }
 
+// Campo de valor em R$ com máscara — formata com separador de milhar só quando o
+// campo NÃO está em foco. Antes, a formatação rodava a cada tecla digitada e o
+// valor exibido mudava de tamanho (o "." de milhar aparece/desaparece), o que
+// fazia o cursor pular pro fim do campo a cada dígito — pior ainda ao completar
+// uma dezena (é quando o "." de milhar mais frequentemente entra ou sai).
+function CampoValorReais({ value, onChange, placeholder }) {
+  const [focado, setFocado] = useState(false)
+  let display = ''
+  if (value || value === 0) {
+    const str = String(value)
+    if (focado) {
+      display = str
+    } else {
+      const [int, dec] = str.split(',')
+      const intFormatado = (int || '0').replace(/\B(?=(\d{3})+(?!\d))/g, '.')
+      display = intFormatado + ',' + (dec ? dec.padEnd(2, '0') : '00')
+    }
+  }
+  return (
+    <input type="text" inputMode="decimal"
+      value={display}
+      onFocus={() => setFocado(true)}
+      onBlur={() => setFocado(false)}
+      onChange={e => {
+        const raw = e.target.value.replace(/[^\d,]/g, '')
+        const partes = raw.split(',')
+        const inteiro = partes[0]
+        const decimal = partes.length > 1 ? ',' + partes[1].slice(0, 2) : (raw.endsWith(',') ? ',' : '')
+        onChange(inteiro + decimal)
+      }}
+      placeholder={placeholder} />
+  )
+}
+
 function PlanNumeros({ plan, form, setForm, totalHa, resultadoLiquido, cicloAtual, rentTerra, rentRebanho, rentTotal, vTerraEfetivo, vRebanho, vTotal, benchmarks, onSaveValores, saving, podeEditar }) {
   useEffect(() => {
     setForm({
@@ -1410,81 +1447,20 @@ function PlanNumeros({ plan, form, setForm, totalHa, resultadoLiquido, cicloAtua
         <p style={{ fontSize:'.82rem', color:'#6B7280', marginBottom:14 }}>Informe o valor de mercado para calcular a rentabilidade do negócio.</p>
         <div className="grid-form">
           <Field label="Valor da terra (R$) — ou deixe vazio e use R$/ha">
-            <input type="text" inputMode="decimal"
-              value={(() => {
-                if (!form.valor_terra && form.valor_terra !== 0) return ''
-                const str = String(form.valor_terra)
-                const [int, dec] = str.split(',')
-                const intFormatado = int.replace(/\B(?=(\d{3})+(?!\d))/g,'.')
-                const decFormatado = dec ? dec.padEnd(2,'0') : '00'
-                return intFormatado + ',' + decFormatado
-              })()}
-              onChange={e => {
-                const raw = e.target.value.replace(/[^\d,]/g,'')
-                const partes = raw.split(',')
-                const inteiro = partes[0]
-                const decimal = partes.length > 1 ? ',' + partes[1].slice(0,2) : ''
-                setForm(p => ({...p, valor_terra: inteiro + decimal}))
-              }}
-              placeholder="ex: 4.600.000,00" />
+            <CampoValorReais value={form.valor_terra} placeholder="ex: 4.600.000,00"
+              onChange={v => setForm(p => ({...p, valor_terra: v}))} />
           </Field>
           <Field label={`Valor por hectare (R$/ha) — área: ${totalHa.toFixed(1)} ha`}>
-            <input type="text" inputMode="decimal"
-              value={(() => {
-                if (!form.valor_ha && form.valor_ha !== 0) return ''
-                const str = String(form.valor_ha)
-                const [int, dec] = str.split(',')
-                const intFormatado = int.replace(/\B(?=(\d{3})+(?!\d))/g,'.')
-                return intFormatado + (dec !== undefined ? ',' + dec : '')
-              })()}
-              onChange={e => {
-                // permite dígitos e no máximo uma vírgula com até 2 casas
-                const raw = e.target.value.replace(/[^\d,]/g,'')
-                const partes = raw.split(',')
-                const inteiro = partes[0].replace(/\D/g,'')
-                const decimal = partes.length > 1 ? ',' + partes[1].slice(0,2) : ''
-                const num = inteiro + decimal
-                setForm(p => ({...p, valor_ha: num}))
-              }}
-              placeholder="ex: 50.000" />
+            <CampoValorReais value={form.valor_ha} placeholder="ex: 50.000,00"
+              onChange={v => setForm(p => ({...p, valor_ha: v}))} />
           </Field>
           <Field label="Valor do rebanho (planejado) (R$)">
-            <input type="text" inputMode="decimal"
-              value={(() => {
-                if (!form.valor_rebanho && form.valor_rebanho !== 0) return ''
-                const str = String(form.valor_rebanho)
-                const [int, dec] = str.split(',')
-                const intFormatado = int.replace(/\B(?=(\d{3})+(?!\d))/g,'.')
-                const decFormatado = dec ? dec.padEnd(2,'0') : '00'
-                return intFormatado + ',' + decFormatado
-              })()}
-              onChange={e => {
-                const raw = e.target.value.replace(/[^\d,]/g,'')
-                const partes = raw.split(',')
-                const inteiro = partes[0]
-                const decimal = partes.length > 1 ? ',' + partes[1].slice(0,2) : ''
-                setForm(p => ({...p, valor_rebanho: inteiro + decimal}))
-              }}
-              placeholder="ex: 800.000,00" />
+            <CampoValorReais value={form.valor_rebanho} placeholder="ex: 800.000,00"
+              onChange={v => setForm(p => ({...p, valor_rebanho: v}))} />
           </Field>
           <Field label="Valor de benfeitorias (R$)">
-            <input type="text" inputMode="decimal"
-              value={(() => {
-                if (!form.valor_benfeitorias && form.valor_benfeitorias !== 0) return ''
-                const str = String(form.valor_benfeitorias)
-                const [int, dec] = str.split(',')
-                const intFormatado = int.replace(/\B(?=(\d{3})+(?!\d))/g,'.')
-                const decFormatado = dec ? dec.padEnd(2,'0') : '00'
-                return intFormatado + ',' + decFormatado
-              })()}
-              onChange={e => {
-                const raw = e.target.value.replace(/[^\d,]/g,'')
-                const partes = raw.split(',')
-                const inteiro = partes[0]
-                const decimal = partes.length > 1 ? ',' + partes[1].slice(0,2) : ''
-                setForm(p => ({...p, valor_benfeitorias: inteiro + decimal}))
-              }}
-              placeholder="opcional" />
+            <CampoValorReais value={form.valor_benfeitorias} placeholder="opcional"
+              onChange={v => setForm(p => ({...p, valor_benfeitorias: v}))} />
           </Field>
         </div>
         <div style={{ display:'flex', gap:8 }}>

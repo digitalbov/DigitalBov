@@ -1,6 +1,6 @@
 ﻿import { useState, useEffect, useRef } from 'react'
 import { db } from '../lib/supabase'
-import { fmtData, algumErro } from '../lib/helpers'
+import { fmtData, algumErro, calcLotesFEFO } from '../lib/helpers'
 import { Loading, BotaoPDF, EmptyState, ErroCarregamento, SeletorCicloLocal } from '../components/UI'
 import { useCiclo } from '../lib/CicloContext'
 import { useCicloLocal } from '../lib/useCicloLocal'
@@ -136,10 +136,11 @@ export default function Calendario() {
         db.lotesInseminacao.listInseminacoesResumo(),
         db.sanidade.list(),
         db.estoque.list(),
-        db.animais.list({ situacao: 'ativo' })
+        db.animais.list({ situacao: 'ativo' }),
+        db.movEstoque.list(),
       ])
       if (algumErro('[Calendario]', resultados)) { setLoadError(true); return }
-      const [rLotes, rSanidade, rEstoque, rAnimais] = resultados
+      const [rLotes, rSanidade, rEstoque, rAnimais, rMovEstoque] = resultados
 
       const evs = []
 
@@ -161,7 +162,7 @@ export default function Calendario() {
 
       // b. Próximos procedimentos sanitários (campo "proximo" preenchido)
       for (const proc of (rSanidade.data || [])) {
-        if (!proc.proximo) continue
+        if (!proc.proximo || proc.proximo_concluido_em) continue
         const dias = diasAte(proc.proximo)
         const titulo = [proc.tipo, proc.procedimento].filter(Boolean).join(' — ')
         evs.push({
@@ -172,16 +173,25 @@ export default function Calendario() {
         })
       }
 
-      // c. Vencimentos de estoque (validade preenchida)
+      // c. Vencimentos de estoque por LOTE (FEFO) — cada item pode ter vários
+      // lotes de entrada com validades diferentes; um evento por lote com saldo > 0.
+      const movsPorItem = {}
+      for (const m of (rMovEstoque.data || [])) {
+        movsPorItem[m.item_id] = movsPorItem[m.item_id] || []
+        movsPorItem[m.item_id].push(m)
+      }
       for (const item of (rEstoque.data || [])) {
-        if (!item.validade) continue
-        const dias = diasAte(item.validade)
-        evs.push({
-          tipo: 'estoque', icon: '📦',
-          titulo:    `Validade — ${item.item}`,
-          descricao: `Estoque: ${parseFloat(item.quantidade).toFixed(1)} ${item.unidade} · ${item.categoria}`,
-          data: item.validade, dias
-        })
+        const lotes = calcLotesFEFO(movsPorItem[item.id] || [])
+        for (const lote of lotes) {
+          if (!lote.validade) continue
+          const dias = diasAte(lote.validade)
+          evs.push({
+            tipo: 'estoque', icon: '📦',
+            titulo:    `Validade — ${item.item}`,
+            descricao: `Lote: ${parseFloat(lote.saldo).toFixed(1)} ${item.unidade} · ${item.categoria}`,
+            data: lote.validade, dias
+          })
+        }
       }
 
       // Ordenar: menor dias (mais urgente) primeiro; null no final
