@@ -33,8 +33,8 @@ function CardResultadoSafra({ titulo, sm, andamento, previsao }) {
       </div>
       {andamento && (
         <AlertBox type="amber" icon="ti-hourglass"
-          title="Safra em andamento"
-          body={`Partos previstos a partir de ${fmtData(previsao)}.`} />
+          title="Safra em andamento — perda gestacional parcial"
+          body={`${sm.nAbortos} aborto${sm.nAbortos!==1?'s':''} registrado${sm.nAbortos!==1?'s':''} · ${sm.gestando} gestaç${sm.gestando!==1?'ões':'ão'} em andamento · perda gestacional final a apurar. Próximos partos previstos a partir de ${fmtData(previsao)}.`} />
       )}
       <div className="grid-4" style={{ marginTop:10 }}>
         {[
@@ -43,11 +43,13 @@ function CardResultadoSafra({ titulo, sm, andamento, previsao }) {
           ['Inseminadas (expostas)',       sm.total,                                                        '#111'   ],
           ['Prenhas',                      sm.prenhas,                                                      '#1E55B0'],
           ['Taxa de prenhez',              sm.txPrenhez!=null?`${sm.txPrenhez}%`:'—',                      '#1E55B0', 'Matrizes distintas com diagnóstico P ÷ matrizes distintas expostas (não conta a mesma vaca 2x se ela entrou na IATF e no repasse).'],
+          ['Gestando',                     sm.gestando,                                                      '#92620A', 'Prenhas cuja monta ainda está dentro da janela normal de gestação e sem parto/aborto registrado — não contam como perda.'],
           ['Abortos',                      sm.nAbortos,                                                     '#791F1F'],
-          ['Perdas não identificadas',     sm.perdasNaoIdentificadas,                                       '#791F1F'],
-          ['Perda gestacional',            sm.perdaGestacional!=null?`${sm.perdaGestacional}%`:'—',        '#791F1F'],
+          ['Perdas não identificadas',     sm.perdasNaoIdentificadas,                                       '#791F1F', 'Prenhas que já passaram da janela de gestação sem parto nem aborto registrado — só entram aqui depois que a gestação deveria ter terminado.'],
+          ['Perda gestacional',            sm.perdaGestacional!=null?`${sm.perdaGestacional}%`:'—',        '#791F1F', 'Abortos + perdas não identificadas ÷ prenhas. Prenhas ainda gestando não entram nesse cálculo.'],
           ['Partos',                       sm.nascimentos,                                                  '#0C447C'],
-          ['Taxa de parição (natalidade)', sm.txNatalidade!=null?`${sm.txNatalidade}%`:'—',                '#0C447C'],
+          ['Taxa de parição (natalidade)', sm.txNatalidade!=null?`${sm.txNatalidade}%`:'—',                '#0C447C', 'Partos realizados até agora ÷ matrizes expostas — tende a ser baixa enquanto a safra está em andamento.'],
+          ['Parição prevista',             sm.paricaoPrevista!=null?`${sm.paricaoPrevista}%`:'—',          '#0C447C', 'Partos realizados + gestações em andamento ÷ matrizes expostas — projeção otimista assumindo que as gestações em andamento cheguem a termo.'],
           ['Mortalidade de bezerros',      sm.mortalidadeBezerros!=null?`${sm.mortalidadeBezerros}%`:'—',  '#791F1F'],
           ['Desmamados',                   sm.desmamados,                                                   '#166534'],
           ['Taxa de desmama',              sm.txDesmama!=null?`${sm.txDesmama}%`:'—',                      '#166534'],
@@ -64,7 +66,8 @@ function CardResultadoSafra({ titulo, sm, andamento, previsao }) {
       <div style={{ fontSize:'.7rem', color:'#9CA3AF', marginTop:10, lineHeight:1.5 }}>
         Taxa de aproveitamento acima de 100% indica que fêmeas com menos de 24 meses foram expostas (novilhas precoces) — é um sinal de boa arquitetura de rebanho, não um erro; abaixo de 100% indica matrizes aptas que ficaram ociosas.
         Matrizes expostas e prenhas contam animais distintos (uma vaca exposta na IATF e no repasse conta 1x).
-        Perda gestacional = abortos registrados + perdas não identificadas (prenhas − partos − abortos) ÷ prenhas.
+        Perda gestacional = (abortos registrados + perdas não identificadas) ÷ prenhas — prenhas ainda dentro da janela de gestação (gestando) NÃO contam como perda.
+        Perdas não identificadas = prenhas − partos − abortos − gestando (só as que já deveriam ter parido e não pariram nem abortaram).
         Mortalidade de bezerros = bezerros com situação "morto" entre os partos desta safra ÷ total de partos.
         Taxa de desmama e kg/matriz exposta usam as matrizes expostas (distintas) como base, não os nascidos — referência de mercado para kg/matriz exposta: acima de 160 kg.
       </div>
@@ -778,12 +781,20 @@ export default function Reprodutivo() {
     const txParicao   = prenhas > 0 ? Math.round(nascimentos / prenhas * 100) : 0
     // Novos índices da safra — denominador = matrizes expostas distintas
     const txNatalidade      = total > 0 ? Math.round(nascimentos / total * 100) : null
-    // Perda gestacional agora é MEDIDA: abortos registrados + a diferença que não
-    // foi explicada por parto nem por aborto (perdas não identificadas).
     const abortosLoteAll = lote.abortos || []
     const abortosLote = propId ? abortosLoteAll.filter(a => a.animal?.proprietario_id === propId) : abortosLoteAll
     const nAbortos = abortosLote.length
-    const perdasNaoIdentificadas = Math.max(0, prenhas - nascimentos - nAbortos)
+    // Perda gestacional: só conta o que já é (ou já deveria ser) um desfecho
+    // conhecido. Prenhas cuja monta (lote.data) ainda está dentro da janela de
+    // gestação (< GESTACAO_MAX_DIAS) NÃO são perda — ainda estão gestando, e
+    // contá-las como "perda" é o que fazia a taxa mostrar ~100% numa safra em
+    // andamento (ex: 52 prenhas, 1 parto, 3 abortos → só os 3 abortos são perda
+    // de fato; as outras 48 ainda não pariram porque a gestação não terminou).
+    const diasDesdeMonta = lote.data ? Math.round((new Date() - new Date(lote.data + 'T12:00:00')) / 86400000) : null
+    const aindaDentroDaJanela = diasDesdeMonta !== null && diasDesdeMonta < GESTACAO_MAX_DIAS
+    const semDesfecho = Math.max(0, prenhas - nascimentos - nAbortos)
+    const gestando = aindaDentroDaJanela ? semDesfecho : 0
+    const perdasNaoIdentificadas = aindaDentroDaJanela ? 0 : semDesfecho
     const perdaGestacional = prenhas > 0 ? Math.round((nAbortos + perdasNaoIdentificadas) / prenhas * 100) : null
     const mortosBezerros    = partosLote.filter(p => p.bezerro?.situacao === 'morto').length
     const mortalidadeBezerros = nascimentos > 0 ? Math.round(mortosBezerros / nascimentos * 100) : null
@@ -791,13 +802,17 @@ export default function Reprodutivo() {
     // Sem teto em 100%: taxa acima de 100% é esperada e correta quando novilhas
     // com menos de 24 meses (fora da definição de "matriz apta") são expostas.
     const txAproveitamento = matrizesAptas > 0 ? Math.round(total / matrizesAptas * 100) : null
+    // Parição prevista: se todas as gestações em andamento chegarem a termo, qual
+    // seria a parição final — projeção otimista pra contextualizar a parição
+    // realizada (ainda baixa) enquanto a safra está em andamento.
+    const paricaoPrevista = total > 0 ? Math.round((nascimentos + gestando) / total * 100) : null
     const desm = calcDesmameMetrics(partosLote, total)
     const partoPrev = lote.data
       ? new Date(new Date(lote.data).setMonth(new Date(lote.data).getMonth() + 9)).toLocaleDateString('pt-BR')
       : '—'
     return {
       total, totalInseminacoes, prenhas, vazias, pendentes, txPrenhez, nascimentos, txParicao,
-      txNatalidade, nAbortos, perdasNaoIdentificadas, perdaGestacional,
+      txNatalidade, paricaoPrevista, gestando, nAbortos, perdasNaoIdentificadas, perdaGestacional,
       mortalidadeBezerros, matrizesAptas, txAproveitamento, ...desm,
       partoPrev,
     }
@@ -840,7 +855,12 @@ export default function Reprodutivo() {
     const kpiAbortos = (filtroPropIdx
       ? kpiAbortosArrBruto.filter(a => a.animal?.proprietario_id === filtroPropIdx)
       : kpiAbortosArrBruto).length
-    const kpiPerdasNaoIdentificadas = Math.max(0, kpiPrn - kpiPartos - kpiAbortos)
+    // Gestando precisa da data da MONTA de cada lote (varia entre IATF/repasses
+    // do mesmo ciclo), então é somado por lote via calcLoteMetrics — não dá pra
+    // derivar isso só dos totais agregados acima. O restante do funil (prenhas/
+    // partos/abortos deduplicados) continua vindo dos totais já calculados.
+    const kpiGestando = lotesCicloAtual.reduce((soma, l) => soma + calcLoteMetrics(l, filtroPropIdx || null).gestando, 0)
+    const kpiPerdasNaoIdentificadas = Math.max(0, kpiPrn - kpiPartos - kpiAbortos - kpiGestando)
     const kpiPerdaGestacional = kpiPrn > 0 ? Math.round((kpiAbortos + kpiPerdasNaoIdentificadas) / kpiPrn * 100) : null
     const primeiraMontaCiclo = lotesCicloAtual.map(l => l.data).filter(Boolean).sort()[0] || null
     const animaisParaAptas = filtroPropIdx ? animais.filter(a => a.proprietario_id === filtroPropIdx) : animais
@@ -849,8 +869,8 @@ export default function Reprodutivo() {
     // correta quando novilhas com menos de 24 meses (fora da definição de "matriz
     // apta") são expostas à reprodução — não é um erro de cálculo.
     const kpiTxAproveitamento = kpiMatrizesAptas > 0 ? Math.round(kpiIns / kpiMatrizesAptas * 100) : null
+    const kpiParicaoPrevista = kpiIns > 0 ? Math.round((kpiPartos + kpiGestando) / kpiIns * 100) : null
     const kpiDesmame = calcDesmameMetrics(kpiPartosArr, kpiIns)
-    const safraCicloEmAndamento = lotesCicloAtual.some(l => safraEmAndamento(l, cicloLocal))
     const previsaoSafraCiclo = (() => {
       const emAndamento = lotesCicloAtual.filter(l => safraEmAndamento(l, cicloLocal))
       if (emAndamento.length === 0) return null
@@ -946,9 +966,9 @@ export default function Reprodutivo() {
       .sort((a, b) => b.txPrenhez - a.txPrenhez)
 
     return {
-      lotesCicloAtual, kpiInsTotal, kpiIns, kpiPrn, kpiPartos, kpiMortalidade, kpiAbortos,
-      kpiPerdasNaoIdentificadas, kpiPerdaGestacional, kpiMatrizesAptas, kpiTxAproveitamento,
-      kpiDesmame, safraCicloEmAndamento, previsaoSafraCiclo, kpiIntervalo,
+      lotesCicloAtual, kpiInsTotal, kpiIns, kpiPrn, kpiPartos, kpiMortalidade, kpiAbortos, kpiGestando,
+      kpiPerdasNaoIdentificadas, kpiPerdaGestacional, kpiMatrizesAptas, kpiTxAproveitamento, kpiParicaoPrevista,
+      kpiDesmame, previsaoSafraCiclo, kpiIntervalo,
       barData, lineData, pieData, tabelaLotes, tourosRanking,
     }
   }, [todosLotes, todosPartos, cicloLocal, animais, sortCol, sortAsc, filtroPropIdx])
@@ -957,9 +977,9 @@ export default function Reprodutivo() {
   if (loadError) return <ErroCarregamento onRetry={loadAll} />
 
   const {
-    lotesCicloAtual, kpiInsTotal, kpiIns, kpiPrn, kpiPartos, kpiMortalidade, kpiAbortos,
-    kpiPerdasNaoIdentificadas, kpiPerdaGestacional, kpiMatrizesAptas, kpiTxAproveitamento,
-    kpiDesmame, safraCicloEmAndamento, previsaoSafraCiclo, kpiIntervalo,
+    lotesCicloAtual, kpiInsTotal, kpiIns, kpiPrn, kpiPartos, kpiMortalidade, kpiAbortos, kpiGestando,
+    kpiPerdasNaoIdentificadas, kpiPerdaGestacional, kpiMatrizesAptas, kpiTxAproveitamento, kpiParicaoPrevista,
+    kpiDesmame, previsaoSafraCiclo, kpiIntervalo,
     barData, lineData, pieData, tabelaLotes, tourosRanking,
   } = idx
 
@@ -1161,7 +1181,7 @@ export default function Reprodutivo() {
                 <CardResultadoSafra
                   titulo="Resultado da safra"
                   sm={sm}
-                  andamento={safraEmAndamento(selLote, cicloLocal)}
+                  andamento={sm.gestando > 0}
                   previsao={previsaoPartoLote}
                 />
               </>
@@ -1470,15 +1490,17 @@ export default function Reprodutivo() {
                   total:               kpiIns,
                   prenhas:             kpiPrn,
                   txPrenhez:           kpiIns > 0 ? Math.round(kpiPrn / kpiIns * 100) : null,
+                  gestando:            kpiGestando,
                   nAbortos:            kpiAbortos,
                   perdasNaoIdentificadas: kpiPerdasNaoIdentificadas,
                   perdaGestacional:    kpiPerdaGestacional,
                   nascimentos:         kpiPartos,
                   txNatalidade:        kpiIns > 0 ? Math.round(kpiPartos / kpiIns * 100) : null,
+                  paricaoPrevista:     kpiParicaoPrevista,
                   mortalidadeBezerros: kpiMortalidade,
                   ...kpiDesmame,
                 }}
-                andamento={safraCicloEmAndamento}
+                andamento={kpiGestando > 0}
                 previsao={previsaoSafraCiclo}
               />
             </div>
