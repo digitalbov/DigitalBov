@@ -141,6 +141,79 @@ export function calcTaxaPrenhez(inseminacoes) {
 export const contarExpostas = (inseminacoes) => new Set((inseminacoes || []).map(i => i.animal_id)).size
 export const contarPrenhas  = (inseminacoes) => new Set((inseminacoes || []).filter(i => i.diagnostico === 'P').map(i => i.animal_id)).size
 
+// ── Perda gestacional (fórmula única, usada em Reprodutivo e Metas) ───────────
+// Fim da janela normal de gestação — prenhas cuja monta ainda está dentro dela
+// NÃO são perda (ainda podem parir); só depois disso, sem parto nem aborto
+// registrado, uma prenha vira "perda não identificada".
+export const GESTACAO_MAX_DIAS = 300
+
+export function calcGestacaoLote(loteData, prenhas, nascimentos, nAbortos, hoje = new Date()) {
+  const diasDesdeMonta = loteData ? Math.round((hoje - new Date(loteData + 'T12:00:00')) / 86400000) : null
+  const aindaDentroDaJanela = diasDesdeMonta !== null && diasDesdeMonta < GESTACAO_MAX_DIAS
+  const semDesfecho = Math.max(0, prenhas - nascimentos - nAbortos)
+  const gestando = aindaDentroDaJanela ? semDesfecho : 0
+  const perdasNaoIdentificadas = aindaDentroDaJanela ? 0 : semDesfecho
+  const perdaGestacional = prenhas > 0 ? Math.round((nAbortos + perdasNaoIdentificadas) / prenhas * 100) : null
+  return { gestando, perdasNaoIdentificadas, perdaGestacional }
+}
+
+// Desmame + peso ajustado 205 dias (padrão Embrapa) para um conjunto de partos.
+// totalInseminadas = "matrizes expostas" — denominador oficial da taxa de
+// desmama e do kg desmamado por matriz exposta (não usa nascidos).
+export function calcDesmameMetrics(partosArr, totalInseminadas) {
+  const desmamados = (partosArr || []).filter(p => p.bezerro?.data_desmame).length
+  // Guardado por desmamados > 0, não só por totalInseminadas > 0: sem nenhum
+  // desmame registrado ainda, "0%"/"0 kg" pareceriam resultado real (ruim) em
+  // vez de "ainda não há desmames" — a safra pode estar só em andamento.
+  const txDesmama = (totalInseminadas > 0 && desmamados > 0) ? Math.round(desmamados / totalInseminadas * 100) : null
+  const pesosDesmame = []
+  const p205s = []
+  ;(partosArr || []).forEach(p => {
+    const pesagensB = p.bezerro?.pesagens || []
+    const pesoNasc = pesagensB.find(ps => ps.tipo === 'nascimento')
+    const pesoDesm = pesagensB.find(ps => ps.tipo === 'desmama')
+    if (!pesoDesm) return
+    const pd = parseFloat(pesoDesm.peso_kg)
+    if (Number.isFinite(pd)) pesosDesmame.push(pd)
+    if (pesoNasc && p.data_parto && pesoDesm.data) {
+      const pn = parseFloat(pesoNasc.peso_kg)
+      const diasDesmame = Math.round((new Date(pesoDesm.data) - new Date(p.data_parto)) / 86400000)
+      if (Number.isFinite(pn) && diasDesmame > 0) {
+        p205s.push(((pd - pn) / diasDesmame) * 205 + pn)
+      }
+    }
+  })
+  const media = arr => arr.length > 0 ? Math.round(arr.reduce((s, v) => s + v, 0) / arr.length * 10) / 10 : null
+  return {
+    desmamados, txDesmama,
+    pesoMedioDesmame: media(pesosDesmame),
+    p205Medio: media(p205s),
+    kgPorMatrizExposta: (totalInseminadas > 0 && pesosDesmame.length > 0) ? Math.round(pesosDesmame.reduce((s, v) => s + v, 0) / totalInseminadas * 10) / 10 : null,
+  }
+}
+
+// Intervalo entre partos consecutivos da MESMA mãe — só considera intervalos
+// plausíveis para bovinos (padrão 300–700 dias); mães com só 1 parto não entram
+// (não há intervalo pra medir).
+export function calcIntervaloPartos(partosArr, minDias = 300, maxDias = 700) {
+  const partosPorMae = {}
+  ;(partosArr || []).forEach(p => {
+    if (!p.mae_id || !p.data_parto) return
+    partosPorMae[p.mae_id] = partosPorMae[p.mae_id] || []
+    partosPorMae[p.mae_id].push(p.data_parto)
+  })
+  const intervalos = []
+  Object.values(partosPorMae).forEach(datas => {
+    const ordenadas = datas.slice().sort()
+    for (let i = 1; i < ordenadas.length; i++) {
+      const dias = Math.round((new Date(ordenadas[i]) - new Date(ordenadas[i - 1])) / 86400000)
+      if (Number.isFinite(dias) && dias >= minDias && dias <= maxDias) intervalos.push(dias)
+    }
+  })
+  const media = intervalos.length > 0 ? Math.round(intervalos.reduce((s, d) => s + d, 0) / intervalos.length) : null
+  return { intervalos, media }
+}
+
 // ── Estoque: saldo por lote (FEFO) ─────────────────────────────────────────────
 // Recebe as movimentações de UM item (tipo 'E'/'S') e devolve o saldo por lote de
 // validade, consumindo primeiro os lotes que vencem antes (First Expired, First

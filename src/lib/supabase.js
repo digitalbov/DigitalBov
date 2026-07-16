@@ -272,6 +272,7 @@ export const db = {
 
   metas: {
     list:   ()      => T('metas').select('*').order('indicador'),
+    insert: (data)  => T('metas').insertOne(data).select().single(),
     update: (id, d) => escopo(T('metas').raw().update(d).eq('id', id)).select().single(),
   },
 

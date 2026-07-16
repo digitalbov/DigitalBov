@@ -5,7 +5,10 @@ import { useFazenda } from '../lib/FazendaContext'
 import { useConta } from '../lib/ContaContext'
 import { useCiclo, statusCiclo } from '../lib/CicloContext'
 import { useCicloLocal } from '../lib/useCicloLocal'
-import { fmtData, pct, contarMatrizes, contarExpostas, contarPrenhas, calcTaxaPrenhez, calcCategoriaRebanho, algumErro } from '../lib/helpers'
+import {
+  fmtData, pct, contarMatrizes, contarExpostas, contarPrenhas, calcTaxaPrenhez, calcCategoriaRebanho, algumErro,
+  GESTACAO_MAX_DIAS, calcGestacaoLote, calcDesmameMetrics, calcIntervaloPartos,
+} from '../lib/helpers'
 import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, AlertBox, BotaoPDF, ErroCarregamento, BannerCicloEncerrado, SeletorCicloLocal } from '../components/UI'
 import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
@@ -15,10 +18,6 @@ import {
 const TABS = ['Lotes de Inseminação','Nascimentos','Índices']
 const GESTACAO_ANGUS_DIAS = 283
 const GESTACAO_MIN_DIAS = 260
-const GESTACAO_MAX_DIAS = 300
-// Intervalo entre partos plausível para bovinos (usado no cálculo do intervalo médio)
-const INTERVALO_PARTOS_MIN_DIAS = 300
-const INTERVALO_PARTOS_MAX_DIAS = 700
 
 // Card único do funil da safra reprodutiva (Matrizes aptas → Aproveitamento →
 // Inseminadas → Prenhez → Partos/Parição → Perdas). Reaproveitado tanto no
@@ -50,7 +49,7 @@ function CardResultadoSafra({ titulo, sm, andamento, previsao }) {
           ['Partos',                       sm.nascimentos,                                                  '#0C447C'],
           ['Taxa de parição (natalidade)', sm.txNatalidade!=null?`${sm.txNatalidade}%`:'—',                '#0C447C', 'Partos realizados até agora ÷ matrizes expostas — tende a ser baixa enquanto a safra está em andamento.'],
           ['Parição prevista',             sm.paricaoPrevista!=null?`${sm.paricaoPrevista}%`:'—',          '#0C447C', 'Partos realizados + gestações em andamento ÷ matrizes expostas — projeção otimista assumindo que as gestações em andamento cheguem a termo.'],
-          ['Mortalidade de bezerros',      sm.mortalidadeBezerros!=null?`${sm.mortalidadeBezerros}%`:'—',  '#791F1F'],
+          ['Mortalidade de terneiros',     sm.mortalidadeBezerros!=null?`${sm.mortalidadeBezerros}%`:'—',  '#791F1F'],
           ['Desmamados',                   sm.desmamados,                                                   '#166534'],
           ['Taxa de desmama',              sm.txDesmama!=null?`${sm.txDesmama}%`:'—',                      '#166534'],
           ['Peso médio ao desmame',        sm.pesoMedioDesmame!=null?`${sm.pesoMedioDesmame} kg`:'—',       '#166534'],
@@ -68,7 +67,7 @@ function CardResultadoSafra({ titulo, sm, andamento, previsao }) {
         Matrizes expostas e prenhas contam animais distintos (uma vaca exposta na IATF e no repasse conta 1x).
         Perda gestacional = (abortos registrados + perdas não identificadas) ÷ prenhas — prenhas ainda dentro da janela de gestação (gestando) NÃO contam como perda.
         Perdas não identificadas = prenhas − partos − abortos − gestando (só as que já deveriam ter parido e não pariram nem abortaram).
-        Mortalidade de bezerros = bezerros com situação "morto" entre os partos desta safra ÷ total de partos.
+        Mortalidade de terneiros = terneiros com situação "morto" entre os partos desta safra ÷ total de partos.
         Taxa de desmama e kg/matriz exposta usam as matrizes expostas (distintas) como base, não os nascidos — referência de mercado para kg/matriz exposta: acima de 160 kg.
       </div>
     </div>
@@ -730,38 +729,6 @@ export default function Reprodutivo() {
   // ciclo seguinte. `lote.partos` vem do FK partos.lote_inseminacao_id (join no
   // supabase.js), por isso é uma contagem exata, diferente de casar por mae_id.
 
-  // Desmame + peso ajustado 205 dias (padrão Embrapa) para um conjunto de partos.
-  // totalInseminadas = "matrizes expostas" — denominador oficial da taxa de
-  // desmama e do kg desmamado por matriz exposta (não usa nascidos).
-  const calcDesmameMetrics = (partosArr, totalInseminadas) => {
-    const desmamados = partosArr.filter(p => p.bezerro?.data_desmame).length
-    const txDesmama  = totalInseminadas > 0 ? Math.round(desmamados / totalInseminadas * 100) : null
-    const pesosDesmame = []
-    const p205s = []
-    partosArr.forEach(p => {
-      const pesagensB = p.bezerro?.pesagens || []
-      const pesoNasc = pesagensB.find(ps => ps.tipo === 'nascimento')
-      const pesoDesm = pesagensB.find(ps => ps.tipo === 'desmama')
-      if (!pesoDesm) return
-      const pd = parseFloat(pesoDesm.peso_kg)
-      if (Number.isFinite(pd)) pesosDesmame.push(pd)
-      if (pesoNasc && p.data_parto && pesoDesm.data) {
-        const pn = parseFloat(pesoNasc.peso_kg)
-        const diasDesmame = Math.round((new Date(pesoDesm.data) - new Date(p.data_parto)) / 86400000)
-        if (Number.isFinite(pn) && diasDesmame > 0) {
-          p205s.push(((pd - pn) / diasDesmame) * 205 + pn)
-        }
-      }
-    })
-    const media = arr => arr.length > 0 ? Math.round(arr.reduce((s, v) => s + v, 0) / arr.length * 10) / 10 : null
-    return {
-      desmamados, txDesmama,
-      pesoMedioDesmame: media(pesosDesmame),
-      p205Medio: media(p205s),
-      kgPorMatrizExposta: totalInseminadas > 0 ? Math.round(pesosDesmame.reduce((s, v) => s + v, 0) / totalInseminadas * 10) / 10 : null,
-    }
-  }
-
   const calcLoteMetrics = (lote, propId = null) => {
     const insAll = lote.inseminacoes || []
     const ins = propId ? insAll.filter(i => i.animal?.proprietario_id === propId) : insAll
@@ -785,17 +752,9 @@ export default function Reprodutivo() {
     const abortosLote = propId ? abortosLoteAll.filter(a => a.animal?.proprietario_id === propId) : abortosLoteAll
     const nAbortos = abortosLote.length
     // Perda gestacional: só conta o que já é (ou já deveria ser) um desfecho
-    // conhecido. Prenhas cuja monta (lote.data) ainda está dentro da janela de
-    // gestação (< GESTACAO_MAX_DIAS) NÃO são perda — ainda estão gestando, e
-    // contá-las como "perda" é o que fazia a taxa mostrar ~100% numa safra em
-    // andamento (ex: 52 prenhas, 1 parto, 3 abortos → só os 3 abortos são perda
-    // de fato; as outras 48 ainda não pariram porque a gestação não terminou).
-    const diasDesdeMonta = lote.data ? Math.round((new Date() - new Date(lote.data + 'T12:00:00')) / 86400000) : null
-    const aindaDentroDaJanela = diasDesdeMonta !== null && diasDesdeMonta < GESTACAO_MAX_DIAS
-    const semDesfecho = Math.max(0, prenhas - nascimentos - nAbortos)
-    const gestando = aindaDentroDaJanela ? semDesfecho : 0
-    const perdasNaoIdentificadas = aindaDentroDaJanela ? 0 : semDesfecho
-    const perdaGestacional = prenhas > 0 ? Math.round((nAbortos + perdasNaoIdentificadas) / prenhas * 100) : null
+    // conhecido — prenhas ainda dentro da janela de gestação não são perda.
+    // calcGestacaoLote é a fórmula única, compartilhada com Metas.jsx.
+    const { gestando, perdasNaoIdentificadas, perdaGestacional } = calcGestacaoLote(lote.data, prenhas, nascimentos, nAbortos)
     const mortosBezerros    = partosLote.filter(p => p.bezerro?.situacao === 'morto').length
     const mortalidadeBezerros = nascimentos > 0 ? Math.round(mortosBezerros / nascimentos * 100) : null
     const matrizesAptas   = lote.data ? contarMatrizes(propId ? animais.filter(a => a.proprietario_id === propId) : animais, lote.data) : 0
@@ -879,31 +838,11 @@ export default function Reprodutivo() {
       })
       return new Date(Math.min(...datas))
     })()
-    // Intervalo entre partos: para cada mãe com 2+ partos, mede o intervalo entre
-    // partos consecutivos; só considera intervalos plausíveis para bovinos (300–700 dias)
-    const intervalosPartosValidos = (() => {
-      const partosPorMae = {}
-      const partosBase = filtroPropIdx ? todosPartos.filter(p => p.mae?.proprietario_id === filtroPropIdx) : todosPartos
-      partosBase.forEach(p => {
-        if (!p.mae_id || !p.data_parto) return
-        partosPorMae[p.mae_id] = partosPorMae[p.mae_id] || []
-        partosPorMae[p.mae_id].push(p.data_parto)
-      })
-      const intervalos = []
-      Object.values(partosPorMae).forEach(datas => {
-        const ordenadas = datas.slice().sort()
-        for (let i = 1; i < ordenadas.length; i++) {
-          const dias = Math.round((new Date(ordenadas[i]) - new Date(ordenadas[i-1])) / 86400000)
-          if (Number.isFinite(dias) && dias >= INTERVALO_PARTOS_MIN_DIAS && dias <= INTERVALO_PARTOS_MAX_DIAS) {
-            intervalos.push(dias)
-          }
-        }
-      })
-      return intervalos
-    })()
-    const kpiIntervalo = intervalosPartosValidos.length === 0
-      ? '—'
-      : `${Math.round(intervalosPartosValidos.reduce((s, d) => s + d, 0) / intervalosPartosValidos.length)} dias`
+    // Intervalo entre partos — fórmula única (helpers.calcIntervaloPartos),
+    // compartilhada com Metas.jsx.
+    const partosBaseIntervalo = filtroPropIdx ? todosPartos.filter(p => p.mae?.proprietario_id === filtroPropIdx) : todosPartos
+    const { media: intervaloMedioDias } = calcIntervaloPartos(partosBaseIntervalo)
+    const kpiIntervalo = intervaloMedioDias === null ? '—' : `${intervaloMedioDias} dias`
 
     const cicloMapIdx = new Map()
     todosLotes.forEach(l => { if (l.ciclo) cicloMapIdx.set(l.ciclo_id, l.ciclo) })
