@@ -117,7 +117,7 @@ export const db = {
 
   lotesInseminacao: {
     list: (cicloId) => T('lotes_inseminacao').select(`
-      *, inseminacoes(*, animal:animais(brinco,proprietario_id,proprietario:proprietarios(nome))),
+      *, inseminacoes(*, animal:animais(brinco,proprietario_id,sit_reprodutiva,proprietario:proprietarios(nome))),
       partos(id,bezerro_id,mae_id,data_parto,mae:animais!mae_id(proprietario_id),bezerro:animais!bezerro_id(situacao,data_desmame,pesagens(data,tipo,peso_kg))),
       abortos(id,animal_id,data,causa,animal:animais(proprietario_id)),
       estacao:estacoes_monta(id,nome,inicio,fim)

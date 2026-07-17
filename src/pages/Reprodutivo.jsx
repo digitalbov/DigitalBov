@@ -660,7 +660,15 @@ export default function Reprodutivo() {
     // apaga na ordem: pesagem de nascimento -> parto -> animal
     await db.partos.delete(p.id)
     if (p.bezerro_id) await db.animais.delete(p.bezerro_id)
-    toast('Nascimento excluído.')
+    // A mãe foi marcada 'vazia' quando o parto foi registrado (salvarParto) e NÃO
+    // é revertida para 'prenha' automaticamente aqui: não há garantia de que ela
+    // ainda esteja gestante (pode já ter sido reinseminada, abortado etc. desde
+    // então) — reverter às cegas arriscaria marcar como prenha uma vaca que não
+    // está. Se este era o único parto da mãe no histórico, avisamos para revisão manual.
+    const { data: partosRestantes } = await db.partos.byMae(p.mae_id)
+    toast((!partosRestantes || partosRestantes.length === 0)
+      ? 'Nascimento excluído. Essa era a única cria registrada da mãe — se ela ainda estiver prenha, atualize a situação reprodutiva manualmente no cadastro do animal.'
+      : 'Nascimento excluído.')
     loadAll()
     if (cicloLocal) loadPartosNasc(cicloLocal.id)
   }
@@ -1171,6 +1179,10 @@ export default function Reprodutivo() {
               const br = ins.animal?.brinco || '?'
               const d  = ins.diagnostico
               const abortoReg = (selLote.abortos || []).find(ab => ab.animal_id === ins.animal_id)
+              // Parto já registrado para esta mãe NESTE lote (partos vem embutido
+              // via FK partos.lote_inseminacao_id -> já vem filtrado pelo lote).
+              const partoReg = (selLote.partos || []).find(p => p.mae_id === ins.animal_id)
+              const situacaoAtual = ins.animal?.sit_reprodutiva
               return (
                 <div key={ins.id} style={{
                   display:'flex', alignItems:'center', justifyContent:'space-between',
@@ -1184,12 +1196,22 @@ export default function Reprodutivo() {
                     )}
                     <div>
                       <span style={{ fontWeight:500, minWidth:50, display:'inline-block' }}>{br}</span>
-                      {d === 'P' && abortoReg && (
+                      {situacaoAtual && (
+                        <Badge color={situacaoAtual === 'prenha' ? 'blue' : situacaoAtual === 'vazia' ? 'gray' : 'gray'} style={{ marginLeft:6 }}>
+                          {situacaoAtual === 'prenha' ? 'Prenha (atual)' : situacaoAtual === 'vazia' ? 'Vazia (atual)' : situacaoAtual}
+                        </Badge>
+                      )}
+                      {d === 'P' && partoReg && (
+                        <div style={{ fontSize:'.72rem', color:'#166534', marginTop:2, fontWeight:600 }}>
+                          <i className="ti ti-circle-check" style={{ fontSize:11 }} /> Pariu em {fmtData(partoReg.data_parto)}
+                        </div>
+                      )}
+                      {d === 'P' && !partoReg && abortoReg && (
                         <div style={{ fontSize:'.72rem', color:'#791F1F', marginTop:2 }}>
                           <i className="ti ti-alert-circle" style={{ fontSize:11 }} /> Aborto registrado em {fmtData(abortoReg.data)}
                         </div>
                       )}
-                      {d === 'P' && !abortoReg && selLote.data && (
+                      {d === 'P' && !partoReg && !abortoReg && selLote.data && (
                         <div style={{ fontSize:'.72rem', color:'#1E55B0', marginTop:2 }}>
                           Prenha · Parto previsto: {fmtData(previsaoPartoLote)}
                         </div>
@@ -1197,7 +1219,7 @@ export default function Reprodutivo() {
                     </div>
                   </div>
                   <div style={{ display:'flex', gap:6 }}>
-                    {podeEditarReprodCiclo && d === 'P' && !abortoReg && (
+                    {podeEditarReprodCiclo && d === 'P' && !abortoReg && !partoReg && (
                       <button className="btn btn-secondary btn-xs"
                         onClick={() => abrirRegistrarAborto(ins, selLote)}
                         style={{ fontSize:'.72rem', color:'#791F1F' }}>
