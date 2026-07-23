@@ -1,6 +1,7 @@
 ﻿import { useState, useEffect, useRef } from 'react'
 import { db } from '../lib/supabase'
 import { fmtData, algumErro, calcLotesFEFO } from '../lib/helpers'
+import { hoje as hojeAgora } from '../lib/hoje'
 import { Loading, BotaoPDF, EmptyState, ErroCarregamento, SeletorCicloLocal } from '../components/UI'
 import { useCiclo } from '../lib/CicloContext'
 import { useCicloLocal } from '../lib/useCicloLocal'
@@ -118,7 +119,7 @@ export default function Calendario() {
     setLoading(true)
     setLoadError(false)
     try {
-      const hoje = new Date(); hoje.setHours(0, 0, 0, 0)
+      const hoje = hojeAgora(); hoje.setHours(0, 0, 0, 0)
 
       const diasAte = (dateStr) => {
         if (!dateStr) return null
@@ -144,9 +145,18 @@ export default function Calendario() {
 
       const evs = []
 
-      // a. Previsões de parto (inseminação + 283 dias) por animal prenho
+      // a. Previsões de parto (inseminação + 283 dias) por animal prenho —
+      // só pra quem ainda NÃO pariu nem abortou neste lote. Antes o cálculo só
+      // olhava o diagnóstico 'P' e nunca checava partos/abortos do lote, então
+      // o alerta continuava aparecendo pra sempre mesmo depois do parto registrado.
       for (const lote of (rLotes.data || [])) {
-        const prenhas = (lote.inseminacoes || []).filter(i => i.diagnostico === 'P')
+        const maesComPartoOuAborto = new Set([
+          ...(lote.partos || []).map(p => p.mae_id),
+          ...(lote.abortos || []).map(a => a.animal_id),
+        ])
+        const prenhas = (lote.inseminacoes || []).filter(i =>
+          i.diagnostico === 'P' && !maesComPartoOuAborto.has(i.animal_id)
+        )
         if (!prenhas.length) continue
         const dataPrev = previaParto(lote.data)
         const dias     = diasAte(dataPrev)

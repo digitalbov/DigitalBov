@@ -2,7 +2,10 @@
 import { supabase, db } from '../lib/supabase'
 import { useConta } from '../lib/ContaContext'
 import { useFazenda } from '../lib/FazendaContext'
+import { usePermissoes } from '../lib/PermissoesContext'
 import { Loading, EmptyState, Modal, Field, toast, Badge } from '../components/UI'
+import { fmtData } from '../lib/helpers'
+import { getDataSimulada, setDataSimulada, limparDataSimulada, hojeISO } from '../lib/hoje'
 
 const FUNCTIONS_URL = import.meta.env.VITE_SUPABASE_URL + '/functions/v1/dynamic-responder'
 
@@ -16,6 +19,8 @@ const MODULOS = [
 export default function Usuarios() {
   const { contaAtual } = useConta()
   const { fazendas, fazendaAtual } = useFazenda()
+  const { ehAdmin } = usePermissoes()
+  const [inputDataSim, setInputDataSim] = useState(() => getDataSimulada() || hojeISO())
   const [membros, setMembros] = useState([])
   const [loading, setLoading] = useState(true)
   const [editando, setEditando] = useState(null) // usuario_id em edição
@@ -167,12 +172,59 @@ export default function Usuarios() {
     setCriando(false)
   }
 
+  // ── Data simulada (ferramenta de teste) ──────────────────────────
+  // Recarrega a página após ativar/limpar: hoje()/hojeISO() leem localStorage
+  // direto (não são reativos a estado React), então um reload garante que todo
+  // cálculo/validação já em tela (ciclo atual, vencimentos, idades etc.) usa o
+  // valor novo em vez de ficar com o valor calculado antes da troca.
+  const ativarSimulacao = () => {
+    if (!inputDataSim) { toast('Escolha uma data.', 'error'); return }
+    setDataSimulada(inputDataSim)
+    window.location.reload()
+  }
+  const desativarSimulacao = () => {
+    limparDataSimulada()
+    window.location.reload()
+  }
+
   if (loading) return <Loading text="Carregando usuários..." />
 
   const operadores = membros.filter(m => m.papel !== 'dono')
 
   return (
     <div>
+      {/* Data simulada — visível só para dono/admin. Ferramenta de TESTE: define
+          um "hoje" artificial pra simular vencimentos, ciclos, prenhez etc. sem
+          esperar o tempo passar de verdade; não altera nada gravado no banco. */}
+      {ehAdmin && (
+        <div className="card" style={{ marginBottom:16, borderLeft:'3px solid #D97706' }}>
+          <div className="card-title"><i className="ti ti-clock-play" /> Data simulada (ferramenta de teste)</div>
+          <div style={{ fontSize:'.8rem', color:'#6B7280', marginBottom:12 }}>
+            Define um "hoje" artificial para testar simulação temporal (vencimentos, ciclos, prenhez etc.)
+            sem esperar o tempo passar de verdade. As validações continuam ativas — só passam a julgar "hoje"
+            por essa data em vez da real. É só uma ferramenta de teste: não altera nada gravado no banco.
+          </div>
+          <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:12, fontSize:'.85rem' }}>
+            <span>Data em uso agora:</span>
+            <strong>{fmtData(getDataSimulada() || hojeISO())}</strong>
+            {getDataSimulada()
+              ? <Badge color="amber">simulada</Badge>
+              : <Badge color="gray">real</Badge>}
+          </div>
+          <div style={{ display:'flex', flexWrap:'wrap', alignItems:'center', gap:8 }}>
+            <input type="date" value={inputDataSim} onChange={e => setInputDataSim(e.target.value)} style={{ maxWidth:170 }} />
+            <button className="btn btn-primary btn-sm" onClick={ativarSimulacao}>
+              <i className="ti ti-player-play" /> Ativar simulação
+            </button>
+            {getDataSimulada() && (
+              <button className="btn btn-secondary btn-sm" onClick={desativarSimulacao}>
+                <i className="ti ti-player-stop" /> Voltar à data real
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       <div style={{ display:'flex', flexWrap:'wrap', justifyContent:'space-between', alignItems:'center', gap:10, marginBottom:16 }}>
         <h2 style={{ fontSize:'1.1rem', fontWeight:700, color:'#2B6CD9' }}>Usuários da conta</h2>
         <button className="btn btn-primary btn-sm" onClick={() => setModalNovo(true)}>

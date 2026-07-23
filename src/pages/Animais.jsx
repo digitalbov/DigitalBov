@@ -1,7 +1,9 @@
 ﻿import { useState, useEffect, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { usePermissoes } from '../lib/PermissoesContext'
 import { db } from '../lib/supabase'
-import { calcCategoria, calcCategoriaRebanho, idadeFormatada, fmtData, catCor, sitCor, repCor, sortBrinco, dataNaoFutura, algumErro } from '../lib/helpers'
+import { calcCategoria, calcCategoriaRebanho, idadeFormatada, fmtData, catCor, sitCor, repCor, sortBrinco, dataNaoFutura, algumErro, statusReprodutivoExibicao, statusReprodutivoCiclo, STATUS_CICLO_ANIMAL, paiEhMontaNaturalIndefinida } from '../lib/helpers'
+import { hojeISO } from '../lib/hoje'
 import { Loading, EmptyState, Modal, Field, MicButton, Badge, toast, BotaoPDF, ErroCarregamento } from '../components/UI'
 import { baixarModeloAnimais, lerPlanilhaAnimais, validarLinhas } from '../lib/importacaoAnimais'
 
@@ -73,11 +75,15 @@ function TimelineCard({ timeline, loading }) {
 
 // ── Genealogia ────────────────────────────────────────────────────
 
-function NodoCard({ animal, nome, tipo, destaque, onSelect }) {
+function NodoCard({ animal, nome, tipo, destaque, onSelect, onClickTouro }) {
   const isTouro   = tipo === 'touro'
   const isUnknown = tipo === 'unknown'
   const isMale    = animal?.sexo === 'M'
-  const hasClick  = !destaque && !isTouro && !isUnknown && animal && onSelect
+  const hasClick      = !destaque && !isTouro && !isUnknown && animal && onSelect
+  // onClickTouro: só setado pelo chamador quando o pai é resolvível (hoje, só
+  // o caso "monta natural com vários touros" — ver Animais.jsx). Sem isso, o
+  // nó de touro nunca é clicável (não existe vínculo confiável nome→lote/animal).
+  const hasClickTouro = isTouro && !!onClickTouro
 
   const borderColor = isTouro   ? '#D1D5DB'
                     : isUnknown ? '#D1D5DB'
@@ -92,13 +98,13 @@ function NodoCard({ animal, nome, tipo, destaque, onSelect }) {
 
   return (
     <div
-      onClick={() => hasClick && onSelect(animal)}
+      onClick={() => { if (hasClick) onSelect(animal); else if (hasClickTouro) onClickTouro() }}
       style={{
         border: `${isUnknown ? '1.5px dashed' : '2px solid'} ${borderColor}`,
         borderRadius: 10, padding: '8px 12px', textAlign: 'center',
         minWidth: 80, maxWidth: 130, flexShrink: 0,
         background: bgColor, color: destaque ? 'white' : '#111827',
-        cursor: hasClick ? 'pointer' : 'default',
+        cursor: (hasClick || hasClickTouro) ? 'pointer' : 'default',
         boxShadow: destaque ? '0 3px 14px rgba(30,77,53,.28)' : '0 1px 3px rgba(0,0,0,.07)',
       }}
     >
@@ -106,7 +112,7 @@ function NodoCard({ animal, nome, tipo, destaque, onSelect }) {
         <>
           <div style={{ fontSize: 18, color: '#60A5FA' }}>♂</div>
           <div style={{ fontWeight: 600, fontSize: '.82rem', lineHeight: 1.3, marginTop: 2 }}>{nome}</div>
-          <div style={{ fontSize: '.63rem', color: '#9CA3AF', marginTop: 2 }}>Touro</div>
+          <div style={{ fontSize: '.63rem', color: '#9CA3AF', marginTop: 2 }}>{hasClickTouro ? '▶ ver lote' : 'Touro'}</div>
         </>
       ) : isUnknown ? (
         <>
@@ -152,7 +158,7 @@ function GenRowLabel({ children, color = '#9CA3AF' }) {
   )
 }
 
-function ArvoreGenealogica({ animal, animais, onSelect }) {
+function ArvoreGenealogica({ animal, animais, onSelect, onClickPai }) {
   // Mãe: busca por brinco (prioridade) ou por id
   const mae = animais.find(x =>
     (animal.mae_brinco && x.brinco === animal.mae_brinco) ||
@@ -231,7 +237,7 @@ function ArvoreGenealogica({ animal, animais, onSelect }) {
             <>
               <GenRowLabel>Pais</GenRowLabel>
               <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
-                {hasPai      && <NodoCard tipo="touro"   nome={animal.pai} />}
+                {hasPai      && <NodoCard tipo="touro"   nome={animal.pai} onClickTouro={onClickPai} />}
                 {hasMae      && <NodoCard tipo="animal"  animal={mae} onSelect={onSelect} />}
                 {hasMaeSoText && <NodoCard tipo="unknown" nome={`Brinco ${animal.mae_brinco}`} />}
               </div>
@@ -283,6 +289,7 @@ function FiltroGrupo({ label, children }) {
 export default function Animais() {
   const { podeEditar } = usePermissoes()
   const podeEditarAnimais = podeEditar('animais')
+  const navigate = useNavigate()
 
 
   const listaRef   = useRef(null)
@@ -291,6 +298,8 @@ export default function Animais() {
   const [animais,         setAnimais]         = useState([])
   const [props,           setProps]           = useState([])
   const [lotes,           setLotes]           = useState([])
+  const [partosTodos,     setPartosTodos]     = useState([])
+  const [ciclos,          setCiclos]          = useState([])
   const [loading,         setLoading]         = useState(true)
   const [loadError,       setLoadError]       = useState(false)
   const [filtSit,         setFiltSit]         = useState('ativo')
@@ -304,6 +313,15 @@ export default function Animais() {
   // Timeline
   const [timeline,        setTimeline]        = useState([])
   const [timelineLoading, setTimelineLoading] = useState(false)
+  // Eventos brutos do animal selecionado (partos/inseminações/abortos), usados
+  // pelo card "Histórico reprodutivo" (status por ciclo, derivado — ver
+  // statusReprodutivoCiclo em helpers.js) — mesma fonte que já alimenta a
+  // timeline, só guardada em bruto em vez de achatada em eventos.
+  const [reprodutivoBruto, setReprodutivoBruto] = useState({ partos: [], inseminacoes: [], abortos: [] })
+  // Registro do animal SELECIONADO como bezerro (db.partos.byBezerro) — usado
+  // só pra resolver o clique em "Pai" quando é monta natural com paternidade
+  // indefinida (leva pro lote via parto.lote_inseminacao_id, ver botaoPai abaixo).
+  const [partoComoFilho,  setPartoComoFilho]  = useState(null)
   // Histórico sanitário
   const [histSanidade,    setHistSanidade]     = useState([])
   // Notas
@@ -328,7 +346,7 @@ export default function Animais() {
 
   // Carrega timeline e notas quando muda o animal selecionado
   useEffect(() => {
-    if (!selected) { setTimeline([]); setNotas(''); return }
+    if (!selected) { setTimeline([]); setNotas(''); setReprodutivoBruto({ partos: [], inseminacoes: [], abortos: [] }); setPartoComoFilho(null); return }
     setNotas(selected.observacoes || '')
     loadTimeline(selected)
   }, [selected?.id])
@@ -346,13 +364,17 @@ export default function Animais() {
       const results = await Promise.all([
         db.animais.list(),
         db.proprietarios.list(),
-        db.lotes.list()
+        db.lotes.list(),
+        db.partos.listAll(),
+        db.ciclos.list(),
       ])
       if (algumErro('[Animais]', results)) { setLoadError(true); return }
-      const [ra, rp, rl] = results
+      const [ra, rp, rl, rpt, rc] = results
       setAnimais(ra.data || [])
       setProps(rp.data   || [])
       setLotes(rl.data   || [])
+      setPartosTodos(rpt.data || [])
+      setCiclos(rc.data || [])
     } catch (e) {
       console.error('[Animais] erro ao carregar:', e)
       setLoadError(true)
@@ -378,6 +400,15 @@ export default function Animais() {
     if (rPartosMae.error)   console.error('[Timeline] Erro partos (como mãe):', rPartosMae.error)
     if (rPartoBezerro.error) console.error('[Timeline] Erro parto (como bezerro):', rPartoBezerro.error)
     if (rAbortos.error)     console.error('[Timeline] Erro abortos:', rAbortos.error)
+
+    // Guardado em bruto (não achatado em eventos) pro card "Histórico
+    // reprodutivo" calcular o status por ciclo (statusReprodutivoCiclo).
+    setReprodutivoBruto({
+      partos:        rPartosMae.data || [],
+      inseminacoes:  rIns.data       || [],
+      abortos:       rAbortos.data   || [],
+    })
+    setPartoComoFilho(rPartoBezerro.data || null)
 
     const eventos = []
 
@@ -647,8 +678,6 @@ export default function Animais() {
     const t = text.toLowerCase()
     const nums = t.match(/\d+/g)
     if (nums?.[0]) setEditData(p => ({ ...p, brinco: nums[0].padStart(2, '0') }))
-    const pesoM = t.match(/(\d+)\s*quilo/)
-    if (pesoM) setEditData(p => ({ ...p, _peso: parseInt(pesoM[1]) }))
     if (/macho|touro/i.test(t)) setEditData(p => ({ ...p, sexo: 'M', sit_reprodutiva: 'nao_se_aplica' }))
     if (/fêmea|vaca|novilha/i.test(t)) setEditData(p => ({ ...p, sexo: 'F' }))
     if (/prenha|grávida/i.test(t)) setEditData(p => ({ ...p, sit_reprodutiva: 'prenha' }))
@@ -694,8 +723,44 @@ export default function Animais() {
     const cat = calcCategoriaRebanho(a.data_nascimento, a.sexo, a.sit_reprodutiva, a.is_touro)
     const cc  = catCor[cat]             || catCor.Vaca
     const sc  = sitCor[a.situacao]      || sitCor.ativo
-    const rc  = repCor[a.sit_reprodutiva] || repCor.nao_se_aplica
+    // Exibição: "Lactante" em cima de 'vazia' quando o último parto ainda não foi
+    // desmamado — só visual, calcCategoriaRebanho/filtros continuam usando
+    // a.sit_reprodutiva real (statusExib nunca é gravado no banco).
+    const statusExib = statusReprodutivoExibicao(a, partosTodos)
+    const rc  = repCor[statusExib] || repCor.nao_se_aplica
     const filhos = animais.filter(x => x.mae_brinco === a.brinco)
+
+    // "Vaca falhada" — status reprodutivo por ciclo, 100% derivado na leitura
+    // (statusReprodutivoCiclo, helpers.js) a partir dos eventos já carregados
+    // pela timeline (reprodutivoBruto). Só ciclos já iniciados, do primeiro em
+    // que ela era matriz em diante (mais recente primeiro) — não mostra ciclo
+    // nenhum antes disso, nem ciclos futuros.
+    const historicoCiclos = a.sexo === 'F'
+      ? [...ciclos]
+          .filter(c => c.inicio && c.inicio <= hojeISO())
+          .sort((x, y) => (x.inicio || '').localeCompare(y.inicio || ''))
+          .map(c => ({ ciclo: c, ...statusReprodutivoCiclo(a, c, reprodutivoBruto) }))
+      : []
+    const primeiraMatrizIdx = historicoCiclos.findIndex(h => h.status !== 'nao_era_matriz')
+    const historicoCiclosVisiveis = primeiraMatrizIdx === -1 ? [] : [...historicoCiclos.slice(primeiraMatrizIdx)].reverse()
+
+    // "Pai" clicável só no único caso resolvível hoje: monta natural com
+    // vários touros ("Monta natural — Lote N, Estação X", paternidade
+    // indefinida) — leva pro detalhe do LOTE via parto.lote_inseminacao_id
+    // (partoComoFilho, carregado junto com a timeline). Um pai com nome de
+    // touro comum (IA ou monta natural de 1 touro) NÃO vira link: não existe
+    // vínculo confiável entre esse texto livre e um registro de animal (touro
+    // quase nunca é cadastrado como animais.* no sistema) — linkar por
+    // nome bateria risco de dar match errado.
+    const paiClicavel = paiEhMontaNaturalIndefinida(a.pai) && partoComoFilho?.lote_inseminacao_id
+    const paiValor = paiClicavel
+      ? <button type="button" onClick={() => navigate('/reprodutivo', {
+            state: { abrirLoteId: partoComoFilho.lote_inseminacao_id, cicloId: partoComoFilho.lote?.ciclo_id }
+          })}
+          style={{ background:'none', border:'none', padding:0, color:'#2B6CD9', textDecoration:'underline', cursor:'pointer', fontSize:'.82rem', textAlign:'left' }}>
+          {a.pai} <i className="ti ti-external-link" style={{ fontSize:11 }} />
+        </button>
+      : (a.pai || '—')
 
     return (
       <div>
@@ -731,7 +796,7 @@ export default function Animais() {
                     style={{ background: cc.bg, color: cc.text }}>{cat}</Badge>
                   <Badge style={{ background: sc.bg, color: sc.text }}>{a.situacao}</Badge>
                   {a.sexo === 'F' && (
-                    <Badge style={{ background: rc.bg, color: rc.text }}>{a.sit_reprodutiva?.replace('_', ' ')}</Badge>
+                    <Badge style={{ background: rc.bg, color: rc.text }}>{statusExib?.replace('_', ' ')}</Badge>
                   )}
                 </div>
                 <div style={{ fontSize: '.82rem', color: '#6B7280', marginTop: 5 }}>
@@ -752,7 +817,7 @@ export default function Animais() {
                 ['Categoria',     <Badge style={{ background: cc.bg, color: cc.text }}>{cat} <span style={{ fontSize: '.65rem', color: '#9CA3AF', marginLeft: 3 }}>automático</span></Badge>],
                 ['Raça',          a.raca],
                 ['Pelagem',       a.pelagem],
-                ['Pai',           a.pai || '—'],
+                ['Pai',           paiValor],
                 ['Mãe (brinco)',  a.mae_brinco || '—'],
                 ['Proprietário',  a.proprietario?.nome || '—'],
                 ['Lote',          a.lote?.nome || '—'],
@@ -773,9 +838,31 @@ export default function Animais() {
                   <div className="row">
                     <span className="row-label">Situação atual</span>
                     <span className="row-value">
-                      <Badge style={{ background: rc.bg, color: rc.text }}>{a.sit_reprodutiva?.replace('_', ' ')}</Badge>
+                      <Badge style={{ background: rc.bg, color: rc.text }}>{statusExib?.replace('_', ' ')}</Badge>
                     </span>
                   </div>
+
+                  {historicoCiclosVisiveis.length > 0 && (
+                    <div style={{ marginTop: 10 }}>
+                      <div style={{ fontSize: '.68rem', fontWeight: 700, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 4 }}>
+                        Por ciclo
+                      </div>
+                      {historicoCiclosVisiveis.map(h => {
+                        const sty = STATUS_CICLO_ANIMAL[h.status]
+                        return (
+                          <div key={h.ciclo.id} className="row">
+                            <span className="row-label">{h.ciclo.nome}</span>
+                            <span className="row-value">
+                              <Badge style={{ background: sty.bg, color: sty.text }}>
+                                {sty.label}{h.data ? ` — ${fmtData(h.data)}` : ''}
+                              </Badge>
+                            </span>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+
                   <div style={{ fontSize: '.75rem', color: '#9CA3AF', marginTop: 8, padding: '0 2px' }}>
                     <i className="ti ti-info-circle" style={{ fontSize: 12 }} /> Inseminações e diagnósticos aparecem na linha do tempo abaixo.
                   </div>
@@ -842,7 +929,10 @@ export default function Animais() {
           {/* Genealogia */}
           <div className="card" style={{ marginTop: 14 }}>
             <div className="card-title"><i className="ti ti-sitemap" /> Genealogia</div>
-            <ArvoreGenealogica animal={a} animais={animais} onSelect={setSelected} />
+            <ArvoreGenealogica animal={a} animais={animais} onSelect={setSelected}
+              onClickPai={paiClicavel ? () => navigate('/reprodutivo', {
+                state: { abrirLoteId: partoComoFilho.lote_inseminacao_id, cicloId: partoComoFilho.lote?.ciclo_id }
+              }) : undefined} />
           </div>
         </div>{/* end detalheRef */}
 
@@ -997,7 +1087,8 @@ export default function Animais() {
                     const cat = calcCategoriaRebanho(a.data_nascimento, a.sexo, a.sit_reprodutiva, a.is_touro)
                     const cc  = catCor[cat]             || catCor.Vaca
                     const sc  = sitCor[a.situacao]      || sitCor.ativo
-                    const rc  = repCor[a.sit_reprodutiva] || repCor.nao_se_aplica
+                    const statusExib = statusReprodutivoExibicao(a, partosTodos)
+                    const rc  = repCor[statusExib] || repCor.nao_se_aplica
                     const ina = a.situacao !== 'ativo'
                     return (
                       <tr key={a.id} style={{ opacity: ina ? .45 : 1, cursor: ina ? 'default' : 'pointer' }}
@@ -1018,7 +1109,7 @@ export default function Animais() {
                         <td style={{ color: '#6B7280' }}>{idadeFormatada(a.data_nascimento)}</td>
                         <td style={{ fontSize: '.8rem' }}>{a.proprietario?.nome?.split(' ')[0] || '—'}</td>
                         <td>{a.sexo === 'F'
-                          ? <Badge style={{ background: rc.bg, color: rc.text }}>{a.sit_reprodutiva?.replace('_', ' ')}</Badge>
+                          ? <Badge style={{ background: rc.bg, color: rc.text }}>{statusExib?.replace('_', ' ')}</Badge>
                           : <Badge style={{ background: '#F3F4F6', color: '#9CA3AF' }}>—</Badge>}
                         </td>
                         <td><Badge style={{ background: sc.bg, color: sc.text }}>{a.situacao}</Badge></td>

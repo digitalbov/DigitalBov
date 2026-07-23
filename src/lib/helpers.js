@@ -1,5 +1,6 @@
-import { format, differenceInMonths, differenceInDays, parseISO, isValid } from 'date-fns'
+import { format, differenceInMonths, differenceInDays, parseISO, isValid, subMonths } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
+import { hoje as hojeAgora, hojeISO } from './hoje'
 
 // ── Erros de query ───────────────────────────────────────────────────────────
 // O Supabase retorna {data:null, error:{...}} em falha — NÃO lança exceção, então
@@ -32,7 +33,7 @@ export const fmtMoeda = (v) => {
 export const fmtPeso = (v) => v ? `${parseFloat(v).toFixed(1)} kg` : '—'
 
 // ── Datas ────────────────────────────────────────────────────────────────────
-export const mesesDeVida = (dataNasc, dataRef = new Date()) => {
+export const mesesDeVida = (dataNasc, dataRef = hojeAgora()) => {
   if (!dataNasc) return 0
   const ref = typeof dataRef === 'string' ? parseISO(dataRef) : dataRef
   return Math.max(0, differenceInMonths(ref, parseISO(dataNasc)))
@@ -48,24 +49,48 @@ export const idadeFormatada = (dataNasc) => {
 
 export const diasDesde = (dt) => {
   if (!dt) return 0
-  return Math.abs(differenceInDays(new Date(), parseISO(dt)))
+  return Math.abs(differenceInDays(hojeAgora(), parseISO(dt)))
 }
 
 // ── Matriz (fêmea ativa apta à reprodução) ─────────────────────────────────
-// Definição única: fêmea ativa com mais de 24 meses. dataRef permite calcular
-// a idade numa data passada (ex: a data de uma monta), não apenas hoje.
-export function ehMatriz(animal, dataRef = new Date()) {
-  if (animal.sexo !== 'F' || animal.situacao !== 'ativo' || !animal.data_nascimento) return false
+// Definição única: fêmea ATIVA NA DATA dataRef, com mais de 24 meses nessa
+// data. "Ativa na data" não é a situação de HOJE — índices são históricos:
+// vender ou perder uma matriz depois não pode fazê-la desaparecer
+// retroativamente das matrizes aptas/expostas de uma safra passada. Ela conta
+// como ativa na data se nunca saiu do plantel, ou se saiu (vendida/morta)
+// DEPOIS de dataRef; se já tinha saído ANTES, continua corretamente excluída
+// (ela de fato não estava mais no rebanho naquela época). Sem `data_baixa`
+// registrada (dado legado), assume que ainda contava, pra não subcontar por
+// falta de dado. Com dataRef = hoje (padrão), o resultado é idêntico ao
+// comportamento anterior — só muda pra datas passadas.
+// `animal.data_entrada` (opcional, só existe se o chamador enriqueceu a lista
+// via db.transacaoAnimaisItens.listDataEntradaCompras — ver Metas.jsx/
+// Reprodutivo.jsx): data em que um animal COMPRADO passou a fazer parte do
+// rebanho (transacoes_animais.data, tipo='C'). Simétrico ao data_baixa acima,
+// do lado da entrada — sem ela, uma fêmea comprada entraria retroativamente
+// nas matrizes aptas de ciclos ANTERIORES à compra. Nascido na fazenda nunca
+// tem data_entrada (fica undefined/null) — comportamento idêntico ao de hoje.
+export function ehMatriz(animal, dataRef = hojeAgora()) {
+  if (animal.sexo !== 'F' || !animal.data_nascimento) return false
+  const dataRefISO = typeof dataRef === 'string' ? dataRef : format(dataRef, 'yyyy-MM-dd')
+  const ativaNaData = animal.situacao === 'ativo' || !animal.data_baixa || animal.data_baixa > dataRefISO
+  if (!ativaNaData) return false
+  if (animal.data_entrada && animal.data_entrada > dataRefISO) return false
   return mesesDeVida(animal.data_nascimento, dataRef) > 24
 }
 
-export function contarMatrizes(animais, dataRef = new Date()) {
+export function contarMatrizes(animais, dataRef = hojeAgora()) {
   return (animais || []).filter(a => ehMatriz(a, dataRef)).length
 }
 
 // ── Categoria automática ──────────────────────────────────────────────────────
-export const calcCategoria = (dataNasc, sexo) => {
-  const m = mesesDeVida(dataNasc)
+// dataRef opcional: idade calculada nessa data em vez de hoje — usado para
+// classificar um animal pela categoria que ele TINHA num momento passado (ex:
+// na data da última pesagem), não pela idade atual. Todos os chamadores
+// existentes omitem o 3º argumento e continuam usando hoje, sem mudança de
+// comportamento.
+export const calcCategoria = (dataNasc, sexo, dataRef = hojeAgora()) => {
+  const m = mesesDeVida(dataNasc, dataRef)
   if (sexo === 'F') {
     if (m <= 12) return 'Terneira'
     if (m <= 36) return 'Novilha'
@@ -96,6 +121,56 @@ export const calcCategoriaRebanho = (dataNasc, sexo, sitReprodutiva, isTouro) =>
   }
 }
 
+// ── Lista oficial de categorias comerciais (categorias_preco / Valor de
+// Mercado do Rebanho) — as 14 saídas possíveis de calcCategoriaRebanho, na
+// mesma ordem/nomenclatura já usada em Rebanho/Dashboard/Relatorios.
+export const CATEGORIAS_VALOR = [
+  'Terneira','Novilha 13-24m','Novilha Prenha 13-24m',
+  'Novilha 25-36m','Novilha Prenha 25-36m',
+  'Vaca Vazia','Vaca Prenha','Vaca Madura Vazia','Vaca Madura Prenha',
+  'Terneiro','Novilho 13-24m','Novilho 25-36m','Boi','Touro'
+]
+
+// Sexo implícito na categoria — usado na Compra (D3) pra travar o campo sexo
+// assim que a categoria é escolhida, já que categoria e sexo não podem divergir.
+const CATEGORIAS_MACHO = ['Terneiro', 'Novilho 13-24m', 'Novilho 25-36m', 'Boi', 'Touro']
+export const sexoDaCategoria = (categoria) => CATEGORIAS_MACHO.includes(categoria) ? 'M' : 'F'
+
+// Idade média (em meses) de cada categoria de compra — usada só pra pré-preencher
+// a data de nascimento estimada (o usuário pode sobrescrever). Categorias acima de
+// 36 meses (Boi/Touro/Vaca*) usam todas o mesmo valor (42m), pois a categoria não
+// distingue a idade exata acima desse patamar.
+const MESES_ESTIMADOS_POR_CATEGORIA = {
+  'Terneira': 6, 'Terneiro': 6,
+  'Novilha 13-24m': 18, 'Novilha Prenha 13-24m': 18, 'Novilho 13-24m': 18,
+  'Novilha 25-36m': 30, 'Novilha Prenha 25-36m': 30, 'Novilho 25-36m': 30,
+  'Vaca Vazia': 42, 'Vaca Prenha': 42, 'Vaca Madura Vazia': 42, 'Vaca Madura Prenha': 42,
+  'Boi': 42, 'Touro': 42,
+}
+export function estimarDataNascimentoPorCategoria(categoria, dataRefISO) {
+  const meses = MESES_ESTIMADOS_POR_CATEGORIA[categoria]
+  if (!meses || !dataRefISO) return ''
+  return format(subMonths(parseISO(dataRefISO), meses), 'yyyy-MM-dd')
+}
+
+// ── Pesagens de manejo (exclui venda/compra) ────────────────────────────────
+// "Peso real" de um animal pra fins de índice (GMD, kg produzido) deve vir de
+// uma pesagem de MANEJO (nascimento/desmama/sobreano/intermediária) — a
+// pesagem de venda/compra registra o peso MÉDIO da categoria/lote inteiro
+// vendido/comprado (mesmo valor pra todo animal do lote — ver
+// registrar_venda_animais/registrar_compra_animais no banco), não o peso
+// individual real de cada animal. Usá-la como "peso mais recente" faz o peso
+// de um animal cair no momento da venda sempre que ele estava acima da média
+// do lote, distorcendo GMD e produção pra baixo sem motivo real. Fallback:
+// se o animal só tem pesagem de venda/compra (nunca foi pesado por manejo —
+// ex: comprado e nunca mais pesado), usa essa mesmo, como último recurso.
+const TIPOS_PESAGEM_MANEJO = ['nascimento', 'desmama', 'sobreano', 'intermediaria']
+export function pesagensDeManejo(pesagensDoAnimal) {
+  const arr = pesagensDoAnimal || []
+  const manejo = arr.filter(p => TIPOS_PESAGEM_MANEJO.includes(p.tipo))
+  return manejo.length > 0 ? manejo : arr
+}
+
 // ── GMD ──────────────────────────────────────────────────────────────────────
 export const calcGMD = (pesagens) => {
   if (!pesagens || pesagens.length < 2) return null
@@ -117,7 +192,7 @@ export const numeroPositivo = (v) => {
 }
 
 // Data (string 'AAAA-MM-DD') não pode ser posterior a hoje.
-export const dataNaoFutura = (d) => !!d && d <= new Date().toISOString().slice(0, 10)
+export const dataNaoFutura = (d) => !!d && d <= hojeISO()
 
 // ── Taxa de prenhez (fórmula única e oficial, usada em todas as telas) ────────
 // Padrão oficial: fêmeas DISTINTAS prenhas / fêmeas DISTINTAS expostas —
@@ -147,7 +222,7 @@ export const contarPrenhas  = (inseminacoes) => new Set((inseminacoes || []).fil
 // registrado, uma prenha vira "perda não identificada".
 export const GESTACAO_MAX_DIAS = 300
 
-export function calcGestacaoLote(loteData, prenhas, nascimentos, nAbortos, hoje = new Date()) {
+export function calcGestacaoLote(loteData, prenhas, nascimentos, nAbortos, hoje = hojeAgora()) {
   const diasDesdeMonta = loteData ? Math.round((hoje - new Date(loteData + 'T12:00:00')) / 86400000) : null
   const aindaDentroDaJanela = diasDesdeMonta !== null && diasDesdeMonta < GESTACAO_MAX_DIAS
   const semDesfecho = Math.max(0, prenhas - nascimentos - nAbortos)
@@ -250,7 +325,7 @@ export function calcLotesFEFO(movsDoItem) {
 }
 
 // Dias até a validade (negativo = já venceu, null = sem validade)
-export function diasAteValidade(validade, hoje = new Date()) {
+export function diasAteValidade(validade, hoje = hojeAgora()) {
   if (!validade) return null
   const h = new Date(hoje); h.setHours(0, 0, 0, 0)
   const venc = new Date(validade + 'T00:00:00')
@@ -288,7 +363,108 @@ export const sitCor = {
 export const repCor = {
   prenha:  { bg: '#EAF3DE', text: '#27500A' },
   vazia:   { bg: '#FCEBEB', text: '#791F1F' },
-  nao_se_aplica: { bg: '#F3F4F6', text: '#9CA3AF' }
+  nao_se_aplica: { bg: '#F3F4F6', text: '#9CA3AF' },
+  Lactante: { bg: '#EEEDFE', text: '#3C3489' },
+}
+
+// ── Situação reprodutiva de EXIBIÇÃO (não é um valor do banco) ────────────────
+// "Lactante" é só uma camada visual sobre sit_reprodutiva === 'vazia': aparece
+// quando a vaca tem um parto registrado e o terneiro daquele parto ainda não foi
+// desmamado (bezerro.data_desmame vazio). Nunca grava nada — os cálculos de
+// matriz/prenhez/etc. continuam usando o sit_reprodutiva real ('vazia'). Some
+// assim que o terneiro é desmamado (data_desmame preenchida) ou se a vaca for
+// reinseminada e diagnosticada prenha de novo (sit_reprodutiva vira 'prenha',
+// que tem prioridade sobre "lactante" — é a informação mais relevante nessa hora).
+// `partos` precisa ter mae_id e bezerro.data_desmame (ex: db.partos.listAll(),
+// ou selLote.partos no detalhe do lote).
+export function statusReprodutivoExibicao(animal, partos) {
+  if (!animal || animal.sit_reprodutiva !== 'vazia') return animal?.sit_reprodutiva ?? null
+  const partosDaMae = (partos || [])
+    .filter(p => p.mae_id === animal.id)
+    .sort((a, b) => (b.data_parto || '').localeCompare(a.data_parto || ''))
+  const ultimoParto = partosDaMae[0]
+  if (ultimoParto && !ultimoParto.bezerro?.data_desmame) return 'Lactante'
+  return animal.sit_reprodutiva
+}
+
+// ── "Vaca falhada" — status reprodutivo por ciclo, 100% DERIVADO na leitura ──
+// Nunca grava nada (nenhuma coluna/linha nova) e não entra em nenhum índice do
+// rebanho (esses continuam herd-level, ver Metas.jsx) — é só uma leitura sobre
+// os mesmos eventos (partos/inseminações/abortos) já usados em outros lugares,
+// exibida no histórico individual do animal (Animais.jsx). Reusa ehMatriz e
+// GESTACAO_MAX_DIAS já existentes, sem alterá-los.
+// `partos`/`inseminacoes`/`abortos` = eventos DESTE animal (ex: já carregados
+// pela timeline em Animais.jsx: db.partos.byMae, db.inseminacoes.byAnimal,
+// db.abortos.byAnimal). `inseminacoes[].lote.data` é a data da monta.
+export const STATUS_CICLO_ANIMAL = {
+  nao_era_matriz:   { label: 'Ainda não era matriz',   bg: '#F3F4F6', text: '#9CA3AF' },
+  pariu:             { label: 'Pariu',                  bg: '#EAF3DE', text: '#27500A' },
+  perda_gestacional: { label: 'Perda gestacional',       bg: '#FEF3C7', text: '#92620A' },
+  gestacao_aberta:   { label: 'Gestação em aberto',      bg: '#E6F1FB', text: '#1E55B0' },
+  em_andamento:      { label: 'Ciclo em andamento',      bg: '#F3F4F6', text: '#6B7280' },
+  falhada:           { label: 'Falhada',                 bg: '#FCEBEB', text: '#791F1F' },
+}
+export function statusReprodutivoCiclo(animal, ciclo, { partos = [], inseminacoes = [], abortos = [] } = {}, hoje = hojeISO()) {
+  // Elegibilidade: matriz apta durante o ciclo (avaliada no FIM do ciclo —
+  // "ela existiu como matriz elegível ao longo de todo o ciclo").
+  if (!ehMatriz(animal, ciclo.fim)) return { status: 'nao_era_matriz' }
+
+  // Teve cria no ciclo? Data real do parto (não o vínculo por lote) — é o que
+  // permite "falhada" funcionar mesmo SEM inseminação lançada no app (monta
+  // natural não registrada).
+  const parto = partos.find(p => p.data_parto && p.data_parto >= ciclo.inicio && p.data_parto <= ciclo.fim)
+  if (parto) return { status: 'pariu', data: parto.data_parto }
+
+  // Abortou no ciclo? Ela engravidou — não é "falha", é perda gestacional
+  // (categoria diferente, já medida agregada em taxa_aborto).
+  const aborto = abortos.find(a => a.data && a.data >= ciclo.inicio && a.data <= ciclo.fim)
+  if (aborto) return { status: 'perda_gestacional', data: aborto.data }
+
+  // Gestação em aberto: inseminação com diagnóstico Prenha, montada dentro do
+  // ciclo, sem parto/aborto resolvido, ainda dentro da janela de gestação —
+  // genuinamente indefinido, não marca nada ainda.
+  const gestacaoAberta = inseminacoes.some(i => {
+    if (i.diagnostico !== 'P' || !i.lote?.data) return false
+    if (i.lote.data < ciclo.inicio || i.lote.data > ciclo.fim) return false
+    const diasDesdeMonta = Math.round((new Date(hoje) - new Date(i.lote.data + 'T12:00:00')) / 86400000)
+    return diasDesdeMonta < GESTACAO_MAX_DIAS
+  })
+  if (gestacaoAberta) return { status: 'gestacao_aberta' }
+
+  // Ciclo ainda não fechou (não deu tempo de ter cria nele) — não marca falha.
+  if (hoje <= ciclo.fim) return { status: 'em_andamento' }
+
+  return { status: 'falhada' }
+}
+
+// ── Pai derivado do lote (usado só na CRIAÇÃO do bezerro, em salvarParto) ────
+// animais.pai é um único campo TEXT, sem flag de origem — a distinção entre
+// "derivado do lote" e "informado manualmente" não precisa de coluna nova
+// porque pai só é escrito 1x: nesta função (na hora de criar o bezerro via
+// "Registrar nascimento") ou manualmente no formulário de Animais.jsx. Nada no
+// app reescreve pai depois (editar nascimento só toca data_parto/observações/
+// dados do bezerro — nunca pai; ver salvarEdicaoParto em Reprodutivo.jsx) —
+// então um pai editado à mão em Animais.jsx nunca é sobrescrito, por
+// construção: simplesmente não existe nenhum código que rode de novo e troque
+// esse valor.
+// lote.lote_touros = touros ADICIONAIS (2º em diante) de uma monta natural —
+// vazio/ausente pra IA e pra monta natural de 1 touro só (ver supabase.js).
+// Prefixo exportado (não hardcoded em outro lugar) pra Animais.jsx detectar
+// esse caso e linkar pro lote de origem em vez de tentar achar um animal com
+// esse "nome" — ver PAI_MONTA_NATURAL_PREFIX/paiEhMontaNaturalIndefinida abaixo.
+export const PAI_MONTA_NATURAL_PREFIX = 'Monta natural — Lote'
+export function paiEhMontaNaturalIndefinida(pai) {
+  return typeof pai === 'string' && pai.startsWith(PAI_MONTA_NATURAL_PREFIX)
+}
+export function resolverPaiDerivado(lote) {
+  if (!lote) return ''
+  if (lote.tipo !== 'natural') return lote.touro || ''
+  const extras = lote.lote_touros || []
+  if (extras.length === 0) return lote.touro || ''
+  // Vários touros na mesma monta natural = paternidade indefinida — não dá
+  // pra saber qual touro efetivamente gerou o bezerro, então NUNCA escolhe um
+  // nome entre eles: aponta pro lote (referência auditável) em vez disso.
+  return `${PAI_MONTA_NATURAL_PREFIX} ${lote.numero}, Estação ${lote.estacao?.nome || '—'}`
 }
 
 // ── Ordenação de brincos ──────────────────────────────────────────────────────
@@ -301,7 +477,7 @@ export const GRUPOS_REC = [
   'Empréstimos', 'Juros', 'Outras Receitas'
 ]
 export const GRUPOS_DES = [
-  'Remédios', 'Suplementos', 'Mão de Obra', 'Combustível',
+  'Compra de Animais', 'Remédios', 'Suplementos', 'Mão de Obra', 'Combustível',
   'Ferramentas', 'Manutenção', 'Estrutura',
   'Máquinas e Equipamentos', 'Investimentos',
   'Realização de Lucro', 'Inseminação'

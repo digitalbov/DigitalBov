@@ -1,18 +1,12 @@
 ﻿import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase, db } from '../lib/supabase'
-import { calcCategoria, calcCategoriaRebanho, calcTaxaPrenhez, contarExpostas, contarPrenhas, fmtMoeda, valorPropLanc, contarMatrizes, somaFinita, algumErro, calcLotesFEFO, diasAteValidade } from '../lib/helpers'
+import { calcCategoria, calcCategoriaRebanho, calcTaxaPrenhez, contarExpostas, contarPrenhas, fmtMoeda, valorPropLanc, contarMatrizes, algumErro, calcLotesFEFO, diasAteValidade, CATEGORIAS_VALOR } from '../lib/helpers'
 import { Loading, FullLoading, AlertBox, IndexCard, ErroCarregamento } from '../components/UI'
 import { useFazenda } from '../lib/FazendaContext'
 import { useCiclo } from '../lib/CicloContext'
+import { hoje as hojeAgora } from '../lib/hoje'
 import { usePermissoes } from '../lib/PermissoesContext'
-
-const CATEGORIAS_VALOR = [
-  'Terneira','Novilha 13-24m','Novilha Prenha 13-24m',
-  'Novilha 25-36m','Novilha Prenha 25-36m',
-  'Vaca Vazia','Vaca Prenha','Vaca Madura Vazia','Vaca Madura Prenha',
-  'Terneiro','Novilho 13-24m','Novilho 25-36m','Boi','Touro'
-]
 
 export default function Dashboard({ perfil }) {
   const navigate = useNavigate()
@@ -23,7 +17,6 @@ export default function Dashboard({ perfil }) {
   const [enviandoFoto, setEnviandoFoto] = useState(false)
   const [animais,    setAnimais]    = useState([])
   const [lancamentos,setLancamentos]= useState([])
-  const [transacoes, setTransacoes] = useState([])
   const [piqs,       setPiqs]       = useState([])
   const [plan,       setPlan]       = useState(null)
   const [acoes,      setAcoes]      = useState([])
@@ -68,13 +61,11 @@ export default function Dashboard({ perfil }) {
       if (cicloSelecionado) {
         const doCiclo = await Promise.all([
           db.lancamentos.list(cicloSelecionado.id),
-          db.transacoes.list(cicloSelecionado.id),
           db.lotesInseminacao.listInseminacoesResumo(cicloSelecionado.id),
         ])
         if (algumErro('[Dashboard]', doCiclo)) { setLoadError(true); return }
-        const [{ data: lData }, { data: tData }, { data: liData }] = doCiclo
+        const [{ data: lData }, { data: liData }] = doCiclo
         setLancamentos(lData || [])
-        setTransacoes(tData || [])
         setLotesInsem(liData || [])
       }
       if (planData) {
@@ -102,16 +93,13 @@ export default function Dashboard({ perfil }) {
     cats[c] = (cats[c] || 0) + 1
   })
 
-  // Financeiro (lançamentos com rateio por proprietário + transações de animais, sem rateio)
-  // lancamentos_financeiros usa a coluna `valor`; transacoes_animais usa
-  // `valor_total` — somar com o campo errado dá NaN e contamina rec/desp/resu inteiros.
+  // Financeiro: lancamentos_financeiros é a fonte única de dinheiro (KPIs,
+  // apuração e resultado do ciclo). transacoes_animais é registro operacional
+  // (o que foi vendido/comprado) e não entra mais nesta soma — ela passa a
+  // existir só quando ligada a um lançamento via transacoes_animais.lancamento_id.
   const filtPropId  = filtProp === 0 ? '' : filtProp
-  const recLanc     = valorPropLanc(lancamentos, 'R', filtPropId)
-  const despLanc    = valorPropLanc(lancamentos, 'D', filtPropId)
-  const recTransac  = filtProp === 0 ? somaFinita(transacoes.filter(t=>t.tipo==='V'), 'valor_total') : 0
-  const despTransac = filtProp === 0 ? somaFinita(transacoes.filter(t=>t.tipo==='C'), 'valor_total') : 0
-  const rec  = recLanc + recTransac
-  const desp = despLanc + despTransac
+  const rec  = valorPropLanc(lancamentos, 'R', filtPropId)
+  const desp = valorPropLanc(lancamentos, 'D', filtPropId)
   const resu = rec - desp
 
   // Piquetes
@@ -130,7 +118,7 @@ export default function Dashboard({ perfil }) {
   const rentTotal   = vTotal  > 0 && typeof resu==='number' && !isNaN(resu) ? (resu/vTotal*100)   : null
 
   // Planejamento
-  const getCicloAno = () => { const h=new Date(); const m=h.getMonth()+1; return m>=7?h.getFullYear():h.getFullYear()-1 }
+  const getCicloAno = () => { const h=hojeAgora(); const m=h.getMonth()+1; return m>=7?h.getFullYear():h.getFullYear()-1 }
   const cicloAno    = getCicloAno()
   const acoesCiclo  = acoes.filter(a => a.ciclo_alvo === cicloAno)
 

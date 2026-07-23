@@ -6,6 +6,7 @@ import { useFazenda } from '../lib/FazendaContext'
 import { useCiclo, statusCiclo } from '../lib/CicloContext'
 import { useCicloLocal } from '../lib/useCicloLocal'
 import { fmtData, diasDesde, calcCategoriaRebanho, algumErro } from '../lib/helpers'
+import { hoje as hojeAgora, hojeISO } from '../lib/hoje'
 import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, AlertBox, BotaoPDF, Confirm, ErroCarregamento, BannerCicloEncerrado, SeletorCicloLocal } from '../components/UI'
 
 const TABS   = ['Registros','Alertas','Histórico']
@@ -43,6 +44,7 @@ export default function Sanidade() {
   const [loading,  setLoading] = useState(true)
   const [modal,      setModal]      = useState(false)
   const [form,       setForm]       = useState({})
+  const [editandoId, setEditandoId] = useState(null)
   const [saving,     setSaving]     = useState(false)
   const [confirmDel, setConfirmDel] = useState(null)
   const [loadError,  setLoadError]  = useState(false)
@@ -93,14 +95,35 @@ export default function Sanidade() {
     setFiltroCategSan(''); setFiltroPropSan('')
   }
 
-  const fecharModal = () => { setModal(false); setForm({}); resetFormSelecao() }
+  const fecharModal = () => { setModal(false); setForm({}); setEditandoId(null); resetFormSelecao() }
 
-  // Quantidade automática: soma de animais ativos dos lotes selecionados, ou seleção individual
+  // Editar só toca nos campos do registro em si (data/tipo/procedimento/próximo/
+  // observações) — não reabre a seleção de lote/animais, que é um passo de
+  // CRIAÇÃO (vínculos em sanidade_animais) e não faz parte do que foi pedido aqui.
+  const abrirEditar = (d) => {
+    if (!podeEditarSanidadeCiclo) return
+    resetFormSelecao()
+    setEditandoId(d.id)
+    setForm({
+      data:         d.data,
+      tipo:         d.tipo,
+      procedimento: d.procedimento,
+      proximo:      d.proximo || '',
+      obs:          d.observacoes || '',
+    })
+    setModal(true)
+  }
+
+  // Quantidade automática: soma de animais ativos dos lotes selecionados, ou seleção individual.
+  // Mesmo filtro de data_nascimento usado em `salvar` (abaixo), pra não mostrar uma
+  // contagem maior do que o que de fato vai ser vinculado em sanidade_animais.
   const autoQtd = modoSelecao === 'individual'
     ? (selAnimais.length > 0 ? selAnimais.length : null)
     : (selLotes.length === 0 ? null : (() => {
         const ids = lotes.filter(l => selLotes.includes(l.nome)).map(l => l.id)
-        return animais.filter(a => ids.includes(a.lote_id)).length
+        return animais.filter(a =>
+          ids.includes(a.lote_id) && (!a.data_nascimento || !form.data || a.data_nascimento <= form.data)
+        ).length
       })())
 
   const categoriasDisponiveis = [...new Set(animais.map(a =>
@@ -127,6 +150,22 @@ export default function Sanidade() {
       return
     }
     setSaving(true)
+
+    if (editandoId) {
+      const { error } = await db.sanidade.update(editandoId, {
+        data:         form.data,
+        tipo:         form.tipo,
+        procedimento: form.procedimento,
+        proximo:      form.proximo || null,
+        observacoes:  form.obs || ''
+      })
+      setSaving(false)
+      if (error) { toast('Erro: ' + error.message, 'error'); return }
+      toast('Procedimento atualizado!')
+      setModal(false); setForm({}); setEditandoId(null); resetFormSelecao(); load()
+      return
+    }
+
     const lote_descricao = modoSelecao === 'individual'
       ? (selAnimais.length > 0
           ? `Individual: ${animais.filter(a => selAnimais.includes(a.id)).map(a => a.brinco).join(', ')}`
@@ -139,7 +178,6 @@ export default function Sanidade() {
       lote_descricao,
       quantidade:   autoQtd !== null ? autoQtd : (parseInt(form.quantidade) || 0),
       proximo:      form.proximo || null,
-      custo:        parseFloat(form.custo) || 0,
       observacoes:  form.obs || ''
     })
     if (error) { setSaving(false); toast('Erro: ' + error.message, 'error'); return }
@@ -149,7 +187,14 @@ export default function Sanidade() {
       animaisParaVincular = selAnimais
     } else if (modoSelecao === 'lote' && selLotes.length > 0) {
       const idsLotes = lotes.filter(l => selLotes.includes(l.nome)).map(l => l.id)
-      animaisParaVincular = animais.filter(a => idsLotes.includes(a.lote_id)).map(a => a.id)
+      // Só vincula quem já existia na data do procedimento — sem isso, um bezerro
+      // nascido depois herdava procedimentos aplicados antes dele existir (bug:
+      // "todo o lote" usava a composição ATUAL do lote, não a de quando o
+      // procedimento aconteceu). Não cobre "estava no lote naquela data" (não há
+      // histórico de mudança de lote), só "já tinha nascido".
+      animaisParaVincular = animais.filter(a =>
+        idsLotes.includes(a.lote_id) && (!a.data_nascimento || a.data_nascimento <= form.data)
+      ).map(a => a.id)
     }
 
     if (animaisParaVincular.length > 0 && procData?.id) {
@@ -179,7 +224,7 @@ export default function Sanidade() {
   const concluirAlerta = async (d) => {
     if (!podeEditarSanidadeCiclo) return
     setConcluindoId(d.id)
-    const { error } = await db.sanidade.update(d.id, { proximo_concluido_em: new Date().toISOString().slice(0, 10) })
+    const { error } = await db.sanidade.update(d.id, { proximo_concluido_em: hojeISO() })
     setConcluindoId(null)
     if (error) { toast('Erro ao concluir: ' + error.message, 'error'); return }
     toast('Alerta concluído!')
@@ -189,7 +234,7 @@ export default function Sanidade() {
 
   const registrarAplicacaoDoAlerta = (d) => {
     resetFormSelecao()
-    setForm({ tipo: d.tipo, procedimento: d.procedimento, data: new Date().toISOString().slice(0, 10) })
+    setForm({ tipo: d.tipo, procedimento: d.procedimento, data: hojeISO() })
     setOfertaNovoProc(null)
     setModal(true)
   }
@@ -206,8 +251,8 @@ export default function Sanidade() {
     toast(`Tipo: ${tipo}${nums ? ` · ${nums[0]} animais` : ''}`)
   }
 
-  const hoje    = new Date()
-  const em30    = new Date(); em30.setDate(em30.getDate() + 30)
+  const hoje    = hojeAgora()
+  const em30    = hojeAgora(); em30.setDate(em30.getDate() + 30)
   const vencidos = dados.filter(d => d.proximo && !d.proximo_concluido_em && new Date(d.proximo + 'T12:00:00') < hoje)
   const proximos = dados.filter(d => d.proximo && !d.proximo_concluido_em && new Date(d.proximo + 'T12:00:00') >= hoje && new Date(d.proximo + 'T12:00:00') <= em30)
 
@@ -256,7 +301,7 @@ export default function Sanidade() {
               <div className="table-wrap">
                 <table>
                   <thead>
-                    <tr><th>Data</th><th>Tipo</th><th>Procedimento</th><th>Grupo/Lote</th><th>Qt</th><th>Próximo</th><th>Custo</th><th></th></tr>
+                    <tr><th>Data</th><th>Tipo</th><th>Procedimento</th><th>Grupo/Lote</th><th>Qt</th><th>Próximo</th><th></th></tr>
                   </thead>
                   <tbody>
                     {dadosFiltrados.map(d => {
@@ -273,14 +318,16 @@ export default function Sanidade() {
                             {d.proximo ? fmtData(d.proximo) : '—'}
                             {venc && ' ⚠️'}
                           </td>
-                          <td style={{ color:'#6B7280' }}>
-                            {d.custo > 0 ? `R$ ${parseFloat(d.custo).toFixed(2)}` : '—'}
-                          </td>
-                          <td>
+                          <td style={{ whiteSpace:'nowrap' }}>
                             {podeEditarSanidadeCiclo && (
-                              <button className="btn-icon" onClick={() => setConfirmDel(d.id)}>
-                                <i className="ti ti-trash" style={{ fontSize:13 }} />
-                              </button>
+                              <>
+                                <button className="btn-icon" onClick={() => abrirEditar(d)} title="Editar">
+                                  <i className="ti ti-edit" style={{ fontSize:13 }} />
+                                </button>
+                                <button className="btn-icon" onClick={() => setConfirmDel(d.id)} title="Excluir">
+                                  <i className="ti ti-trash" style={{ fontSize:13 }} />
+                                </button>
+                              </>
                             )}
                           </td>
                         </tr>
@@ -415,13 +462,17 @@ export default function Sanidade() {
       />
 
       {/* ── Modal ── */}
-      <Modal open={modal} onClose={fecharModal} title="Novo procedimento sanitário" width={540}>
-        <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:10 }}>
-          <MicButton hint='Voz: "vacina — febre aftosa — todo rebanho — dezesseis animais"' onResult={vozSan} />
-        </div>
-        <div style={{ fontSize:'.78rem', background:'#EEEDFE', color:'#3C3489', padding:'7px 10px', borderRadius:8, marginBottom:12 }}>
-          <i className="ti ti-microphone" style={{fontSize:12}}/> Voz: <b>"Vermifugação — Ivermectina — todo rebanho — dezesseis animais"</b>
-        </div>
+      <Modal open={modal} onClose={fecharModal} title={editandoId ? 'Editar procedimento sanitário' : 'Novo procedimento sanitário'} width={540}>
+        {!editandoId && (
+          <>
+            <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:10 }}>
+              <MicButton hint='Voz: "vacina — febre aftosa — todo rebanho — dezesseis animais"' onResult={vozSan} />
+            </div>
+            <div style={{ fontSize:'.78rem', background:'#EEEDFE', color:'#3C3489', padding:'7px 10px', borderRadius:8, marginBottom:12 }}>
+              <i className="ti ti-microphone" style={{fontSize:12}}/> Voz: <b>"Vermifugação — Ivermectina — todo rebanho — dezesseis animais"</b>
+            </div>
+          </>
+        )}
         <div className="grid-form">
           <Field label="Data" required><input type="date" value={form.data||''} onChange={e=>setForm(p=>({...p,data:e.target.value}))}/></Field>
           <Field label="Tipo" required>
@@ -430,12 +481,15 @@ export default function Sanidade() {
             </select>
           </Field>
           <Field label="Procedimento" required><input value={form.procedimento||''} onChange={e=>setForm(p=>({...p,procedimento:e.target.value}))} placeholder="ex: Ivermectina 1%"/></Field>
-          <Field label={autoQtd !== null ? `Quantidade (auto: ${autoQtd} animais)` : 'Quantidade de animais'}>
-            {autoQtd !== null
-              ? <input type="number" value={autoQtd} readOnly style={{ background:'#F0F9EC', color:'#1E55B0', fontWeight:600, cursor:'default' }} />
-              : <input type="number" value={form.quantidade||''} onChange={e=>setForm(p=>({...p,quantidade:e.target.value}))} placeholder="0"/>
-            }
-          </Field>
+          {!editandoId && (
+            <Field label={autoQtd !== null ? `Quantidade (auto: ${autoQtd} animais)` : 'Quantidade de animais'}>
+              {autoQtd !== null
+                ? <input type="number" value={autoQtd} readOnly style={{ background:'#F0F9EC', color:'#1E55B0', fontWeight:600, cursor:'default' }} />
+                : <input type="number" value={form.quantidade||''} onChange={e=>setForm(p=>({...p,quantidade:e.target.value}))} placeholder="0"/>
+              }
+            </Field>
+          )}
+          {!editandoId && (
           <div style={{ gridColumn:'1 / -1' }}>
             <label style={{ fontSize:'.78rem', fontWeight:500, color:'#374151', display:'block', marginBottom:6 }}>Seleção de animais</label>
             <div className="pill-group" style={{ marginBottom:8 }}>
@@ -510,7 +564,7 @@ export default function Sanidade() {
               </>
             )}
           </div>
-          <Field label="Custo total (R$)"><input type="number" step="0.01" value={form.custo||''} onChange={e=>setForm(p=>({...p,custo:e.target.value}))} placeholder="0,00"/></Field>
+          )}
           <Field label="Próxima aplicação"><input type="date" value={form.proximo||''} onChange={e=>setForm(p=>({...p,proximo:e.target.value}))}/></Field>
         </div>
         <Field label="Observações"><input value={form.obs||''} onChange={e=>setForm(p=>({...p,obs:e.target.value}))} placeholder="opcional"/></Field>

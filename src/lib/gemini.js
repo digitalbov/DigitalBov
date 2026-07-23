@@ -1,3 +1,5 @@
+import { hoje as hojeAgora } from './hoje'
+
 const API_KEY  = import.meta.env.VITE_GEMINI_API_KEY
 // gemini-2.5-flash é o modelo estável mais recente disponível nesta chave
 const ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${API_KEY}`
@@ -15,7 +17,7 @@ export async function perguntarIA(pergunta, contextoDados) {
 
   const prompt = `${SISTEMA}
 
---- DADOS ATUAIS DO SISTEMA (${new Date().toLocaleDateString('pt-BR')}) ---
+--- DADOS ATUAIS DO SISTEMA (${hojeAgora().toLocaleDateString('pt-BR')}) ---
 ${JSON.stringify(contextoDados, null, 2)}
 --- FIM DOS DADOS ---
 

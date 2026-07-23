@@ -1,8 +1,9 @@
 import { db } from './supabase'
 import { calcCategoria } from './helpers'
+import { hoje as hojeAgora } from './hoje'
 
 export async function coletarContexto() {
-  const hoje = new Date().toLocaleDateString('pt-BR')
+  const hoje = hojeAgora().toLocaleDateString('pt-BR')
 
   // Ciclo atual
   const { data: ciclo } = await db.ciclos.current()

@@ -4,6 +4,7 @@ import { usePermissoes } from '../lib/PermissoesContext'
 import { useCiclo, statusCiclo } from '../lib/CicloContext'
 import { useCicloLocal } from '../lib/useCicloLocal'
 import { fmtData, numeroPositivo, algumErro, calcLotesFEFO, diasAteValidade } from '../lib/helpers'
+import { hojeISO } from '../lib/hoje'
 import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, AlertBox, BotaoPDF, Confirm, ErroCarregamento, BannerCicloEncerrado, SeletorCicloLocal } from '../components/UI'
 
 const TABS = ['Inventário','Movimentar','Alertas']
@@ -105,7 +106,7 @@ export default function Estoque() {
     if (qtdInicial > 0) {
       const { error: errMov } = await db.movEstoque.insert({
         item_id:    novoItem.id,
-        data:       form.entrada_data || new Date().toISOString().split('T')[0],
+        data:       form.entrada_data || hojeISO(),
         tipo:       'E',
         quantidade: qtdInicial,
         motivo:     'Quantidade inicial',
@@ -340,7 +341,7 @@ export default function Estoque() {
             <span style={{ fontSize: '.85rem', color: '#6B7280' }}>{movsFiltrados.length} movimentações neste ciclo</span>
             <div style={{ display: 'flex', gap: 8 }}>
               {podeEditarMovCiclo && (
-                <button className="btn btn-primary btn-sm" onClick={() => { setForm({ tipo: 'S', data: new Date().toISOString().split('T')[0] }); setModal('mov') }}>
+                <button className="btn btn-primary btn-sm" onClick={() => { setForm({ tipo: 'S', data: hojeISO() }); setModal('mov') }}>
                   <i className="ti ti-plus" /> Movimentar
                 </button>
               )}
@@ -470,7 +471,7 @@ export default function Estoque() {
         {!form._edit && parseFloat(form.quantidade) > 0 && (
           <div className="grid-form">
             <Field label="Data da entrada" hint="A quantidade inicial vira uma entrada de estoque, com data e validade próprias.">
-              <input type="date" value={form.entrada_data || new Date().toISOString().split('T')[0]}
+              <input type="date" value={form.entrada_data || hojeISO()}
                 onChange={e => setForm(p => ({ ...p, entrada_data: e.target.value }))} />
             </Field>
             <Field label="Validade" hint="Opcional — nem todo item tem (ex: ferramentas).">

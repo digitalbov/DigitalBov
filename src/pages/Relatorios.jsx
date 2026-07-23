@@ -1,17 +1,12 @@
 ﻿import { useState, useEffect, useRef } from 'react'
 import { db } from '../lib/supabase'
-import { calcCategoria, calcCategoriaRebanho, fmtData, fmtMoeda, pct, ehMatriz, algumErro, somaFinita } from '../lib/helpers'
+import { calcCategoria, calcCategoriaRebanho, calcTaxaPrenhez, contarExpostas, contarPrenhas, fmtData, fmtMoeda, pct, ehMatriz, algumErro, somaFinita, valorPropLanc, CATEGORIAS_VALOR } from '../lib/helpers'
 import { Loading, Badge, AlertBox, toast, SeletorCicloLocal, ErroCarregamento } from '../components/UI'
 import { useFazenda } from '../lib/FazendaContext'
 import { useCicloLocal } from '../lib/useCicloLocal'
+import { hoje as hojeAgora } from '../lib/hoje'
 
 const TABS = ['Resumo Geral','Reprodução','Financeiro']
-const CATS_REL = [
-  'Terneira','Novilha 13-24m','Novilha Prenha 13-24m',
-  'Novilha 25-36m','Novilha Prenha 25-36m',
-  'Vaca Vazia','Vaca Prenha','Vaca Madura Vazia','Vaca Madura Prenha',
-  'Terneiro','Novilho 13-24m','Novilho 25-36m','Boi','Touro'
-]
 const NOMES_PDF = ['relatorio-geral','relatorio-reprodutivo','relatorio-financeiro']
 const TITULOS_PDF = ['Relatório Geral', 'Painel Reprodutivo', 'Gestão Financeira']
 
@@ -19,15 +14,16 @@ export default function Relatorios() {
   const [tab,       setTab]      = useState(0)
   const [animais,   setAnimais]  = useState([])
   const [lancs,     setLancs]    = useState([])
-  const [transacoes,setTransacoes]=useState([])
   const [lotes,     setLotes]    = useState([])
   const [partos,    setPartos]   = useState([])
   const [sanidade,  setSanidade] = useState([])
   const [props,     setProps]    = useState([])
   const [catPrecos, setCatPrecos]= useState([])
+  const [piquetes,  setPiquetes] = useState([])
   const [loading,   setLoading]  = useState(true)
   const [loadError, setLoadError]= useState(false)
   const [generating,setGenerating]=useState(false)
+  const [filtroProp, setFiltroProp] = useState('')
   const { fazendaAtual } = useFazenda()
   const { cicloLocal, setCicloLocal, ciclos } = useCicloLocal()
 
@@ -47,25 +43,25 @@ export default function Relatorios() {
         db.animais.list(),
         db.sanidade.list(),
         db.proprietarios.list(),
-        db.categoriasPreco.list()
+        db.categoriasPreco.list(),
+        db.piquetes.list()
       ])
       if (algumErro('[Relatorios]', base)) { setLoadError(true); return }
-      const [ra, rs, rp, rcp] = base
+      const [ra, rs, rp, rcp, rpq] = base
       setAnimais(ra.data || [])
       setSanidade(rs.data  || [])
       setProps(rp.data     || [])
       setCatPrecos(rcp.data|| [])
+      setPiquetes(rpq.data || [])
       if (cicloLocal) {
         const doCiclo = await Promise.all([
           db.lancamentos.list(cicloLocal.id),
-          db.transacoes.list(cicloLocal.id),
           db.lotesInseminacao.listInseminacoesResumo(cicloLocal.id),
           db.partos.list(cicloLocal.id)
         ])
         if (algumErro('[Relatorios]', doCiclo)) { setLoadError(true); return }
-        const [rl, rt, rli, rpt] = doCiclo
+        const [rl, rli, rpt] = doCiclo
         setLancs(rl.data       || [])
-        setTransacoes(rt.data  || [])
         setLotes(rli.data      || [])
         setPartos(rpt.data     || [])
       }
@@ -82,7 +78,7 @@ export default function Relatorios() {
     setGenerating(true)
     try {
       const { gerarPDFComMolduras } = await import('../lib/pdf')
-      await gerarPDFComMolduras(ref.current, filename, titulo, fazendaAtual?.nome || '')
+      await gerarPDFComMolduras(ref.current, filename, titulo, fazendaAtual?.nome || '', fazendaAtual?.foto_url || '')
     } catch (e) {
       toast('Erro ao gerar PDF: ' + e.message, 'error')
     }
@@ -99,22 +95,38 @@ export default function Relatorios() {
     </div>
   )
 
-  // Cálculos
-  const ativos   = animais.filter(a => a.situacao === 'ativo')
-  const inativos = animais.filter(a => a.situacao !== 'ativo')
+  // Cálculos — filtroProp (pills) recalcula todos os indicadores abaixo para o
+  // proprietário selecionado, mesmo padrão de Rebanho/Reprodutivo/Metas.
+  const ativos   = animais.filter(a => a.situacao === 'ativo' && (!filtroProp || a.proprietario_id === filtroProp))
+  const inativos = animais.filter(a => a.situacao !== 'ativo' && (!filtroProp || a.proprietario_id === filtroProp))
   const matrizes = ativos.filter(a => ehMatriz(a))
-  const prenhas  = ativos.filter(a => a.sit_reprodutiva === 'prenha').length
-  // Receitas/despesas: lançamentos usam a coluna `valor`, transações de animais
-  // usam `valor_total` — soma protegida (helpers.somaFinita) para não deixar o
-  // campo errado/ausente virar NaN. Sem transações, os Relatórios ficavam
-  // incompletos para fazendas que vendem/compram animais pelo fluxo do Financeiro.
-  const rec      = somaFinita(lancs.filter(l=>l.tipo==='R'), 'valor') + somaFinita(transacoes.filter(t=>t.tipo==='V'), 'valor_total')
-  const desp     = somaFinita(lancs.filter(l=>l.tipo==='D'), 'valor') + somaFinita(transacoes.filter(t=>t.tipo==='C'), 'valor_total')
+  const partosFiltrados = partos.filter(p => !filtroProp || p.mae?.proprietario_id === filtroProp)
+  // lancamentos_financeiros é a fonte única de dinheiro — transacoes_animais é
+  // registro operacional e não entra mais nesta soma (ver Bloco D/D2).
+  const rec      = filtroProp ? valorPropLanc(lancs, 'R', filtroProp) : somaFinita(lancs.filter(l=>l.tipo==='R'), 'valor')
+  const desp     = filtroProp ? valorPropLanc(lancs, 'D', filtroProp) : somaFinita(lancs.filter(l=>l.tipo==='D'), 'valor')
   const resu     = rec - desp
+  // Valor de um grupo (ex: "Remédios") respeitando o filtro de proprietário —
+  // via rateio do lançamento, mesmo critério de valorPropLanc acima.
+  const grupoValor = (gr, tipo) => {
+    const doGrupo = lancs.filter(l=>l.tipo===tipo&&l.grupo===gr)
+    if (!filtroProp) return doGrupo.reduce((s,l)=>s+Number(l.valor),0)
+    return doGrupo.reduce((s,l)=>{
+      const r = l.rateios?.find(x=>x.proprietario_id===filtroProp)
+      return s + (r ? (Number(r.valor)||0) : 0)
+    }, 0)
+  }
 
-  const totalIns = lotes.reduce((s,l)=>s+(l.inseminacoes?.length||0),0)
-  const totalPrn = lotes.reduce((s,l)=>s+(l.inseminacoes?.filter(i=>i.diagnostico==='P').length||0),0)
-  const hoje2    = new Date()
+  // Taxa de prenhez — fórmula oficial única (helpers.calcTaxaPrenhez), a mesma
+  // usada em Reprodutivo/Rebanho/Metas: matrizes DISTINTAS prenhas / expostas no
+  // ciclo, deduplicadas por animal_id (contarExpostas/contarPrenhas) — nunca
+  // conta a mesma vaca 2x quando ela entra na IATF e no repasse. listInseminacoesResumo
+  // já traz animal_id e animal.proprietario_id, necessários para a dedupe e o filtro.
+  const insemRel  = lotes.flatMap(l => l.inseminacoes || []).filter(i => !filtroProp || i.animal?.proprietario_id === filtroProp)
+  const kpiIns    = contarExpostas(insemRel)
+  const kpiPrn    = contarPrenhas(insemRel)
+  const txPrenhez = calcTaxaPrenhez(insemRel)
+  const hoje2    = hojeAgora()
   const vencSan  = sanidade.filter(d=>d.proximo&&new Date(d.proximo+'T12:00:00')<hoje2).length
 
   const catMap = {}
@@ -123,11 +135,24 @@ export default function Relatorios() {
     catMap[c] = (catMap[c]||0)+1
   })
 
-  const valorRowsRel = CATS_REL.map(cat => {
+  // Área útil = soma dos piquetes cadastrados (mesma fonte que Propriedade.jsx
+  // usa para calcular fazendas.area_util — aqui somamos ao vivo em vez de ler o
+  // campo salvo, que pode estar desatualizado se piquetes mudaram depois do
+  // último save da fazenda).
+  const areaUtilHa = piquetes.reduce((s,p) => s + (parseFloat(p.area_ha)||0), 0)
+  const areaUtilTxt = areaUtilHa > 0 ? `${areaUtilHa.toFixed(1).replace('.',',')} ha` : '—'
+
+  // Colunas por proprietário: só o selecionado quando o filtro está ativo —
+  // mesmo padrão de Rebanho.jsx (propsSelecionadas). Antes a tabela sempre
+  // renderizava uma coluna por proprietário, mesmo filtrando, o que parecia
+  // "filtro não aplicado" (os totais já batiam, mas as colunas confundiam).
+  const propsSelecionadas = filtroProp ? props.filter(p => p.id === filtroProp) : props
+
+  const valorRowsRel = CATEGORIAS_VALOR.map(cat => {
     const animaisCat = ativos.filter(a =>
       calcCategoriaRebanho(a.data_nascimento, a.sexo, a.sit_reprodutiva, a.is_touro) === cat
     )
-    const porProp = props.map(p => ({
+    const porProp = propsSelecionadas.map(p => ({
       propId: p.id,
       nome:   p.nome.split(' ')[0],
       count:  animaisCat.filter(a => a.proprietario_id === p.id).length
@@ -141,6 +166,8 @@ export default function Relatorios() {
 
   const PrintHeader = ({ titulo }) => (
     <div style={{ textAlign:'center', padding:'16px 0 12px', borderBottom:'.5px solid #E5E7EB', marginBottom:16 }}>
+      {/* Logo da fazenda aparece só no PDF gerado (src/lib/pdf.js), nunca aqui na
+          tela — a tela sempre mostra a marca padrão do DigitalBov. */}
       <div style={{ fontSize:'1.1rem', fontWeight:700, color:'#111' }}>DigitalBov</div>
       <div style={{ fontSize:'.85rem', color:'#6B7280', marginTop:2 }}>{titulo} · Ciclo {cicloLocal?.nome||'—'} · Gerado em {hoje}</div>
     </div>
@@ -153,6 +180,15 @@ export default function Relatorios() {
     <div className="relatorios-page">
       <div style={{ marginBottom:14 }}>
         <SeletorCicloLocal cicloLocal={cicloLocal} setCicloLocal={setCicloLocal} ciclos={ciclos} />
+      </div>
+
+      <div className="pill-group" style={{ marginBottom:14 }}>
+        <button className={`pill ${!filtroProp ? 'active' : ''}`} onClick={() => setFiltroProp('')}>Todos</button>
+        {props.map(p => (
+          <button key={p.id} className={`pill ${filtroProp === p.id ? 'active' : ''}`} onClick={() => setFiltroProp(p.id)}>
+            {p.nome.split(' ')[0]}
+          </button>
+        ))}
       </div>
 
       <div className="tabs-bar">
@@ -172,8 +208,8 @@ export default function Relatorios() {
                 {[
                   { v:ativos.length,   l:'Animais ativos' },
                   { v:matrizes.length, l:'Matrizes' },
-                  { v:partos.length,   l:'Nascimentos' },
-                  { v:'92,6 ha',       l:'Área útil' },
+                  { v:partosFiltrados.length, l:'Nascimentos' },
+                  { v:areaUtilTxt,     l:'Área útil' },
                 ].map(k => (
                   <div key={k.l} style={{ background:'white', border:'.5px solid var(--gray-200)', borderRadius:8, padding:'10px 12px', textAlign:'center' }}>
                     <div style={{ fontSize:'1.4rem', fontWeight:700, color:'#2B6CD9' }}>{k.v}</div>
@@ -203,8 +239,8 @@ export default function Relatorios() {
               <div className="card">
                 <div className="card-title"><i className="ti ti-chart-bar"/> Índices principais</div>
                 {[
-                  { l:'Taxa de prenhez',    v:pct(prenhas,matrizes.length),           ok: prenhas/Math.max(1,matrizes.length)>=0.85 },
-                  { l:'Taxa de parição',    v:pct(partos.length,totalPrn),             ok: partos.length/Math.max(1,totalPrn)>=0.80 },
+                  { l:'Taxa de prenhez',    v: txPrenhez!=null?`${txPrenhez}%`:'—',    ok: (txPrenhez??0)>=85 },
+                  { l:'Taxa de parição',    v: kpiPrn>0?pct(partosFiltrados.length,kpiPrn):'—', ok: kpiPrn>0 && partosFiltrados.length/kpiPrn>=0.80 },
                   { l:'Receita bruta',      v:fmtMoeda(rec),                           ok: true },
                   { l:'Resultado do ciclo', v:fmtMoeda(resu),                          ok: resu>=0 },
                   { l:'Proc. sanidade',     v:`${sanidade.length} (${vencSan} venc.)`, ok: vencSan===0 },
@@ -225,7 +261,7 @@ export default function Relatorios() {
                     <thead>
                       <tr>
                         <th>Categoria</th>
-                        {props.map(p => <th key={p.id} style={{ textAlign:'center' }}>{p.nome.split(' ')[0]}</th>)}
+                        {propsSelecionadas.map(p => <th key={p.id} style={{ textAlign:'center' }}>{p.nome.split(' ')[0]}</th>)}
                         <th style={{ textAlign:'center' }}>Total</th>
                         <th style={{ textAlign:'right' }}>Valor estimado</th>
                       </tr>
@@ -247,7 +283,7 @@ export default function Relatorios() {
                     <tfoot>
                       <tr style={{ fontWeight:700, background:'#F0F9EC', borderTop:'1.5px solid #D1FAE5' }}>
                         <td>Total geral</td>
-                        {props.map(p => (
+                        {propsSelecionadas.map(p => (
                           <td key={p.id} style={{ textAlign:'center' }}>
                             {valorRowsRel.reduce((s,r) => s + (r.porProp.find(pp=>pp.propId===p.id)?.count||0), 0)}
                           </td>
@@ -289,7 +325,7 @@ export default function Relatorios() {
                       <thead><tr><th>Lote</th><th>Touro</th><th>Data</th><th>Insem.</th><th>Prenhas</th><th>Tx prenhez</th><th>Parto prev.</th></tr></thead>
                       <tbody>
                         {lotes.map(l => {
-                          const ins = l.inseminacoes||[]
+                          const ins = (l.inseminacoes||[]).filter(i => !filtroProp || i.animal?.proprietario_id === filtroProp)
                           const prn = ins.filter(i=>i.diagnostico==='P').length
                           return (
                             <tr key={l.id}>
@@ -305,11 +341,14 @@ export default function Relatorios() {
                             </tr>
                           )
                         })}
+                        {/* Total: matrizes DISTINTAS expostas/prenhas (kpiIns/kpiPrn), não a
+                            soma das linhas por lote acima — senão a mesma vaca exposta na IATF
+                            e no repasse seria contada 2x e a taxa não bateria com Reprodutivo/Metas. */}
                         <tr className="tr-total">
-                          <td colSpan={3}>Total ciclo {cicloLocal?.nome}</td>
-                          <td>{totalIns}</td>
-                          <td style={{color:'#1E55B0'}}>{totalPrn}</td>
-                          <td>{pct(totalPrn,totalIns)}</td>
+                          <td colSpan={3}>Total ciclo {cicloLocal?.nome} <span style={{ fontWeight:400, fontSize:'.7rem', color:'#9CA3AF' }}>(matrizes distintas)</span></td>
+                          <td>{kpiIns}</td>
+                          <td style={{color:'#1E55B0'}}>{kpiPrn}</td>
+                          <td>{txPrenhez!=null?`${txPrenhez}%`:'—'}</td>
                           <td></td>
                         </tr>
                       </tbody>
@@ -321,15 +360,15 @@ export default function Relatorios() {
 
             <div className="card" style={{ marginBottom:14 }}>
               <div className="sl" style={{ marginBottom:12 }}>Nascimentos — ciclo {cicloLocal?.nome}</div>
-              {partos.length === 0
+              {partosFiltrados.length === 0
                 ? <div style={{ color:'#9CA3AF', fontSize:'.82rem' }}>Nenhum nascimento registrado.</div>
                 : (
                   <>
                     <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(120px, 1fr))', gap:10, marginBottom:12 }}>
                       {[
-                        { v:partos.length,                                   l:'Total nascimentos' },
-                        { v:partos.filter(p=>p.bezerro?.sexo==='M').length, l:'Machos ♂' },
-                        { v:partos.filter(p=>p.bezerro?.sexo==='F').length, l:'Fêmeas ♀' },
+                        { v:partosFiltrados.length,                                   l:'Total nascimentos' },
+                        { v:partosFiltrados.filter(p=>p.bezerro?.sexo==='M').length, l:'Machos ♂' },
+                        { v:partosFiltrados.filter(p=>p.bezerro?.sexo==='F').length, l:'Fêmeas ♀' },
                       ].map(k => (
                         <div key={k.l} style={{ background:'#F9FAFB', border:'.5px solid #E5E7EB', borderRadius:8, padding:'10px', textAlign:'center' }}>
                           <div style={{ fontSize:'1.3rem', fontWeight:600, color:'#2B6CD9' }}>{k.v}</div>
@@ -341,7 +380,7 @@ export default function Relatorios() {
                       <table>
                         <thead><tr><th>Data</th><th>Mãe</th><th>Sexo</th><th>Brinco</th></tr></thead>
                         <tbody>
-                          {partos.map(p => (
+                          {partosFiltrados.map(p => (
                             <tr key={p.id}>
                               <td>{fmtData(p.data_parto)}</td>
                               <td><strong>{p.mae?.brinco||'—'}</strong></td>
@@ -360,8 +399,8 @@ export default function Relatorios() {
             <div className="card">
               <div className="sl" style={{ marginBottom:12 }}>Índices reprodutivos — ciclo {cicloLocal?.nome}</div>
               {[
-                { l:'Taxa de prenhez',     v:pct(totalPrn,totalIns),          meta:'≥85%', ok:totalPrn/Math.max(1,totalIns)>=0.85 },
-                { l:'Taxa de parição',     v:pct(partos.length,totalPrn),     meta:'≥80%', ok:partos.length/Math.max(1,totalPrn)>=0.80 },
+                { l:'Taxa de prenhez',     v:txPrenhez!=null?`${txPrenhez}%`:'—',           meta:'≥85%', ok:(txPrenhez??0)>=85 },
+                { l:'Taxa de parição',     v:kpiPrn>0?pct(partosFiltrados.length,kpiPrn):'—', meta:'≥80%', ok:kpiPrn>0 && partosFiltrados.length/kpiPrn>=0.80 },
                 { l:'Abortos registrados', v:'—',                             meta:'<5%',  ok:true },
                 { l:'Intervalo de partos', v:'12,4 meses (est.)',             meta:'<13m', ok:true },
               ].map(k => (
@@ -399,7 +438,7 @@ export default function Relatorios() {
               </div>
               <div className="sl">Receitas por grupo</div>
               {['Venda de Animais','Valores a Receber','Aporte','Outras Receitas'].map(gr => {
-                const vl = lancs.filter(l=>l.tipo==='R'&&l.grupo===gr).reduce((s,l)=>s+Number(l.valor),0)
+                const vl = grupoValor(gr, 'R')
                 return vl > 0 ? (
                   <div key={gr} className="row">
                     <span className="row-label">{gr}</span>
@@ -409,7 +448,7 @@ export default function Relatorios() {
               })}
               <div className="sl" style={{ marginTop:12 }}>Despesas por grupo</div>
               {['Remédios','Suplementos','Mão de Obra','Combustível','Inseminação','Manutenção','Ferramentas','Estrutura','Máquinas e Equipamentos'].map(gr => {
-                const vl = lancs.filter(l=>l.tipo==='D'&&l.grupo===gr).reduce((s,l)=>s+Number(l.valor),0)
+                const vl = grupoValor(gr, 'D')
                 return vl > 0 ? (
                   <div key={gr} className="row">
                     <span className="row-label">{gr}</span>

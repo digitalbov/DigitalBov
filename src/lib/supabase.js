@@ -116,34 +116,53 @@ export const db = {
   },
 
   lotesInseminacao: {
+    // lote_touros: touros ADICIONAIS de um lote de monta natural com mais de um
+    // touro (o 1º touro continua em lotes_inseminacao.touro, sem mudança — ver
+    // resolverPaiDerivado em helpers.js). Vazio/ausente para IA e monta natural
+    // de 1 touro só, que continuam usando só o campo touro de sempre.
     list: (cicloId) => T('lotes_inseminacao').select(`
       *, inseminacoes(*, animal:animais(brinco,proprietario_id,sit_reprodutiva,proprietario:proprietarios(nome))),
-      partos(id,bezerro_id,mae_id,data_parto,mae:animais!mae_id(proprietario_id),bezerro:animais!bezerro_id(situacao,data_desmame,pesagens(data,tipo,peso_kg))),
-      abortos(id,animal_id,data,causa,animal:animais(proprietario_id)),
-      estacao:estacoes_monta(id,nome,inicio,fim)
+      partos(id,bezerro_id,mae_id,data_parto,mae:animais!mae_id(brinco,proprietario_id),bezerro:animais!bezerro_id(brinco,sexo,pai,situacao,data_desmame,pesagens(data,tipo,peso_kg))),
+      abortos(id,animal_id,data,causa,observacoes,animal:animais(proprietario_id)),
+      estacao:estacoes_monta(id,nome,inicio,fim),
+      lote_touros(id,nome)
     `).eq('ciclo_id', cicloId).order('data', { ascending: false }),
     listAll: () => T('lotes_inseminacao').select(`
       *, ciclo:ciclos_financeiros(id,nome,inicio,fim),
       inseminacoes(*, animal:animais(brinco,proprietario_id,proprietario:proprietarios(nome))),
       partos(id,bezerro_id,mae_id,data_parto,mae:animais!mae_id(proprietario_id),bezerro:animais!bezerro_id(situacao,data_desmame,pesagens(data,tipo,peso_kg))),
       abortos(id,animal_id,data,causa,animal:animais(proprietario_id)),
-      estacao:estacoes_monta(id,nome,inicio,fim)
+      estacao:estacoes_monta(id,nome,inicio,fim),
+      lote_touros(id,nome)
     `).order('data', { ascending: true }),
     insert: (data)  => T('lotes_inseminacao').insertOne(data).select().single(),
     update: (id, d) => escopo(T('lotes_inseminacao').raw().update(d).eq('id', id)).select().single(),
     delete: (id)    => escopo(T('lotes_inseminacao').raw().delete().eq('id', id)),
     // Versão leve: dados básicos do lote + inseminações (com brinco do animal) —
     // usada em telas que não precisam do funil completo do Reprodutivo, sem os
-    // embeds pesados de partos/pesagens/abortos/estação (Dashboard, Rebanho,
-    // Metas, Calendario, Relatorios, contextoIA). Sem cicloId, traz de todos os ciclos.
+    // embeds pesados de pesagens/estação (Dashboard, Rebanho, Metas, Calendario,
+    // Relatorios, contextoIA). partos(mae_id)/abortos(animal_id) só trazem o id
+    // do animal (não o funil inteiro) — usados pelo Calendario pra não sugerir
+    // "previsão de parto" de uma vaca que já pariu ou abortou nesse lote. Sem
+    // cicloId, traz de todos os ciclos.
     listInseminacoesResumo: (cicloId) => {
       let q = T('lotes_inseminacao').select(`
         ciclo_id, numero, touro, data,
-        inseminacoes(animal_id, diagnostico, animal:animais(brinco,proprietario_id))
+        inseminacoes(animal_id, diagnostico, animal:animais(brinco,proprietario_id)),
+        partos(mae_id, bezerro_id), abortos(animal_id)
       `)
       if (cicloId) q = q.eq('ciclo_id', cicloId)
       return q.order('data', { ascending: false })
     },
+  },
+
+  loteTouros: {
+    // Touros ADICIONAIS de um lote de monta natural (2º em diante) — o 1º touro
+    // fica em lotes_inseminacao.touro (ver comentário acima). ON DELETE CASCADE
+    // na FK cuida da limpeza sozinho quando o lote é excluído.
+    listPorLote: (loteId) => T('lote_touros').select('*').eq('lote_id', loteId).order('criado_em'),
+    insert:      (data)   => T('lote_touros').insertOne(data).select().single(),
+    delete:      (id)     => escopo(T('lote_touros').raw().delete().eq('id', id)),
   },
 
   estacoesMonta: {
@@ -176,10 +195,17 @@ export const db = {
 
   partos: {
     list:      (cicloId)    => T('partos').select('*, mae:animais!mae_id(brinco,proprietario_id,proprietario:proprietarios(id,nome)), bezerro:animais!bezerro_id(brinco,sexo)').eq('ciclo_id', cicloId).order('data_parto', { ascending: false }),
-    listAll:   ()           => T('partos').select('mae_id,data_parto,ciclo_id,lote_inseminacao_id,mae:animais!mae_id(proprietario_id)').order('data_parto', { ascending: true }),
+    // bezerro.data_desmame: usado por statusReprodutivoExibicao (helpers.js) pra
+    // saber se o último parto da vaca já foi desmamado ("Lactante" na tela).
+    // bezerro_id: usado pelo cohort de GMD Terneiros (Metas.jsx/Rebanho.jsx) pra
+    // ancorar na safra da monta (via lote_inseminacao_id) em vez do nascimento.
+    listAll:   ()           => T('partos').select('bezerro_id,mae_id,data_parto,ciclo_id,lote_inseminacao_id,mae:animais!mae_id(proprietario_id),bezerro:animais!bezerro_id(data_desmame)').order('data_parto', { ascending: true }),
     insert:    (data)       => T('partos').insertOne(data).select().single(),
     byMae:     (maeId)      => T('partos').select('*, bezerro:animais!bezerro_id(brinco,sexo)').eq('mae_id', maeId).order('data_parto', { ascending: true }),
-    byBezerro: (bezerroId)  => T('partos').select('*, mae:animais!mae_id(brinco)').eq('bezerro_id', bezerroId).maybeSingle(),
+    // lote: usado por Animais.jsx pra resolver o clique em "pai" quando o valor
+    // é "Monta natural — Lote N" (paternidade indefinida) — leva pro detalhe do
+    // lote em vez de tentar achar um animal com esse nome (ver PAI_MONTA_NATURAL_PREFIX).
+    byBezerro: (bezerroId)  => T('partos').select('*, mae:animais!mae_id(brinco), lote:lotes_inseminacao(id,ciclo_id,numero,tipo)').eq('bezerro_id', bezerroId).maybeSingle(),
     update:    (id, d)      => escopo(T('partos').raw().update(d).eq('id', id)).select().single(),
     delete:    (id)         => escopo(T('partos').raw().delete().eq('id', id)),
   },
@@ -232,6 +258,16 @@ export const db = {
     list:   (cicloId) => T('lancamentos_financeiros').select('*, rateios:lancamento_rateios(proprietario_id, valor, percentual, proprietario:proprietarios(nome))').eq('ciclo_id', cicloId).order('data', { ascending: false }),
     insert: (data)    => T('lancamentos_financeiros').insertOne(data).select().single(),
     delete: (id)      => escopo(T('lancamentos_financeiros').raw().delete().eq('id', id)),
+    // Grupos já usados em qualquer ciclo (não só o selecionado) — usado pra
+    // descobrir grupos "personalizados" digitados pelo usuário além da lista
+    // fixa (GRUPOS_REC/GRUPOS_DES), sem precisar de uma tabela própria.
+    listGrupos: ()    => T('lancamentos_financeiros').select('grupo,tipo'),
+    // Todos os lançamentos, de qualquer ciclo — usado por Metas.jsx pra somar
+    // despesas por DATA (não pelo ciclo_id gravado no lançamento), já que a
+    // despesa de Inseminação pertence ao período de monta em que caiu a data,
+    // que pode divergir do ciclo_id salvo. Sem embed de rateios (não precisa
+    // aqui) — só os campos usados na soma/agrupamento.
+    listAll: ()       => T('lancamentos_financeiros').select('id,ciclo_id,data,tipo,grupo,valor').order('data', { ascending: false }).limit(5000),
   },
 
   lancamentoRateios: {
@@ -240,12 +276,74 @@ export const db = {
       if (!rateios?.length) return { error: null }
       return supabase.from('lancamento_rateios').insert(rateios)
     },
-    deletePorLancamento: (lancamentoId) => supabase.from('lancamento_rateios').delete().eq('lancamento_id', lancamentoId),
   },
 
   transacoes: {
     list:   (cicloId) => T('transacoes_animais').select('*').eq('ciclo_id', cicloId).order('data', { ascending: false }),
-    insert: (data)    => T('transacoes_animais').insertOne(data).select().single(),
+    // Só vendas, de qualquer ciclo — usado no gráfico de preço de venda por kg
+    // ao longo do tempo (Metas.jsx), que é histórico e não deve ficar preso ao
+    // ciclo selecionado. Só os campos usados no gráfico.
+    listVendas: () => T('transacoes_animais').select('data,categoria,preco_kg,quantidade').eq('tipo', 'V').order('data', { ascending: true }),
+    // Venda real (Bloco D/D2): cria o lançamento de receita + 1 transação por
+    // categoria + baixa dos animais, tudo numa RPC atômica (registrar_venda_animais).
+    registrarVenda: (p) => supabase.rpc('registrar_venda_animais', {
+      p_conta_id:    p.conta_id,
+      p_fazenda_id:  p.fazenda_id,
+      p_ciclo_id:    p.ciclo_id,
+      p_data:        p.data,
+      p_valor_total: p.valor_total,
+      p_descricao:   p.descricao,
+      p_contraparte: p.contraparte,
+      p_comissao:    p.comissao,
+      p_imposto:     p.imposto,
+      p_detalhes:    p.detalhes,
+      p_animal_ids:  p.animal_ids,
+    }),
+    // Compra real (Bloco D/D3): cria o lançamento de despesa + 1 transação por
+    // categoria + cadastra os animais em lote (brinco provisório) + rateio,
+    // tudo numa RPC atômica (registrar_compra_animais).
+    registrarCompra: (p) => supabase.rpc('registrar_compra_animais', {
+      p_conta_id:    p.conta_id,
+      p_fazenda_id:  p.fazenda_id,
+      p_ciclo_id:    p.ciclo_id,
+      p_data:        p.data,
+      p_valor_total: p.valor_total,
+      p_descricao:   p.descricao,
+      p_contraparte: p.contraparte,
+      p_comissao:    p.comissao,
+      p_imposto:     p.imposto,
+      p_detalhes:    p.detalhes,
+    }),
+  },
+
+  transacaoAnimaisItens: {
+    // Consulta (Bloco D/D2.3): animais individuais de uma transação (venda e,
+    // a partir do D3, compra também).
+    listPorTransacao: (transacaoId) => T('transacao_animais_itens')
+      .select('*, animal:animais(brinco), proprietario:proprietarios(nome)')
+      .eq('transacao_id', transacaoId)
+      .order('categoria_venda'),
+    // Data de ENTRADA no rebanho de animais COMPRADOS (uma query só pra todos
+    // os animais da conta/fazenda de uma vez — nunca N+1). Junta com
+    // transacoes_animais via o FK transacao_id e filtra tipo='C' (compra) no
+    // próprio join (!inner), então só vem uma linha por animal comprado.
+    // Animal nascido na fazenda nunca aparece aqui (nunca tem transação de
+    // compra) — ver ehMatriz/data_entrada em helpers.js.
+    listDataEntradaCompras: () => T('transacao_animais_itens')
+      .select('animal_id, transacoes_animais!inner(data,tipo)')
+      .eq('transacoes_animais.tipo', 'C'),
+  },
+
+  simulacoes: {
+    // Simulações (Bloco D/D3): nunca criam lançamento, baixa de animal ou
+    // rateio — é só um registro de consulta em simulacoes_transacoes.
+    // NÃO filtra por ciclo_id: simulação é um cenário hipotético, muitas vezes
+    // pra uma data que ainda não cai em nenhum ciclo cadastrado (ciclo_id fica
+    // NULL) ou num ciclo diferente do que está selecionado nas outras abas da
+    // tela — filtrar por ciclo escondia simulações recém-criadas em silêncio.
+    list:   () => T('simulacoes_transacoes').select('*').order('data', { ascending: false }),
+    insert: (data) => T('simulacoes_transacoes').insertOne(data).select().single(),
+    delete: (id)   => escopo(T('simulacoes_transacoes').raw().delete().eq('id', id)),
   },
 
   ciclos: {
@@ -256,6 +354,10 @@ export const db = {
       return q
     },
     current: ()     => T('ciclos_financeiros').select('*').eq('atual', true).maybeSingle(),
+    // Usado pela criação automática de ciclo (CicloContext) pra reduzir a janela de
+    // corrida: reconsulta pelo nome (chave natural, ex: '2025/26') logo antes de
+    // inserir, em vez de confiar só na lista já carregada em memória.
+    byNome:  (nome) => T('ciclos_financeiros').select('*').eq('nome', nome).maybeSingle(),
     insert:  (data) => T('ciclos_financeiros').insertOne(data).select().single(),
     deactivateAll: () => {
       let q = T('ciclos_financeiros').raw().update({ atual: false }).eq('atual', true)

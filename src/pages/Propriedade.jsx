@@ -10,6 +10,7 @@ import { useFazenda } from '../lib/FazendaContext'
 import { useConta } from '../lib/ContaContext'
 import { usePermissoes } from '../lib/PermissoesContext'
 import { diasDesde, fmtMoeda, calcCategoriaRebanho, algumErro } from '../lib/helpers'
+import { hoje as hojeAgora, hojeISO } from '../lib/hoje'
 import { Loading, Modal, Field, Badge, toast, EmptyState, Confirm, ErroCarregamento } from '../components/UI'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -19,7 +20,7 @@ import OnboardingWizard from '../components/OnboardingWizard'
 
 // ── Helpers ───────────────────────────────────────────────────────
 const getCicloAtualAno = () => {
-  const h = new Date(); const m = h.getMonth() + 1
+  const h = hojeAgora(); const m = h.getMonth() + 1
   return m >= 7 ? h.getFullYear() : h.getFullYear() - 1
 }
 
@@ -224,9 +225,8 @@ function GraficoBenchmark({ titulo, valorFazenda, benchmarks, tipo }) {
 export default function Propriedade() {
   const { fazendaAtual, fazendas, carregarFazendas, atualizarFazendaAtual, setFazendaAtual } = useFazenda()
   const { contaAtual } = useConta()
-  const { podeEditar } = usePermissoes()
+  const { podeEditar, ehAdmin } = usePermissoes()
   const podeEditarProp = podeEditar('propriedade')
-  const ehAdmin = contaAtual?.papel === 'dono' || contaAtual?.papel === 'admin'
 
   const [section,    setSection]    = useState('resumo')
   const [planTab,    setPlanTab]    = useState('proposito')
@@ -295,17 +295,13 @@ export default function Propriedade() {
       if (erroCiclo) console.error('[Propriedade] erro ao buscar ciclo atual:', erroCiclo)
       setCicloAtual(ciclo)
       if (ciclo) {
-        const rCiclo = await Promise.all([
-          db.lancamentos.list(ciclo.id),
-          db.transacoes.list(ciclo.id),
-        ])
-        if (algumErro('[Propriedade]', rCiclo)) { setLoadError(true); return }
-        const [{ data: lancs }, { data: transacs }] = rCiclo
-        const todasReceitas = [...(lancs||[]).filter(l=>l.tipo==='R'), ...(transacs||[]).filter(t=>t.tipo==='V')]
-        const todasDespesas = [...(lancs||[]).filter(l=>l.tipo==='D'), ...(transacs||[]).filter(t=>t.tipo==='C')]
-        const valorDe = (x) => parseFloat(x.valor ?? x.valor_total ?? 0) || 0
-        const rec  = todasReceitas.reduce((s, l) => s + valorDe(l), 0)
-        const desp = todasDespesas.reduce((s, l) => s + valorDe(l), 0)
+        // lancamentos_financeiros é a fonte única de dinheiro — transacoes_animais
+        // é registro operacional e não entra mais nesta soma (ver Bloco D/D2).
+        const { data: lancs, error: erroLancs } = await db.lancamentos.list(ciclo.id)
+        if (erroLancs) { console.error('[Propriedade] erro ao buscar lançamentos:', erroLancs); setLoadError(true); return }
+        const valorDe = (x) => parseFloat(x.valor ?? 0) || 0
+        const rec  = (lancs||[]).filter(l=>l.tipo==='R').reduce((s, l) => s + valorDe(l), 0)
+        const desp = (lancs||[]).filter(l=>l.tipo==='D').reduce((s, l) => s + valorDe(l), 0)
         setResultadoLiquido(rec - desp)
       }
     } catch (e) {
@@ -396,7 +392,7 @@ export default function Propriedade() {
 
   const toggleStatus = async (piq) => {
     const novo = piq.status==='em_uso' ? 'em_descanso' : 'em_uso'
-    await db.piquetes.update(piq.id, { status:novo, status_desde:new Date().toISOString().split('T')[0] })
+    await db.piquetes.update(piq.id, { status:novo, status_desde:hojeISO() })
     loadAll()
   }
 
@@ -473,7 +469,10 @@ export default function Propriedade() {
   }
 
   const criarFazenda = async () => {
-    if (!podeEditarProp) return
+    // Criar fazenda é ação estrutural da conta — exige admin/dono, não só
+    // permissão de edição do módulo propriedade (um operador pode ter essa
+    // permissão sem ser admin).
+    if (!ehAdmin) return
     if (!form.nome) { toast('Informe o nome.','error'); return }
     if (!contaAtual?.id) { toast('Conta não identificada.','error'); return }
     setSaving(true)
@@ -559,7 +558,7 @@ export default function Propriedade() {
     const concluida = acao.status !== 'concluida'
     await db.planejamentoAcoes.update(acao.id, {
       status:      concluida ? 'concluida' : 'pendente',
-      concluida_em:concluida ? new Date().toISOString() : null,
+      concluida_em:concluida ? hojeAgora().toISOString() : null,
     })
     const { data } = await db.planejamentoAcoes.list(plan.id)
     setAcoes(data||[])
@@ -1004,7 +1003,7 @@ export default function Propriedade() {
           <div className="card">
             <div className="card-title" style={{ display:'flex', justifyContent:'space-between' }}>
               <span><i className="ti ti-home-2" style={{ color:'#2B6CD9' }} /> Todas as fazendas</span>
-              {podeEditarProp && (
+              {ehAdmin && (
                 <button
                   className="btn btn-primary btn-xs"
                   onClick={() => openModal('nova-faz')}

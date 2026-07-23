@@ -4,7 +4,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { db } from '../lib/supabase'
-import { calcCategoria, calcCategoriaRebanho, calcTaxaPrenhez, contarExpostas, contarPrenhas, calcGMD, pct, fmtMoeda, ehMatriz, somaFinita, algumErro, valorPropLanc } from '../lib/helpers'
+import { calcCategoria, calcCategoriaRebanho, calcTaxaPrenhez, contarExpostas, contarPrenhas, calcGMD, pct, fmtMoeda, ehMatriz, somaFinita, algumErro, valorPropLanc, CATEGORIAS_VALOR, pesagensDeManejo } from '../lib/helpers'
 import { Loading, IndexCard, BotaoPDF, ErroCarregamento, SeletorCicloLocal, Badge, EmptyState } from '../components/UI'
 import { useCicloLocal } from '../lib/useCicloLocal'
 import {
@@ -13,12 +13,6 @@ import {
 } from 'recharts'
 
 const TABS_R = ['Visão Geral','Índices','Comparativo','Histórico','Valor de Mercado do Rebanho']
-const CATEGORIAS_VALOR = [
-  'Terneira','Novilha 13-24m','Novilha Prenha 13-24m',
-  'Novilha 25-36m','Novilha Prenha 25-36m',
-  'Vaca Vazia','Vaca Prenha','Vaca Madura Vazia','Vaca Madura Prenha',
-  'Terneiro','Novilho 13-24m','Novilho 25-36m','Boi','Touro'
-]
 
 export function Rebanho() {
   const navigate   = useNavigate()
@@ -36,7 +30,7 @@ export function Rebanho() {
   const [loadError,    setLoadError]    = useState(false)
   const [catPrecos,    setCatPrecos]    = useState([])
   const [todosLotesInsem, setTodosLotesInsem] = useState([])
-  const [pesagensPorAnimal, setPesagensPorAnimal] = useState({})
+  const [pesagens,        setPesagens]        = useState([])
 
   // Seletor de ciclo LOCAL da aba Índices.
   const { cicloLocal, setCicloLocal, ciclos, cicloAtual } = useCicloLocal()
@@ -85,30 +79,21 @@ export function Rebanho() {
         db.proprietarios.list(),
         db.categoriasPreco.list(),
         db.lotesInseminacao.listInseminacoesResumo(),
+        db.pesagens.listAll(),
       ])
       if (algumErro('[Rebanho]', base)) { setLoadError(true); return }
-      const [ra, rp, rc, rli] = base
+      const [ra, rp, rc, rli, rpes] = base
       const propsData   = rp.data || []
       const animaisData = ra.data || []
       setAnimais(animaisData)
       setProps(propsData)
       setCatPrecos(rc.data || [])
       setTodosLotesInsem(rli.data || [])
-
-      // Pesagens dos terneiros/terneiras ativos, para o GMD — uma única query
-      // com .in('animal_id', ids) em vez de 1 query por terneiro em loop.
-      const terneirosAtivos = animaisData.filter(a =>
-        a.situacao === 'ativo' && ['Terneiro','Terneira'].includes(calcCategoria(a.data_nascimento, a.sexo))
-      )
-      const { data: pesagensTerneiros, error: erroPesagens } = await db.pesagens.listPorAnimais(terneirosAtivos.map(t => t.id))
-      if (erroPesagens) console.error('[Rebanho] erro ao buscar pesagens dos terneiros:', erroPesagens)
-      const pesagensMap = {}
-      terneirosAtivos.forEach(t => { pesagensMap[t.id] = [] })
-      ;(pesagensTerneiros || []).forEach(p => {
-        if (!pesagensMap[p.animal_id]) pesagensMap[p.animal_id] = []
-        pesagensMap[p.animal_id].push(p)
-      })
-      setPesagensPorAnimal(pesagensMap)
+      // Carrega TODAS as pesagens de uma vez (igual Metas.jsx) — o recorte por
+      // ciclo (cicloLocal) do GMD acontece no render, então trocar de ciclo
+      // não exige recarregar nada; sem isso, o GMD ficava preso ao cohort
+      // calculado no load e não reagia à troca de ciclo (bug corrigido aqui).
+      setPesagens(rpes.data || [])
     } catch (e) {
       console.error('[Rebanho] erro ao carregar:', e)
       setLoadError(true)
@@ -136,13 +121,40 @@ export function Rebanho() {
   const txPrenNum = calcTaxaPrenhez(insemRebanho)
   const txPren = txPrenNum !== null ? txPrenNum + '%' : '—'
 
-  // GMD de terneiros/terneiras ativos: (peso mais recente - peso inicial) / dias entre as pesagens.
-  // Usa o calcGMD único de helpers.js (retorna string via toFixed ou null) — convertido
-  // para número aqui antes de filtrar/agregar.
-  const terneiros = ativos.filter(a => ['Terneiro','Terneira'].includes(calcCategoria(a.data_nascimento, a.sexo)))
-  const gmdTerneiros = terneiros
-    .map(t => ({ sexo: t.sexo, gmd: parseFloat(calcGMD(pesagensPorAnimal[t.id])) }))
-    .filter(t => Number.isFinite(t.gmd))
+  // GMD de terneiros/terneiras: (peso mais recente - peso inicial) / dias entre as pesagens.
+  // Usa o calcGMD único de helpers.js (retorna string via toFixed ou null) —
+  // convertido para número aqui antes de filtrar/agregar. Cohort ANCORADO NA
+  // SAFRA DA MONTA (mesmo critério de Metas.jsx — ver comentário lá): o
+  // terneiro pertence ao ciclo da monta que o gerou (via lote.partos), não à
+  // data de nascimento dele — um nascido em outubro (ciclo seguinte) mas
+  // gerado pela monta deste ciclo ainda é desta safra. Igual a Metas.jsx, não
+  // inclui monta natural (lote_inseminacao_id nulo) — não há "ciclo da monta"
+  // pra ancorar uma cobertura não lançada. Exclui mortos (perda real,
+  // categoria diferente de venda). Só pesagens de MANEJO entram no cálculo
+  // (pesagensDeManejo) — a de venda/compra registra o peso médio do LOTE
+  // inteiro, não o peso real do animal, e distorceria o GMD pra baixo sempre
+  // que o animal estivesse acima da média do lote na venda; só cai pra
+  // venda/compra se o animal nunca teve pesagem de manejo nenhuma. A categoria
+  // (Terneiro/Terneira) é avaliada na data da última pesagem considerada, não
+  // em "hoje".
+  const bezerroIdsSafra = new Set(
+    lotesInsem.flatMap(l => (l.partos || []).map(p => p.bezerro_id)).filter(Boolean)
+  )
+  const candidatosGmd = animais.filter(a =>
+    (!filtProp || a.proprietario_id === filtProp) &&
+    a.situacao !== 'morto' &&
+    bezerroIdsSafra.has(a.id)
+  )
+  const gmdTerneiros = candidatosGmd
+    .map(t => {
+      const todasDoAnimal = pesagens.filter(p => p.animal_id === t.id)
+      const ps = pesagensDeManejo(todasDoAnimal).sort((a, b) => a.data.localeCompare(b.data))
+      if (ps.length < 2) return null
+      const dataUltimaPesagem = ps[ps.length - 1].data
+      if (!['Terneiro','Terneira'].includes(calcCategoria(t.data_nascimento, t.sexo, dataUltimaPesagem))) return null
+      return { sexo: t.sexo, gmd: parseFloat(calcGMD(ps)) }
+    })
+    .filter(t => t && Number.isFinite(t.gmd))
   const mediaGMD = (lista) => lista.length > 0 ? lista.reduce((s, v) => s + v, 0) / lista.length : null
   const fmtGMD   = (v) => v === null ? '—' : `${v.toFixed(2).replace('.', ',')} kg/dia`
   const gmdTotal  = mediaGMD(gmdTerneiros.map(t => t.gmd))
@@ -190,19 +202,19 @@ export function Rebanho() {
     const nascimentos  = partosTodos.filter(p => p.ciclo_id === c.id && (!filtProp || p.mae?.proprietario_id === filtProp)).length
     const lancs        = lancsPorCiclo[c.id] || []
     const transacs     = transacsPorCiclo[c.id] || []
-    // transacoes_animais não tem proprietario_id (é uma venda/compra em lote, sem
-    // dono definido) — com filtro de proprietário ativo, só os lançamentos (que
-    // têm rateio por proprietário) entram na conta, igual já é feito no Dashboard.
+    // lancamentos_financeiros é a fonte única de dinheiro — transacoes_animais é
+    // registro operacional (vendas/compras abaixo são contagem, não soma de
+    // dinheiro) e não entra mais nesta apuração (ver Bloco D/D2).
     const receitas     = filtProp
       ? valorPropLanc(lancs, 'R', filtProp)
-      : somaFinita(lancs.filter(l => l.tipo === 'R'), 'valor') + somaFinita(transacs.filter(t => t.tipo === 'V'), 'valor_total')
+      : somaFinita(lancs.filter(l => l.tipo === 'R'), 'valor')
     const despesas     = filtProp
       ? valorPropLanc(lancs, 'D', filtProp)
-      : somaFinita(lancs.filter(l => l.tipo === 'D'), 'valor') + somaFinita(transacs.filter(t => t.tipo === 'C'), 'valor_total')
+      : somaFinita(lancs.filter(l => l.tipo === 'D'), 'valor')
     const resultado    = receitas - despesas
     const vendas       = filtProp ? 0 : transacs.filter(t => t.tipo === 'V').reduce((s, t) => s + (parseInt(t.quantidade) || 0), 0)
     const compras      = filtProp ? 0 : transacs.filter(t => t.tipo === 'C').reduce((s, t) => s + (parseInt(t.quantidade) || 0), 0)
-    return { ciclo: c, inseminacoes, prenhas, txPrenhez, nascimentos, receitas, despesas, resultado, vendas, compras }
+    return { ciclo: c, inseminacoes, inseminacoesServicos, prenhas, txPrenhez, nascimentos, receitas, despesas, resultado, vendas, compras }
   })
 
   const evolucaoData = statsPorCiclo.map(s => ({

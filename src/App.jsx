@@ -26,6 +26,7 @@ const Metas       = lazy(() => import('./pages/Metas'))
 const Backup      = lazy(() => import('./pages/Backup'))
 const Comparativo = lazy(() => import('./pages/Comparativo'))
 const Usuarios    = lazy(() => import('./pages/Usuarios'))
+const Manual      = lazy(() => import('./pages/manual/Manual'))
 
 import './styles/global.css'
 
@@ -200,6 +201,7 @@ export default function App() {
           <Route path="/relatorios"  element={<RotaProtegida modulo="relatorios"><Suspense fallback={null}><Relatorios /></Suspense></RotaProtegida>} />
           <Route path="/comparativo" element={<Suspense fallback={null}><Comparativo /></Suspense>} />
           <Route path="/usuarios"   element={<Suspense fallback={null}><Usuarios /></Suspense>} />
+          <Route path="/manual"     element={<Suspense fallback={null}><Manual /></Suspense>} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

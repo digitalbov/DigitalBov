@@ -50,27 +50,22 @@ export default function Comparativo() {
     const ciclo   = rCiclo.data
     const piqs    = rPiqs.data || []
 
-    let lancamentos = [], transacoes = [], inseminacoes = []
+    let lancamentos = [], inseminacoes = []
     if (ciclo) {
       const doCiclo = await Promise.all([
         supabase.from('lancamentos_financeiros').select('tipo,valor').eq('ciclo_id', ciclo.id).eq('fazenda_id', fid),
-        supabase.from('transacoes_animais').select('tipo,valor_total').eq('ciclo_id', ciclo.id).eq('fazenda_id', fid),
         supabase.from('lotes_inseminacao').select('inseminacoes(animal_id,diagnostico)').eq('ciclo_id', ciclo.id).eq('fazenda_id', fid),
       ])
       if (algumErro(`[Comparativo] "${fazenda.nome}":`, doCiclo)) erroFazenda = true
-      const [rL, rT, rLI] = doCiclo
+      const [rL, rLI] = doCiclo
       lancamentos   = rL.data || []
-      transacoes    = rT.data || []
       inseminacoes  = (rLI.data || []).flatMap(l => l.inseminacoes || [])
     }
 
-    // Receitas/despesas: lançamentos usam a coluna `valor`, transações de
-    // animais usam `valor_total` — cada origem soma o campo certo (helpers.somaFinita,
-    // protegido com Number.isFinite para não deixar NaN contaminar o total).
+    // lancamentos_financeiros é a fonte única de dinheiro — transacoes_animais é
+    // registro operacional e não entra mais nesta soma (ver Bloco D/D2).
     const receitas  = somaFinita(lancamentos.filter(l => l.tipo === 'R'), 'valor')
-                     + somaFinita(transacoes.filter(t => t.tipo === 'V'), 'valor_total')
     const despesas  = somaFinita(lancamentos.filter(l => l.tipo === 'D'), 'valor')
-                     + somaFinita(transacoes.filter(t => t.tipo === 'C'), 'valor_total')
     const resultado = receitas - despesas
     const totalHa   = piqs.reduce((s,p) => s + parseFloat(p.area_ha||0), 0)
 

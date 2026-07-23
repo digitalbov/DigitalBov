@@ -331,7 +331,7 @@ export function BotaoPDF({ contentRef, filename, titulo = '', label = 'Gerar PDF
     setGerando(true)
     try {
       const { gerarPDFComMolduras } = await import('../lib/pdf')
-      await gerarPDFComMolduras(contentRef.current, filename, titulo, fazendaAtual?.nome || '')
+      await gerarPDFComMolduras(contentRef.current, filename, titulo, fazendaAtual?.nome || '', fazendaAtual?.foto_url || '')
     } catch(e) {
       console.error(e)
       toast('Erro ao gerar PDF: ' + e.message, 'error')

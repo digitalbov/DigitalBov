@@ -213,7 +213,10 @@ tbody tr:hover td { background: #EAF0FB; transition: background 0.15s; }
 .grid-idx-repro { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 8px; }
 
 /* ── Sidebar layout ─────────────────────────────────────────────── */
-.app-shell { display: flex; height: 100vh; overflow: hidden; }
+/* app-shell empilha em coluna (faixa de aviso no topo + corpo) para a faixa
+   ocupar 100% da largura; app-body é quem organiza sidebar + conteúdo em linha. */
+.app-shell { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+.app-body  { display: flex; flex: 1; min-height: 0; overflow: hidden; }
 
 .sidebar {
   width: var(--sidebar-w); background: linear-gradient(160deg, #2B6CD9 0%, #5B3FBE 55%, #7B2FBE 100%);

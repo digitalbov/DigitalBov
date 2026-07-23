@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 
 const TOPICOS = [
   {
@@ -107,11 +108,22 @@ const TOPICOS = [
       ['📤', 'Exportação', 'Exporte seus dados quando precisar.'],
     ]
   },
+  {
+    icon: '📖', titulo: 'Manual do Sistema', manual: true,
+    itens: [
+      ['📚', 'Guia completo', 'Veja o passo a passo detalhado de cada módulo, com explicação de como cada card e índice do sistema é calculado.'],
+      ['🧭', 'Índice navegável', 'Use a busca ou o índice lateral para ir direto ao módulo que você precisa consultar.'],
+      ['🖨️', 'Exportação em PDF', 'Exporte o manual completo (ou o que estiver aberto) em PDF a qualquer momento.'],
+    ]
+  },
 ]
 
 export default function Tutorial({ onClose, onNaoMostrarMais }) {
+  const navigate = useNavigate()
   const [atual, setAtual] = useState(0)
   const topico = TOPICOS[atual]
+
+  const abrirManual = () => { onClose(); navigate('/manual') }
 
   return (
     <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.6)', zIndex:9999, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}>
@@ -174,6 +186,11 @@ export default function Tutorial({ onClose, onNaoMostrarMais }) {
                 </div>
               ))}
             </div>
+            {topico.manual && (
+              <button className="btn btn-primary" onClick={abrirManual} style={{ marginTop:18 }}>
+                <i className="ti ti-book-2" /> Abrir Manual do Sistema
+              </button>
+            )}
           </div>
 
           {/* Rodapé com navegação */}

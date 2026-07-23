@@ -16,30 +16,35 @@ const MODULOS_GERENCIAVEIS = [
   'pesagens', 'estoque', 'financeiro', 'relatorios', 'metas',
 ]
 
+// Ordem/agrupamento/rótulos definidos pelo usuário — só isso muda aqui. Rota,
+// ícone e regra de visibilidade de cada item continuam os mesmos de antes;
+// Comparativo/Usuários/Tutorial só entraram no array (eram blocos JSX
+// separados, hardcoded, cada um com sua própria seção) pra caber nas 3 seções
+// pedidas, com a MESMA condição de visibilidade que já tinham (ver itemVisivel
+// abaixo: `condicao:'comparativo'` = mostrarComparativo; `adminOnly` = ehAdmin).
 const NAV = [
   { section: 'PRINCIPAL' },
-  { path: '/',             icon: 'ti-layout-dashboard', label: 'Dashboard' },
-  { path: '/assistente',   icon: 'ti-message-chatbot',  label: 'Assistente IA', destaque: true },
+  { path: '/',             icon: 'ti-layout-dashboard', label: 'Painel' },
+  { path: '/metas',        icon: 'ti-target',           label: 'Metas e Indicadores' },
+  { path: '/rebanho',      icon: 'ti-chart-line',       label: 'Controle de Rebanho' },
   { path: '/calendario',   icon: 'ti-calendar-event',   label: 'Calendário' },
-  { path: '/metas',        icon: 'ti-target',            label: 'Metas & Indicadores' },
+  { path: '/comparativo',  icon: 'ti-chart-bar',        label: 'Comparativo', condicao: 'comparativo', badgeNovo: true },
+  { path: '/relatorios',   icon: 'ti-file-text',        label: 'Relatórios' },
+  { path: '/assistente',  icon: 'ti-message-chatbot',  label: 'Assistente IA', destaque: true },
 
-  { section: 'GESTÃO' },
-  { path: '/propriedade', icon: 'ti-home-2',           label: 'Propriedade' },
+  { section: 'GESTÃO OPERACIONAL' },
+  { path: '/propriedade', icon: 'ti-home-2',           label: 'Propriedades' },
   { path: '/animais',     icon: 'ti-clipboard-list',   label: 'Cadastro de Animais' },
-  { path: '/reprodutivo', icon: 'ti-activity',         label: 'Painel Reprodutivo' },
-  { path: '/rebanho',     icon: 'ti-chart-line',       label: 'Controle de Rebanho' },
-
-  { section: 'OPERACIONAL' },
+  { path: '/reprodutivo', icon: 'ti-activity',         label: 'Gestão Reprodutiva' },
   { path: '/sanidade',    icon: 'ti-shield-check',     label: 'Sanidade' },
   { path: '/pesagens',    icon: 'ti-weight',           label: 'Pesagens' },
   { path: '/estoque',     icon: 'ti-box',              label: 'Estoque' },
-
-  { section: 'FINANCEIRO' },
   { path: '/financeiro',  icon: 'ti-cash',             label: 'Gestão Financeira' },
-  { path: '/relatorios',  icon: 'ti-file-text',        label: 'Relatórios' },
 
   { section: 'SISTEMA' },
-  { path: '/backup',      icon: 'ti-database-export',  label: 'Backup & Dados' },
+  { path: '/usuarios', icon: 'ti-users',           label: 'Configurações de Usuários', adminOnly: true },
+  { path: '/backup',   icon: 'ti-database-export', label: 'Backup e Dados' },
+  { tipo: 'modal',     icon: 'ti-school',          label: 'Tutorial', adminOnly: true },
 ]
 
 export default function Sidebar({ user, perfil, mobileOpen, onClose }) {
@@ -48,8 +53,7 @@ export default function Sidebar({ user, perfil, mobileOpen, onClose }) {
   const { fazendas, fazendaAtual, setFazendaAtual, carregarFazendas } = useFazenda()
   const { contas, contaAtual, setContaAtual } = useConta()
   const { ciclos, cicloSelecionado, setCicloSelecionado, statusCicloSelecionado } = useCiclo()
-  const { podeVer } = usePermissoes()
-  const ehAdmin = contaAtual?.papel === 'dono' || contaAtual?.papel === 'admin'
+  const { podeVer, ehAdmin } = usePermissoes()
   const [seletorAberto, setSeletorAberto] = useState(false)
   const [seletorContaAberto, setSeletorContaAberto] = useState(false)
   const [seletorCicloAberto, setSeletorCicloAberto] = useState(false)
@@ -89,6 +93,10 @@ export default function Sidebar({ user, perfil, mobileOpen, onClose }) {
   }
 
   const criarFazenda = async () => {
+    // Criar fazenda é ação estrutural da conta — exige admin/dono. O botão já
+    // fica escondido pra quem não é, mas o handler também valida (esconder
+    // no front não protege nada por si só).
+    if (!ehAdmin) return
     if (!novaForm.nome) return
     if (!contaAtual) { alert('Conta não carregada. Recarregue a página.'); return }
     setSalvandoNova(true)
@@ -112,11 +120,17 @@ export default function Sidebar({ user, perfil, mobileOpen, onClose }) {
 
   const mostrarComparativo = fazendas.length >= 2
 
-  // Itens visíveis do menu: admin vê tudo; operador vê dashboard + módulos
+  // Itens visíveis do menu: admin vê tudo (exceto Comparativo, que depende de
+  // ter 2+ fazendas independente de admin); operador vê dashboard + módulos
   // fora da lista gerenciável sempre, e os demais conforme podeVer(modulo).
-  // Cabeçalhos de seção (item.section) só aparecem se sobrar algum item abaixo.
+  // adminOnly (Usuários/Tutorial) sempre exige ehAdmin, mesmo pra quem "vê
+  // tudo". Cabeçalhos de seção (item.section) só aparecem se sobrar algum
+  // item abaixo — mesmas regras de antes, só que agora cobrindo também os
+  // itens que eram blocos JSX hardcoded (Comparativo/Usuários/Tutorial).
   const navVisivel = (() => {
     const itemVisivel = (item) => {
+      if (item.condicao === 'comparativo') return mostrarComparativo
+      if (item.adminOnly) return ehAdmin
       if (ehAdmin) return true
       const modulo = item.path === '/' ? 'dashboard' : item.path.slice(1)
       if (modulo === 'dashboard' || !MODULOS_GERENCIAVEIS.includes(modulo)) return true
@@ -319,12 +333,13 @@ export default function Sidebar({ user, perfil, mobileOpen, onClose }) {
         <nav className="sidebar-nav">
           {navVisivel.map((item, i) => {
             if (item.section) return <div key={i} className="nav-section-label">{item.section}</div>
-            const active = location.pathname === item.path
+            const isModal = item.tipo === 'modal'
+            const active = !isModal && location.pathname === item.path
             return (
               <button
-                key={item.path}
+                key={item.path || item.label}
                 className={`nav-item ${active ? 'active' : ''}`}
-                onClick={() => handleNav(item.path)}
+                onClick={() => isModal ? setTutorialAberto(true) : handleNav(item.path)}
                 style={item.destaque && !active ? {
                   background:'rgba(151,196,89,.18)', color:'#A5C8F5', fontWeight:500
                 } : undefined}
@@ -338,51 +353,16 @@ export default function Sidebar({ user, perfil, mobileOpen, onClose }) {
                     borderRadius:6, padding:'1px 6px'
                   }}>IA</span>
                 )}
+                {item.badgeNovo && (
+                  <span style={{
+                    marginLeft:'auto', fontSize:'.64rem', fontWeight:700,
+                    background:'rgba(99,135,206,.25)', color:'#93C5FD',
+                    borderRadius:6, padding:'1px 6px'
+                  }}>NOVO</span>
+                )}
               </button>
             )
           })}
-
-          {ehAdmin && (
-            <button
-              className="nav-item"
-              onClick={() => setTutorialAberto(true)}
-            >
-              <i className="ti ti-school nav-item-icon" />
-              Tutorial
-            </button>
-          )}
-
-          {/* Comparativo — só aparece com 2+ fazendas */}
-          {mostrarComparativo && (
-            <>
-              <div className="nav-section-label">MULTI-FAZENDA</div>
-              <button
-                className={`nav-item ${location.pathname==='/comparativo'?'active':''}`}
-                onClick={() => handleNav('/comparativo')}
-              >
-                <i className="ti ti-chart-bar nav-item-icon" />
-                Comparativo
-                <span style={{
-                  marginLeft:'auto', fontSize:'.64rem', fontWeight:700,
-                  background:'rgba(99,135,206,.25)', color:'#93C5FD',
-                  borderRadius:6, padding:'1px 6px'
-                }}>NOVO</span>
-              </button>
-            </>
-          )}
-
-          {ehAdmin && (
-            <>
-              <div className="nav-section-label">ADMINISTRAÇÃO</div>
-              <button
-                className={`nav-item ${location.pathname==='/usuarios'?'active':''}`}
-                onClick={() => handleNav('/usuarios')}
-              >
-                <i className="ti ti-users nav-item-icon" />
-                Usuários
-              </button>
-            </>
-          )}
         </nav>
 
         {/* User footer */}
