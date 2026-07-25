@@ -62,6 +62,15 @@ export default function Sidebar({ user, perfil, mobileOpen, onClose }) {
   const [salvandoNova, setSalvandoNova] = useState(false)
   const [wizardFazendaId, setWizardFazendaId] = useState(null)
   const [tutorialAberto, setTutorialAberto] = useState(false)
+  // Sidebar recolhida (desktop) — persistida em localStorage, mesmo mecanismo
+  // já usado no app pra preferência de UI (ver digitalbov_tutorial_visto
+  // acima e fazenda_atual_id em ContaContext/FazendaContext). Só afeta layout
+  // desktop — no mobile a sidebar é sempre um overlay cheio (ver global.css).
+  const [collapsed, setCollapsed] = useState(() => localStorage.getItem('digitalbov_sidebar_collapsed') === '1')
+
+  useEffect(() => {
+    localStorage.setItem('digitalbov_sidebar_collapsed', collapsed ? '1' : '0')
+  }, [collapsed])
 
   useEffect(() => {
     const jaViu = localStorage.getItem('digitalbov_tutorial_visto')
@@ -150,15 +159,24 @@ export default function Sidebar({ user, perfil, mobileOpen, onClose }) {
   return (
     <>
       <div className={`sidebar-backdrop ${mobileOpen ? 'mobile-open' : ''}`} onClick={onClose} />
-      <aside className={`sidebar ${mobileOpen ? 'mobile-open' : ''}`}>
+      <aside className={`sidebar ${mobileOpen ? 'mobile-open' : ''} ${collapsed ? 'collapsed' : ''}`}>
+        {/* sidebar-scroll: TODO o conteúdo de sempre, sem nenhuma mudança —
+            é o mesmo overflow-y:auto que a própria .sidebar já tinha antes do
+            collapse, só movido pra este wrapper (ver global.css). Isolar o
+            scroll aqui, fora de .sidebar, é o que deixa a seta de recolher
+            (irmã deste div, abaixo) poder ficar posicionada na borda sem ser
+            cortada pelo overflow — sem isso, a única forma de não cortar a
+            seta era mexer no scroll do conteúdo, que é exatamente o que
+            "ficou ruim" e está sendo revertido aqui. */}
+        <div className="sidebar-scroll">
         {/* Logo */}
         <div className="sidebar-logo">
-          <img src="/pdf-marca.png" style={{width:120,height:120,objectFit:'contain'}} alt="DigitalBov"/>
+          <img src="/pdf-marca.png" className="sidebar-logo-img" alt="DigitalBov"/>
         </div>
 
         {/* Seletor de Conta — só aparece se o usuário tem mais de uma conta */}
         {contas.length > 1 && contaAtual && (
-          <div style={{ padding:'6px 12px', marginBottom:4, position:'relative' }}>
+          <div className="sidebar-selector" style={{ padding:'6px 12px', marginBottom:4, position:'relative' }}>
             <button
               onClick={() => setSeletorContaAberto(o => !o)}
               style={{
@@ -210,7 +228,7 @@ export default function Sidebar({ user, perfil, mobileOpen, onClose }) {
 
         {/* Seletor de Fazenda */}
         {fazendaAtual && (
-          <div style={{ padding:'6px 12px', marginBottom:4, position:'relative' }}>
+          <div className="sidebar-selector" style={{ padding:'6px 12px', marginBottom:4, position:'relative' }}>
             <button
               onClick={() => setSeletorAberto(o => !o)}
               style={{
@@ -275,7 +293,7 @@ export default function Sidebar({ user, perfil, mobileOpen, onClose }) {
 
         {/* Seletor de Ciclo */}
         {cicloSelecionado && (
-          <div style={{ padding:'6px 12px', marginBottom:8, position:'relative' }}>
+          <div className="sidebar-selector" style={{ padding:'6px 12px', marginBottom:8, position:'relative' }}>
             <button
               onClick={() => setSeletorCicloAberto(o => !o)}
               style={{
@@ -332,7 +350,14 @@ export default function Sidebar({ user, perfil, mobileOpen, onClose }) {
         {/* Navigation */}
         <nav className="sidebar-nav">
           {navVisivel.map((item, i) => {
-            if (item.section) return <div key={i} className="nav-section-label">{item.section}</div>
+            // Cabeçalho de seção: rótulo de texto (expandido) + divisor discreto
+            // (recolhido) sempre no DOM — CSS alterna qual aparece, ver global.css.
+            if (item.section) return (
+              <div key={i}>
+                <div className="nav-section-label">{item.section}</div>
+                <div className="nav-section-divider" />
+              </div>
+            )
             const isModal = item.tipo === 'modal'
             const active = !isModal && location.pathname === item.path
             return (
@@ -340,21 +365,22 @@ export default function Sidebar({ user, perfil, mobileOpen, onClose }) {
                 key={item.path || item.label}
                 className={`nav-item ${active ? 'active' : ''}`}
                 onClick={() => isModal ? setTutorialAberto(true) : handleNav(item.path)}
+                title={item.label}
                 style={item.destaque && !active ? {
                   background:'rgba(151,196,89,.18)', color:'#A5C8F5', fontWeight:500
                 } : undefined}
               >
                 <i className={`ti ${item.icon} nav-item-icon`} aria-hidden="true" />
-                {item.label}
+                <span className="nav-item-label">{item.label}</span>
                 {item.destaque && (
-                  <span style={{
+                  <span className="nav-item-badge" style={{
                     marginLeft:'auto', fontSize:'.64rem', fontWeight:700,
                     background:'rgba(151,196,89,.3)', color:'#A5C8F5',
                     borderRadius:6, padding:'1px 6px'
                   }}>IA</span>
                 )}
                 {item.badgeNovo && (
-                  <span style={{
+                  <span className="nav-item-badge" style={{
                     marginLeft:'auto', fontSize:'.64rem', fontWeight:700,
                     background:'rgba(99,135,206,.25)', color:'#93C5FD',
                     borderRadius:6, padding:'1px 6px'
@@ -368,10 +394,10 @@ export default function Sidebar({ user, perfil, mobileOpen, onClose }) {
         {/* User footer */}
         <div className="sidebar-footer">
           <div className="user-info">
-            <div className="user-avatar" style={{ background: perfil?.avatar_cor || 'rgba(255,255,255,.2)' }}>
+            <div className="user-avatar" style={{ background: perfil?.avatar_cor || 'rgba(255,255,255,.2)' }} title={perfil?.nome || user?.email}>
               {initials(perfil?.nome || user?.email || '?')}
             </div>
-            <div style={{ flex:1, minWidth:0 }}>
+            <div className="user-info-text" style={{ flex:1, minWidth:0 }}>
               <div className="user-name" style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
                 {perfil?.nome || 'Usuário'}
               </div>
@@ -380,9 +406,9 @@ export default function Sidebar({ user, perfil, mobileOpen, onClose }) {
               </div>
             </div>
           </div>
-          <button className="nav-item" style={{ marginTop:4, width:'100%' }} onClick={() => auth.signOut()}>
+          <button className="nav-item" style={{ marginTop:4, width:'100%' }} onClick={() => auth.signOut()} title="Sair">
             <i className="ti ti-logout nav-item-icon" />
-            Sair
+            <span className="nav-item-label">Sair</span>
           </button>
         </div>
         {modalNova && (
@@ -413,6 +439,21 @@ export default function Sidebar({ user, perfil, mobileOpen, onClose }) {
             </div>
           </div>
         )}
+        </div>{/* end sidebar-scroll */}
+
+        {/* Recolher/expandir — seta discreta na borda direita da sidebar.
+            Persiste em localStorage (digitalbov_sidebar_collapsed). Fica FORA
+            de .sidebar-scroll de propósito (irmã, não filha) — position:absolute
+            é relativo à própria .sidebar (position:relative), então não é
+            cortada pelo overflow do wrapper de scroll, e desliza junto quando
+            a largura anima. Escondida no mobile (ver @media max-width:768px). */}
+        <button
+          className="sidebar-edge-toggle"
+          onClick={() => setCollapsed(c => !c)}
+          title={collapsed ? 'Expandir menu' : 'Recolher menu'}
+        >
+          <i className={`ti ti-chevron-${collapsed ? 'right' : 'left'}`} />
+        </button>
       </aside>
       {wizardFazendaId && (
         <OnboardingWizard

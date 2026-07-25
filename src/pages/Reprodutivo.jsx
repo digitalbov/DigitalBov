@@ -123,6 +123,15 @@ export default function Reprodutivo() {
 
   const [tab,     setTab]    = useState(0)
   const [animais, setAnimais]= useState([])
+  // TODOS os animais (qualquer situação — ativo/vendido/morto), só pra
+  // contarMatrizes/ehMatriz nos cálculos HISTÓRICOS (matrizesAptas por lote e
+  // kpiMatrizesAptas do funil). `animais` (acima) continua só ativos, de
+  // propósito, pra tudo que é ação sobre o rebanho atual (selecionar vaca pra
+  // um lote novo, mãe elegível etc.) — só o cálculo de matriz histórica não
+  // pode usar essa lista restrita, senão uma vaca vendida some retroativamente
+  // das matrizes aptas de um ciclo em que ela participou (regressão corrigida
+  // aqui — ver comentário em ehMatriz, helpers.js).
+  const [todosAnimaisHistorico, setTodosAnimaisHistorico] = useState([])
   const [lotes,   setLotes]  = useState([])
   const [loading,   setLoading]  = useState(true)
   const [loadError, setLoadError]= useState(false)
@@ -238,19 +247,22 @@ export default function Reprodutivo() {
     try {
       const base = await Promise.all([
         db.animais.list({ situacao:'ativo' }),
+        db.animais.list(),
         db.proprietarios.list(),
         db.lotes.list(),
         db.transacaoAnimaisItens.listDataEntradaCompras(),
       ])
       if (algumErro('[Reprodutivo]', base)) { if (showLoading) setLoadError(true); return }
-      const [ra, rprops, ls, rEntradas] = base
+      const [ra, raTodos, rprops, ls, rEntradas] = base
       // data_entrada (só animais comprados) mesclada uma vez aqui — usada por
       // ehMatriz (helpers.js) pra excluir a comprada dos cohorts de matriz em
       // ciclos ANTERIORES à compra (calcLoteMetrics/kpiMatrizesAptas abaixo).
       const entradaMap = new Map(
         (rEntradas.data || []).map(r => [r.animal_id, r.transacoes_animais?.data || null])
       )
-      setAnimais((ra.data || []).map(a => ({ ...a, data_entrada: entradaMap.get(a.id) || null })))
+      const comEntrada = (lista) => (lista || []).map(a => ({ ...a, data_entrada: entradaMap.get(a.id) || null }))
+      setAnimais(comEntrada(ra.data))
+      setTodosAnimaisHistorico(comEntrada(raTodos.data))
       setProprietarios(rprops.data || [])
       setLotesSistema(ls.data || [])
       // Qualquer carregamento/mutação pode ter afetado o histórico completo —
@@ -1065,7 +1077,10 @@ export default function Reprodutivo() {
     const { gestando, perdasNaoIdentificadas, perdaGestacional } = calcGestacaoLote(lote.data, prenhas, nascimentos, nAbortos)
     const mortosBezerros    = partosLote.filter(p => p.bezerro?.situacao === 'morto').length
     const mortalidadeBezerros = nascimentos > 0 ? Math.round(mortosBezerros / nascimentos * 100) : null
-    const matrizesAptas   = lote.data ? contarMatrizes(propId ? animais.filter(a => a.proprietario_id === propId) : animais, lote.data) : 0
+    // HISTÓRICO: usa todosAnimaisHistorico (qualquer situação), não `animais`
+    // (só ativos) — uma vaca vendida depois de lote.data continua contando
+    // como matriz apta aqui (ehMatriz já resolve isso via data_baixa).
+    const matrizesAptas   = lote.data ? contarMatrizes(propId ? todosAnimaisHistorico.filter(a => a.proprietario_id === propId) : todosAnimaisHistorico, lote.data) : 0
     // Sem teto em 100%: taxa acima de 100% é esperada e correta quando novilhas
     // com menos de 24 meses (fora da definição de "matriz apta") são expostas.
     const txAproveitamento = matrizesAptas > 0 ? Math.round(total / matrizesAptas * 100) : null
@@ -1135,7 +1150,9 @@ export default function Reprodutivo() {
     const kpiPerdasNaoIdentificadas = Math.max(0, kpiPrn - kpiPartos - kpiAbortos - kpiGestando)
     const kpiPerdaGestacional = kpiPrn > 0 ? Math.round((kpiAbortos + kpiPerdasNaoIdentificadas) / kpiPrn * 100) : null
     const primeiraMontaCiclo = lotesCicloAtual.map(l => l.data).filter(Boolean).sort()[0] || null
-    const animaisParaAptas = filtroPropIdx ? animais.filter(a => a.proprietario_id === filtroPropIdx) : animais
+    // HISTÓRICO: todosAnimaisHistorico (qualquer situação) — mesmo motivo do
+    // matrizesAptas em calcLoteMetrics, ver comentário lá.
+    const animaisParaAptas = filtroPropIdx ? todosAnimaisHistorico.filter(a => a.proprietario_id === filtroPropIdx) : todosAnimaisHistorico
     const kpiMatrizesAptas = primeiraMontaCiclo ? contarMatrizes(animaisParaAptas, primeiraMontaCiclo) : 0
     // Sem teto em 100%: uma taxa de aproveitamento acima de 100% é esperada e
     // correta quando novilhas com menos de 24 meses (fora da definição de "matriz
@@ -1212,13 +1229,18 @@ export default function Reprodutivo() {
         return sortAsc ? va - vb : vb - va
       })
 
+    // Ranking por touro — lote de monta natural com VÁRIOS touros (lote_touros)
+    // não tem como saber qual touro cobriu qual vaca, então não entra fundido
+    // com nenhum touro nomeado: cada lote assim vira sua própria linha
+    // "paternidade indefinida" no ranking (nunca soma dentro de um touro real).
     const touroDados = {}
     todosLotes.forEach(l => {
       if (!l.touro) return
+      const chave = l.lote_touros?.length > 0 ? `Monta natural (vários touros) — Lote Nº ${l.numero}` : l.touro
       const m = calcLoteMetrics(l)
-      if (!touroDados[l.touro]) touroDados[l.touro] = { touro: l.touro, totalIns: 0, totalPrn: 0 }
-      touroDados[l.touro].totalIns += m.total
-      touroDados[l.touro].totalPrn += m.prenhas
+      if (!touroDados[chave]) touroDados[chave] = { touro: chave, totalIns: 0, totalPrn: 0 }
+      touroDados[chave].totalIns += m.total
+      touroDados[chave].totalPrn += m.prenhas
     })
     const tourosRanking = Object.values(touroDados)
       .map(t => ({ ...t, txPrenhez: t.totalIns > 0 ? Math.round(t.totalPrn/t.totalIns*100) : 0 }))
@@ -1230,7 +1252,7 @@ export default function Reprodutivo() {
       kpiDesmame, previsaoSafraCiclo, kpiIntervalo,
       barData, lineData, pieData, tabelaLotes, tourosRanking,
     }
-  }, [todosLotes, todosPartos, cicloLocal, animais, sortCol, sortAsc, filtroPropIdx])
+  }, [todosLotes, todosPartos, cicloLocal, animais, todosAnimaisHistorico, sortCol, sortAsc, filtroPropIdx])
 
   if (loading) return <Loading />
   if (loadError) return <ErroCarregamento onRetry={loadAll} />

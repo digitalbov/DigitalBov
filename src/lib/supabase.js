@@ -199,7 +199,9 @@ export const db = {
     // saber se o último parto da vaca já foi desmamado ("Lactante" na tela).
     // bezerro_id: usado pelo cohort de GMD Terneiros (Metas.jsx/Rebanho.jsx) pra
     // ancorar na safra da monta (via lote_inseminacao_id) em vez do nascimento.
-    listAll:   ()           => T('partos').select('bezerro_id,mae_id,data_parto,ciclo_id,lote_inseminacao_id,mae:animais!mae_id(proprietario_id),bezerro:animais!bezerro_id(data_desmame)').order('data_parto', { ascending: true }),
+    // lote:tipo — usado por Metas.jsx pra separar intervalo_partos por modo
+    // (IA/Natural/Consolidado, Fase 2 da monta natural) sem mudar o resto do select.
+    listAll:   ()           => T('partos').select('bezerro_id,mae_id,data_parto,ciclo_id,lote_inseminacao_id,mae:animais!mae_id(proprietario_id),bezerro:animais!bezerro_id(data_desmame),lote:lotes_inseminacao(tipo)').order('data_parto', { ascending: true }),
     insert:    (data)       => T('partos').insertOne(data).select().single(),
     byMae:     (maeId)      => T('partos').select('*, bezerro:animais!bezerro_id(brinco,sexo)').eq('mae_id', maeId).order('data_parto', { ascending: true }),
     // lote: usado por Animais.jsx pra resolver o clique em "pai" quando o valor

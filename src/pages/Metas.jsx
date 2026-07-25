@@ -9,7 +9,7 @@ import { usePermissoes } from '../lib/PermissoesContext'
 import { useCicloLocal } from '../lib/useCicloLocal'
 import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer, BarChart, Bar,
-  XAxis, YAxis, CartesianGrid, LabelList, ReferenceLine,
+  XAxis, YAxis, CartesianGrid, LabelList, ReferenceLine, Legend,
 } from 'recharts'
 
 // three.js/@react-three/fiber só baixam quando esta tela abre (lazy), nunca no
@@ -484,13 +484,127 @@ function GraficoCustoPorCiclo({ dados, cicloAtualNome }) {
   )
 }
 
+// ── Fase 2 — Monta Natural: resolução de indicador → campo do bloco ────────
+// Um lugar só traduzindo indicador (chave de CFG/ORDEM) pro campo correspondente
+// dentro de um bloco calculado (ia/natural/consolidado) — usado tanto por
+// construirAtuais (valor exibido nos cards) quanto por GraficoComparativoModo
+// (mesmos números, só reaproveitados na visualização, sem cálculo novo).
+function valorIndicadorDoBloco(ind, bloco, temValorCadastrado) {
+  if (!bloco) return null
+  switch (ind) {
+    case 'taxa_prenhez':         return bloco.taxaPrenhez
+    case 'taxa_aproveitamento':  return bloco.taxaAproveitamento
+    case 'taxa_paricao':         return bloco.taxaParicao
+    case 'intervalo_partos':     return bloco.intervaloPartos
+    case 'taxa_aborto':          return bloco.taxaAborto
+    case 'mortalidade':          return bloco.mortalidade
+    case 'gmd_terneiros':        return bloco.gmdTerneiros
+    case 'gmd_terneiros_femeas': return bloco.gmdTerneirosFemeas
+    case 'gmd_terneiros_machos': return bloco.gmdTerneirosMachos
+    case 'kg_bezerro_matriz':    return bloco.kgBezerroMatriz
+    case 'kg_desmame':           return bloco.kgDesmame
+    case 'producao_kg':          return bloco.pesosSafraLength > 0 ? bloco.kgProduzido : null
+    case 'producao_valor':       return temValorCadastrado ? bloco.valorProduzido : null
+    case 'producao_kg_ha':       return bloco.kgPorHa
+    case 'producao_valor_ha':    return temValorCadastrado ? bloco.valorPorHa : null
+    case 'custo_insem_terneiro':  return bloco.custoPorTerneiro
+    case 'custo_insem_pct_valor': return bloco.custoPctValor
+    case 'custo_insem_total':     return bloco.custoInseminacaoTotal
+    case 'custo_insem_matriz':    return bloco.custoPorMatriz
+    default: return null
+  }
+}
+
+// `atuais` (valor de cada card) deriva de blocosPorModo + o modo escolhido em
+// cada contêiner — NUNCA um cálculo novo, sempre valorIndicadorDoBloco lendo o
+// bloco certo. Com todo modo em 'consolidado' (default), isso lê só
+// blocos.consolidado pra tudo = exatamente o cálculo de hoje == regressão-zero.
+// Custos em modo 'natural' vira null explícito (não aplicável — não existe
+// grupo financeiro de monta natural), nunca um número calculado mas sem sentido.
+function construirAtuais(blocos, modos, temValorCadastrado) {
+  if (!blocos) return {}
+  const modoPorTitulo = {
+    'Reprodução': modos.reproducao, 'Perdas': modos.perdas, 'GMD': modos.gmd,
+    'Produção da Safra x Hectare Útil': modos.producao, 'Custos': modos.custos,
+  }
+  const out = {}
+  GRUPOS.forEach(grupo => {
+    const modo = modoPorTitulo[grupo.titulo]
+    grupo.indicadores.forEach(ind => {
+      out[ind] = (grupo.titulo === 'Custos' && modo === 'natural')
+        ? null
+        : valorIndicadorDoBloco(ind, blocos[modo], temValorCadastrado)
+    })
+  })
+  return out
+}
+
+const MODOS_LABEL = { ia: 'Inseminação', natural: 'Monta Natural', consolidado: 'Consolidado' }
+// Seletor de 3 estados acima de cada contêiner — default sempre 'consolidado'.
+function SeletorModo({ value, onChange }) {
+  return (
+    <div className="pill-group" style={{ marginBottom: 12 }}>
+      {['ia', 'natural', 'consolidado'].map(m => (
+        <button key={m} className={`pill ${value === m ? 'active' : ''}`} onClick={() => onChange(m)}>
+          {MODOS_LABEL[m]}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+// Modo Consolidado: gráfico comparativo IA × Monta Natural, um par de barras
+// por indicador do contêiner — mesmos números já calculados nos 2 modos
+// (valorIndicadorDoBloco), sem cálculo novo, só a visualização lado a lado.
+function GraficoComparativoModo({ indicadores, blocoIA, blocoNatural, temValorCadastrado }) {
+  const dados = indicadores
+    .filter(ind => ind !== 'intervalo_partos' || blocoIA.intervaloPartos != null || blocoNatural.intervaloPartos != null)
+    .map(ind => ({
+      nome: CFG[ind]?.label || ind,
+      IA:      valorIndicadorDoBloco(ind, blocoIA, temValorCadastrado),
+      Natural: valorIndicadorDoBloco(ind, blocoNatural, temValorCadastrado),
+    }))
+    .filter(d => d.IA != null || d.Natural != null)
+  if (dados.length === 0) return <SemDadosGrafico texto="Sem dados de IA nem de monta natural neste ciclo pra comparar." />
+  return (
+    <div>
+      <div style={{ fontSize: '.78rem', fontWeight: 600, color: '#374151', marginBottom: 8 }}>
+        Comparativo IA × Monta Natural
+      </div>
+      <ResponsiveContainer width="100%" height={230}>
+        <BarChart data={dados} margin={{ top: 10, right: 10, left: -10, bottom: 20 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" />
+          <XAxis dataKey="nome" tick={{ fontSize: 9 }} angle={-20} textAnchor="end" interval={0} />
+          <YAxis tick={{ fontSize: 10 }} />
+          <Tooltip {...TOOLTIP_STY} formatter={v => v == null ? '—' : Number(v).toFixed(2)} />
+          <Legend wrapperStyle={{ fontSize: '.75rem' }} />
+          <Bar dataKey="IA" name="Inseminação" fill="#2B6CD9" radius={[4, 4, 0, 0]} />
+          <Bar dataKey="Natural" name="Monta Natural" fill="#7B2FBE" radius={[4, 4, 0, 0]} />
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  )
+}
+
 // ── Página principal ──────────────────────────────────────────────
 export default function Metas() {
   const contentRef = useRef(null)
+  // Guarda contra corrida entre loadAll()s sobrepostos — cicloLocal começa
+  // null (useCicloLocal) e vira o ciclo real assim que carrega, disparando o
+  // useEffect [cicloLocal?.id] de novo com uma 2ª chamada em paralelo. Sem
+  // isto, a chamada MAIS LENTA vence (não a mais recente): se a 1ª (ciclo
+  // null → lotesCiclo=[] → tudo zerado) resolver DEPOIS da 2ª (ciclo real,
+  // dados corretos), o painel fica com "Sem dados" mesmo com o ciclo certo
+  // selecionado — indistinguível na tela de um bug de cálculo (foi assim que
+  // pareceu que vender uma vaca zerava matrizes aptas: a venda só levou o
+  // usuário de volta pra Metas, remontando o componente e reabrindo a janela
+  // de corrida). loadSeqRef marca qual chamada é a mais recente; qualquer
+  // chamada que termine depois de ter sido superada só é descartada, nunca
+  // aplicada ao estado.
+  const loadSeqRef = useRef(0)
 
   const [loading,      setLoading]      = useState(true)
   const [metas,        setMetas]        = useState([])
-  const [atuais,       setAtuais]       = useState({})
   const [semTabela,    setSemTabela]    = useState(false)
   const [loadError,    setLoadError]    = useState(false)
   const [editOpen,     setEditOpen]     = useState(false)
@@ -504,13 +618,37 @@ export default function Metas() {
   const [nascPorPeriodo,   setNascPorPeriodo]   = useState([])
   const [modoAgrupamento,  setModoAgrupamento]  = useState(null)
   const [producaoSafra,    setProducaoSafra]    = useState(null)
-  const [producaoDetalhes, setProducaoDetalhes] = useState(null)
-  const [producaoPorSexo,  setProducaoPorSexo]  = useState(null)
-  const [desfechosSafra,   setDesfechosSafra]   = useState(null)
-  const [gmdIndividuais,   setGmdIndividuais]   = useState([])
   const [custosDetalhes,   setCustosDetalhes]   = useState(null)
   const [custoPorCiclo,    setCustoPorCiclo]    = useState([])
   const [seriesPrecoVenda3D,   setSeriesPrecoVenda3D]   = useState([])
+  // Fase 2 — Monta Natural: bloco de indicadores calculado 3x por load (uma
+  // vez por modo: ia/natural/consolidado — ver calcularBloco em loadAll),
+  // guardado bruto aqui. `atuais`/gmdIndividuais/desfechosSafra/produção-por-
+  // sexo NÃO são mais state — são derivados NO RENDER a partir disto + qual
+  // modo está selecionado em cada contêiner, pra trocar o seletor não exigir
+  // um novo fetch (ver construção logo antes do return principal, abaixo).
+  const [blocosPorModo, setBlocosPorModo] = useState(null)
+  // Seletor de modo por contêiner (Reprodução/Perdas/GMD/Produção/Custos) —
+  // default SEMPRE 'consolidado': é o cálculo de hoje, inalterado (lotesCiclo
+  // inteiro, sem filtro por tipo) — regressão-zero por construção, sem
+  // precisar o usuário trocar nada pra ver os números de sempre.
+  const [modoReproducao, setModoReproducao] = useState('consolidado')
+  const [modoPerdas,     setModoPerdas]     = useState('consolidado')
+  const [modoGmd,        setModoGmd]        = useState('consolidado')
+  const [modoProducao,   setModoProducao]   = useState('consolidado')
+  const [modoCustos,     setModoCustos]     = useState('consolidado')
+  // Filtro GERAL (topo da tela) — Opção A: continua existindo ao lado dos 5
+  // seletores por contêiner, sincronizado num sentido só. Trocar o geral
+  // aplica o mesmo modo aos 5 de uma vez (aplicarModoGeral abaixo); trocar um
+  // contêiner individual depois disso só sobrescreve aquele um — o geral não
+  // fica "grudado" tentando refletir um consenso entre os 5 (não recalcula
+  // nada, só dispara os mesmos 5 setters que os seletores individuais já
+  // usavam — nenhum cálculo novo, nenhum toque em matrizesAptas/ehMatriz).
+  const [modoGeral, setModoGeral] = useState('consolidado')
+  const aplicarModoGeral = (m) => {
+    setModoGeral(m)
+    setModoReproducao(m); setModoPerdas(m); setModoGmd(m); setModoProducao(m); setModoCustos(m)
+  }
 
   const { podeEditar } = usePermissoes()
   const podeEditarMetas = podeEditar('metas')
@@ -519,11 +657,13 @@ export default function Metas() {
   useEffect(() => { loadAll() }, [cicloLocal?.id, filtroProp])
 
   const loadAll = async () => {
+    const mySeq = ++loadSeqRef.current
     setLoading(true)
     setLoadError(false)
     try {
       // Metas da tabela (metasErr = tabela não existe, não é erro de rede)
       const { data: metasDataRaw, error: metasErr } = await db.metas.list()
+      if (mySeq !== loadSeqRef.current) return // superada por um loadAll() mais novo
       if (metasErr) {
         setSemTabela(true)
         return
@@ -565,6 +705,7 @@ export default function Metas() {
         db.transacoes.listVendas(),
         db.transacaoAnimaisItens.listDataEntradaCompras(),
       ])
+      if (mySeq !== loadSeqRef.current) return // superada por um loadAll() mais novo
       if (algumErro('[Metas]', resultados)) { setLoadError(true); return }
       const [rLotes, rPartosTodos, rAnimais, rPesagens, rProps, rCatPrecos, rPiquetes, rLancamentos, rVendas, rEntradas] = resultados
       setProprietarios(rProps.data || [])
@@ -583,152 +724,25 @@ export default function Metas() {
       // (via animal.proprietario_id, embutido nos embeds da query).
       const filtrar = (arr, getPropId) => filtroProp ? arr.filter(x => getPropId(x) === filtroProp) : arr
 
-      // ── taxa_prenhez / taxa_aproveitamento (fórmulas oficiais — helpers) ──
-      // prenhas deduplica por animal_id (contarPrenhas), senão nem o número bate
-      // com taxaPrenhez nem os denominadores dos indicadores abaixo ficam corretos.
-      const todasInseminacoes = filtrar(lotesCiclo.flatMap(l => l.inseminacoes || []), i => i.animal?.proprietario_id)
-      const prenhas           = contarPrenhas(todasInseminacoes)
-      const matrizesExpostas  = contarExpostas(todasInseminacoes)
-      const taxaPrenhez       = calcTaxaPrenhez(todasInseminacoes)
-
+      // ── Matrizes aptas (denominador comum aos 3 modos — o pool de fêmeas
+      // elegíveis não depende do método de cobertura) e recursos físicos/
+      // financeiros, todos INVARIANTES por modo — calculados 1x, antes do
+      // bloco por-modo abaixo.
       const primeiraMontaCiclo = lotesCiclo.map(l => l.data).filter(Boolean).sort()[0] || null
       const animaisFiltrados   = filtroProp ? todosAnimais.filter(a => a.proprietario_id === filtroProp) : todosAnimais
       const matrizesAptas      = primeiraMontaCiclo ? contarMatrizes(animaisFiltrados, primeiraMontaCiclo) : 0
-      const taxaAproveitamento = matrizesAptas > 0 ? (matrizesExpostas / matrizesAptas) * 100 : null
 
-      // ── taxa_paricao / kg_bezerro_matriz — partos ANCORADOS no lote (safra da
-      // monta), igual ao funil do Reprodutivo: os partos podem cair no ciclo
-      // seguinte, mas pertencem à safra da monta deste ciclo. _touroLote carrega
-      // o touro do LOTE que gerou o parto (usado no gráfico de nascimentos por
-      // touro, abaixo) — só dá pra saber isso antes de achatar l.partos.
-      const partosSafra = filtrar(
-        lotesCiclo.flatMap(l => (l.partos || []).map(p => ({ ...p, _touroLote: l.touro }))),
-        p => p.mae?.proprietario_id
-      )
-      const nPartos      = partosSafra.length
-      // Guardado por nPartos > 0: com prenhas>0 mas zero partos ainda, a safra
-      // só está em andamento — 0% pareceria "parição ruim" quando na verdade é
-      // "ainda não tem o que medir".
-      const taxaParicao  = (prenhas > 0 && nPartos > 0) ? (nPartos / prenhas) * 100 : null
-      // pesoMedioDesmame = soma dos pesos de desmame ÷ terneiros desmamados
-      // (diferente de kgPorMatrizExposta, que divide pelas matrizes expostas) —
-      // ambos já vêm prontos do mesmo helper, sem duplicar a lógica de pesagens.
-      const desmameMetrics  = calcDesmameMetrics(partosSafra, matrizesExpostas)
-      const kgBezerroMatriz = desmameMetrics.kgPorMatrizExposta
-      const kgDesmame       = desmameMetrics.pesoMedioDesmame
-
-      // ── taxa_aborto (perda gestacional) — soma "gestando" lote a lote, pois
-      // cada lote (IATF/repasse) tem sua própria data de monta; helpers.
-      // calcGestacaoLote é a MESMA fórmula corrigida usada em Reprodutivo.jsx.
-      const abortosSafra = filtrar(lotesCiclo.flatMap(l => l.abortos || []), a => a.animal?.proprietario_id)
-      const nAbortos = abortosSafra.length
-      let gestandoTotal = 0
-      lotesCiclo.forEach(l => {
-        const insLote     = filtrar(l.inseminacoes || [], i => i.animal?.proprietario_id)
-        const partosLote  = filtrar(l.partos || [],       p => p.mae?.proprietario_id)
-        const abortosLote = filtrar(l.abortos || [],      a => a.animal?.proprietario_id)
-        gestandoTotal += calcGestacaoLote(l.data, contarPrenhas(insLote), partosLote.length, abortosLote.length).gestando
-      })
-      const perdasNaoIdentificadas = Math.max(0, prenhas - nPartos - nAbortos - gestandoTotal)
-      // Guardado por "algum desfecho já aconteceu" (nPartos+nAbortos+perdas > 0):
-      // se todas as prenhas ainda estão gestando, 0% de perda é prematuro, não
-      // uma avaliação real da safra.
-      const desfechosResolvidos = nPartos + nAbortos + perdasNaoIdentificadas
-      const taxaAborto = (prenhas > 0 && desfechosResolvidos > 0) ? ((nAbortos + perdasNaoIdentificadas) / prenhas) * 100 : null
-
-      // ── intervalo_partos — todo o histórico (não só este ciclo), mesma mãe.
-      const partosParaIntervalo = filtroProp ? todosPartos.filter(p => p.mae?.proprietario_id === filtroProp) : todosPartos
-      const { media: intervaloPartosDias } = calcIntervaloPartos(partosParaIntervalo)
-
-      // ── gmd_terneiros / gmd_terneiros_femeas / gmd_terneiros_machos — mesmo
-      // helper (calcGMD), separado por sexo pra ter um GMD específico de cada.
-      // Cohort ANCORADO NA SAFRA DA MONTA (mesmo anchor de nPartos/produção
-      // acima), não no nascimento: um terneiro nascido em outubro (ciclo
-      // seguinte) mas gerado pela monta DESTE ciclo pertence a esta safra, não
-      // à do nascimento — senão GMD fica desencontrado de taxa_paricao/kg
-      // produzido. Fonte: EXATAMENTE partosSafra (mesmo array usado acima em
-      // nPartos/kgBezerroMatriz/produção) — de propósito o mesmo cohort, pra
-      // GMD, nPartos e produção sempre falarem do mesmo conjunto de terneiros.
-      // NOTA: partosSafra só inclui partos vinculados a um lote de inseminação
-      // deste ciclo (join via lotes_inseminacao.partos) — um parto de MONTA
-      // NATURAL (lote_inseminacao_id nulo) já ficava de fora de nPartos/
-      // produção/mortalidade antes desta mudança, e continua de fora aqui pelo
-      // mesmo motivo: não existe "ciclo da monta" pra uma cobertura não
-      // lançada, então não há como ancorá-la nesta safra sem inventar um
-      // critério novo (e diferente do que os outros 3 indicadores já usam).
-      // Terneiro nesse caso não é perdido do sistema — ele só não entra na
-      // conta ancorada-por-safra de nenhum dos 4 indicadores (GMD incluso).
-      // Só exclui morto (perda real, categoria diferente de venda). Categoria
-      // (Terneiro/Terneira) avaliada na data da ÚLTIMA pesagem do animal, não
-      // em "hoje" — senão um vendido há meses já teria "envelhecido" pra fora
-      // da categoria pela idade de hoje.
       const dentroCicloLocal = (d) => !!(d && cicloLocal && d >= cicloLocal.inicio && d <= cicloLocal.fim)
-      const bezerroIdsSafra = new Set(partosSafra.map(p => p.bezerro_id).filter(Boolean))
-      const candidatosGmd = animaisFiltrados.filter(a =>
-        a.situacao !== 'morto' && bezerroIdsSafra.has(a.id)
-      )
-      const gmdsT = [], gmdsF = [], gmdsM = []
-      for (const t of candidatosGmd) {
-        const todasDoAnimal = todasPesagens.filter(p => p.animal_id === t.id)
-        const ps = pesagensDeManejo(todasDoAnimal).sort((a, b) => a.data.localeCompare(b.data))
-        if (ps.length < 2) continue
-        const dataUltimaPesagem = ps[ps.length - 1].data
-        if (!['Terneiro', 'Terneira'].includes(calcCategoria(t.data_nascimento, t.sexo, dataUltimaPesagem))) continue
-        const g = parseFloat(calcGMD(ps))
-        if (g > 0) {
-          gmdsT.push(g)
-          if (t.sexo === 'F') gmdsF.push(g)
-          else if (t.sexo === 'M') gmdsM.push(g)
-        }
-      }
-      const media = (arr) => arr.length ? arr.reduce((s, v) => s + v, 0) / arr.length : null
-      const gmdTerneiros       = media(gmdsT)
-      const gmdTerneirosFemeas = media(gmdsF)
-      const gmdTerneirosMachos = media(gmdsM)
-      // Valores individuais de GMD (não só a média) — alimenta o histograma do
-      // gráfico de GMD abaixo dos cards.
-      setGmdIndividuais(gmdsT)
 
-      // ── mortalidade (de bezerros da safra, não do rebanho geral) — só avalia
-      // depois que nasceu o primeiro bezerro da safra/ciclo (nPartos > 0);
-      // mesma base de dados (partosSafra) usada em taxa_paricao/kg_bezerro_matriz.
-      const mortosBezerros = partosSafra.filter(p => p.bezerro?.situacao === 'morto').length
-      const mortalidade = nPartos > 0 ? (mortosBezerros / nPartos) * 100 : null
+      const catPrecosData  = rCatPrecos.data || []
+      const catTerneiro    = catPrecosData.find(c => c.categoria === 'Terneiro')
+      const catTerneira    = catPrecosData.find(c => c.categoria === 'Terneira')
+      const valorUnitTerneiro = catTerneiro ? (catTerneiro.peso_medio || 0) * (catTerneiro.preco_kg || 0) : 0
+      const valorUnitTerneira = catTerneira ? (catTerneira.peso_medio || 0) * (catTerneira.preco_kg || 0) : 0
+      const temValorCadastrado = !!(catTerneiro || catTerneira)
 
-      // ── Desfechos da safra (gráfico "Perdas"): partido em vivos/mortos (dos
-      // partos já ocorridos), abortos, perdas gestacionais não identificadas, e
-      // gestações ainda em andamento — mesmas variáveis já calculadas acima
-      // pra taxa_aborto/mortalidade, só reorganizadas pro donut. A soma das 5
-      // fatias bate com `prenhas` (nPartos vivos+mortos = nPartos).
-      setDesfechosSafra({
-        vivos: Math.max(0, nPartos - mortosBezerros),
-        mortos: mortosBezerros,
-        abortos: nAbortos,
-        perdasNaoIdentificadas,
-        gestando: gestandoTotal,
-      })
+      const hectareUtil = (rPiquetes.data || []).reduce((s, p) => s + (parseFloat(p.area_ha) || 0), 0)
 
-      // ── Proporção de sexo dos terneiros — mesma base (partosSafra) usada em
-      // taxa_paricao/mortalidade/kg_bezerro_matriz acima, já filtrada por proprietário.
-      const qtdMachos = partosSafra.filter(p => p.bezerro?.sexo === 'M').length
-      const qtdFemeas = partosSafra.filter(p => p.bezerro?.sexo === 'F').length
-      setSexoTerneiros({ machos: qtdMachos, femeas: qtdFemeas })
-
-      // ── Produção da safra: kg de terneiros x valor em R$ x hectare útil.
-      // Peso de cada terneiro = a pesagem de MANEJO mais recente por data
-      // (nascimento/desmama/sobreano/intermediária) — NUNCA a pesagem de
-      // venda/compra, que registra o peso médio do LOTE inteiro, não o peso
-      // real do animal (ver pesagensDeManejo em helpers.js); só cai pra
-      // venda/compra se o animal nunca teve nenhuma pesagem de manejo.
-      // Índices são históricos: um terneiro vendido continua contando com o
-      // peso real que ele tinha antes da venda, a venda em si não "reseta"
-      // o peso pro valor médio do lote. Valor em R$ = quantidade de machos ×
-      // valor médio da categoria "Terneiro" + quantidade de fêmeas × valor médio
-      // da categoria "Terneira", onde valor médio = peso_medio × preco_kg
-      // (Financeiro → Parâmetros / tabela categorias_preco) — não o peso real
-      // pesado, é o valor de referência cadastrado por categoria, por isso não
-      // muda com esta correção. Hectare útil = soma de piquetes.area_ha (mesma
-      // fonte usada em Comparativo/Propriedade), sempre da fazenda inteira.
       const pesoTerneiroSafra = (bezerroId) => {
         const todas = todasPesagens.filter(p => p.animal_id === bezerroId)
         if (todas.length === 0) return null
@@ -736,64 +750,16 @@ export default function Metas() {
         const maisRecente = [...ps].sort((a, b) => b.data.localeCompare(a.data))[0]
         return parseFloat(maisRecente.peso_kg) || null
       }
-      const pesosSafra = partosSafra
-        .map(p => p.bezerro_id ? pesoTerneiroSafra(p.bezerro_id) : null)
-        .filter(v => v != null && v > 0)
-      const kgProduzido = pesosSafra.reduce((s, v) => s + v, 0)
-
-      // Kg produzido separado por sexo (mesma fonte, só reagrupada por
-      // bezerro.sexo) — alimenta o gráfico de barras "Produção por sexo".
-      const kgPorSexo = partosSafra.reduce((acc, p) => {
-        if (!p.bezerro_id) return acc
-        const peso = pesoTerneiroSafra(p.bezerro_id)
-        if (peso == null || peso <= 0) return acc
-        if (p.bezerro?.sexo === 'M') acc.kgMachos += peso
-        else if (p.bezerro?.sexo === 'F') acc.kgFemeas += peso
-        return acc
-      }, { kgMachos: 0, kgFemeas: 0 })
-
-      const catPrecosData  = rCatPrecos.data || []
-      const catTerneiro    = catPrecosData.find(c => c.categoria === 'Terneiro')
-      const catTerneira    = catPrecosData.find(c => c.categoria === 'Terneira')
-      const valorUnitTerneiro = catTerneiro ? (catTerneiro.peso_medio || 0) * (catTerneiro.preco_kg || 0) : 0
-      const valorUnitTerneira = catTerneira ? (catTerneira.peso_medio || 0) * (catTerneira.preco_kg || 0) : 0
-      const valorProduzido = qtdMachos * valorUnitTerneiro + qtdFemeas * valorUnitTerneira
-
-      const hectareUtil = (rPiquetes.data || []).reduce((s, p) => s + (parseFloat(p.area_ha) || 0), 0)
-      const kgPorHa    = hectareUtil > 0 ? kgProduzido / hectareUtil : null
-      const valorPorHa = hectareUtil > 0 ? valorProduzido / hectareUtil : null
-
-      // Só temValorCadastrado é usado na tela (gate do AlertBox) — os valores em
-      // si (kg/R$/ha) agora vão pra `atuais`, que já alimenta os IndicadorCard.
-      setProducaoSafra({ temValorCadastrado: !!(catTerneiro || catTerneira) })
-
-      // Base de cálculo dos 4 indicadores de Produção — vira o texto de apoio
-      // (subtituloProducao) mostrado abaixo do "Valor atual" de cada card.
-      setProducaoDetalhes({ pesados: pesosSafra.length, totalTerneiros: nPartos, hectareUtil, qtdMachos, qtdFemeas })
-
-      // Produção por sexo (kg e R$) — alimenta o gráfico de barras agrupadas
-      // do container Produção. Valor por sexo é literalmente a decomposição
-      // da fórmula de valorProduzido acima (qtdMachos×valorUnitTerneiro,
-      // qtdFemeas×valorUnitTerneira), não um cálculo novo.
-      setProducaoPorSexo({
-        kgMachos: kgPorSexo.kgMachos, kgFemeas: kgPorSexo.kgFemeas,
-        valorMachos: qtdMachos * valorUnitTerneiro, valorFemeas: qtdFemeas * valorUnitTerneira,
-        temValorCadastrado: !!(catTerneiro || catTerneira),
-      })
 
       // ── Custos (grupo financeiro 'Inseminação') — fonte ÚNICA aprovada pelo
       // usuário: lancamentos_financeiros com grupo='Inseminação' e tipo='D'
       // (despesa), agrupados pela DATA do lançamento dentro do intervalo do
-      // ciclo selecionado (dentroCicloLocal, mesma função do bloco de GMD
-      // acima) — NÃO pelo `ciclo_id` gravado no lançamento, porque a despesa
-      // da monta pode ter sido lançada já no ciclo seguinte e ainda assim
-      // pertencer à safra deste ciclo. Casamento custo↔terneiro: nPartos já é
-      // contado pela SAFRA DA MONTA (partosSafra vem de lotesCiclo, ancorado
-      // no ciclo_id do LOTE, não na data de nascimento do bezerro — ver
-      // comentário de partosSafra acima) — então dividir o custo de
-      // Inseminação deste ciclo pelo nPartos deste ciclo é o par correto: os
-      // dois lados já apontam pra mesma monta, nunca uma monta pelos
-      // terneiros de outra safra.
+      // ciclo selecionado — NÃO pelo `ciclo_id` gravado no lançamento, porque a
+      // despesa da monta pode ter sido lançada já no ciclo seguinte e ainda
+      // assim pertencer à safra deste ciclo. INVARIANTE por modo: a despesa não
+      // tem vínculo com lote/tipo (não dá pra saber se foi IA ou monta natural)
+      // — por isso Natural fica "não aplicável" (não zero) em vez de tentar
+      // dividir esse total por um cohort que não tem nada a ver com ele.
       const todosLancamentos = rLancamentos.data || []
       const despesasInseminacaoCiclo = todosLancamentos.filter(l =>
         l.tipo === 'D' && l.grupo === 'Inseminação' && dentroCicloLocal(l.data)
@@ -801,10 +767,166 @@ export default function Metas() {
       const custoInseminacaoTotal = despesasInseminacaoCiclo.length > 0
         ? despesasInseminacaoCiclo.reduce((s, l) => s + (parseFloat(l.valor) || 0), 0)
         : null
-      const custoPorTerneiro = (custoInseminacaoTotal != null && nPartos > 0) ? custoInseminacaoTotal / nPartos : null
-      const custoPctValor    = (custoInseminacaoTotal != null && valorProduzido > 0) ? (custoInseminacaoTotal / valorProduzido) * 100 : null
-      const custoPorMatriz   = (custoInseminacaoTotal != null && matrizesExpostas > 0) ? custoInseminacaoTotal / matrizesExpostas : null
       setCustosDetalhes({ nLancamentos: despesasInseminacaoCiclo.length })
+
+      // ── Bloco de indicadores POR MODO (Fase 2 — Monta Natural). Mecanismo
+      // único: filtra os LOTES por tipo antes de rodar a MESMA fórmula que já
+      // existia. calcularBloco(lotesCiclo) [= "Consolidado"] é bit-a-bit o
+      // cálculo de hoje, sem nenhuma linha alterada — regressão-zero por
+      // construção, nunca por coincidência.
+      const calcularBloco = (lotesX) => {
+        // taxa_prenhez / taxa_aproveitamento — prenhas deduplica por
+        // animal_id (contarPrenhas), senão nem taxaPrenhez nem os
+        // denominadores abaixo ficam corretos.
+        const todasInseminacoes = filtrar(lotesX.flatMap(l => l.inseminacoes || []), i => i.animal?.proprietario_id)
+        const prenhas           = contarPrenhas(todasInseminacoes)
+        const matrizesExpostas  = contarExpostas(todasInseminacoes)
+        const taxaPrenhez       = calcTaxaPrenhez(todasInseminacoes)
+        const taxaAproveitamento = matrizesAptas > 0 ? (matrizesExpostas / matrizesAptas) * 100 : null
+
+        // taxa_paricao / kg_bezerro_matriz — partos ANCORADOS no lote (safra
+        // da monta): podem cair no ciclo seguinte, mas pertencem à safra da
+        // monta deste ciclo/modo. _touroLote/_loteNumero/_loteTouros só pra
+        // resolver o rótulo do gráfico "por touro" mais abaixo (Frente B —
+        // lote de monta natural com vários touros vira paternidade indefinida,
+        // nunca atribuída ao 1º touro).
+        const partosSafra = filtrar(
+          lotesX.flatMap(l => (l.partos || []).map(p => ({
+            ...p, _touroLote: l.touro, _loteNumero: l.numero, _loteTouros: l.lote_touros,
+          }))),
+          p => p.mae?.proprietario_id
+        )
+        const nPartos     = partosSafra.length
+        // Guardado por nPartos > 0: com prenhas>0 mas zero partos ainda, a
+        // safra só está em andamento — 0% pareceria "parição ruim" quando na
+        // verdade é "ainda não tem o que medir".
+        const taxaParicao = (prenhas > 0 && nPartos > 0) ? (nPartos / prenhas) * 100 : null
+        const desmameMetrics  = calcDesmameMetrics(partosSafra, matrizesExpostas)
+        const kgBezerroMatriz = desmameMetrics.kgPorMatrizExposta
+        const kgDesmame       = desmameMetrics.pesoMedioDesmame
+
+        // taxa_aborto (perda gestacional) — soma "gestando" lote a lote, pois
+        // cada lote tem sua própria data de monta; calcGestacaoLote é a MESMA
+        // fórmula usada em Reprodutivo.jsx. abortos JÁ têm lote_inseminacao_id
+        // gravado (confirmado no insert de salvarAborto em Reprodutivo.jsx) —
+        // então perda gestacional por modo é confiável, sem dado faltando.
+        const abortosSafra = filtrar(lotesX.flatMap(l => l.abortos || []), a => a.animal?.proprietario_id)
+        const nAbortos = abortosSafra.length
+        let gestandoTotal = 0
+        lotesX.forEach(l => {
+          const insLote     = filtrar(l.inseminacoes || [], i => i.animal?.proprietario_id)
+          const partosLote  = filtrar(l.partos || [],       p => p.mae?.proprietario_id)
+          const abortosLote = filtrar(l.abortos || [],      a => a.animal?.proprietario_id)
+          gestandoTotal += calcGestacaoLote(l.data, contarPrenhas(insLote), partosLote.length, abortosLote.length).gestando
+        })
+        const perdasNaoIdentificadas = Math.max(0, prenhas - nPartos - nAbortos - gestandoTotal)
+        const desfechosResolvidos = nPartos + nAbortos + perdasNaoIdentificadas
+        const taxaAborto = (prenhas > 0 && desfechosResolvidos > 0) ? ((nAbortos + perdasNaoIdentificadas) / prenhas) * 100 : null
+
+        // gmd_terneiros/_femeas/_machos — cohort ANCORADO NA SAFRA DA MONTA
+        // (mesmo anchor de nPartos/produção acima), EXATAMENTE partosSafra
+        // deste modo — GMD, nPartos e produção sempre falam do mesmo conjunto
+        // de terneiros, agora também dentro de cada modo. Só exclui morto.
+        // Categoria avaliada na data da ÚLTIMA pesagem, não em "hoje".
+        const bezerroIdsSafra = new Set(partosSafra.map(p => p.bezerro_id).filter(Boolean))
+        const candidatosGmd = animaisFiltrados.filter(a => a.situacao !== 'morto' && bezerroIdsSafra.has(a.id))
+        const gmdsT = [], gmdsF = [], gmdsM = []
+        for (const t of candidatosGmd) {
+          const todasDoAnimal = todasPesagens.filter(p => p.animal_id === t.id)
+          const ps = pesagensDeManejo(todasDoAnimal).sort((a, b) => a.data.localeCompare(b.data))
+          if (ps.length < 2) continue
+          const dataUltimaPesagem = ps[ps.length - 1].data
+          if (!['Terneiro', 'Terneira'].includes(calcCategoria(t.data_nascimento, t.sexo, dataUltimaPesagem))) continue
+          const g = parseFloat(calcGMD(ps))
+          if (g > 0) {
+            gmdsT.push(g)
+            if (t.sexo === 'F') gmdsF.push(g)
+            else if (t.sexo === 'M') gmdsM.push(g)
+          }
+        }
+        const media = (arr) => arr.length ? arr.reduce((s, v) => s + v, 0) / arr.length : null
+
+        // mortalidade — de bezerros da safra (partosSafra deste modo), não do
+        // rebanho geral; só avalia depois que nasceu o 1º bezerro (nPartos>0).
+        const mortosBezerros = partosSafra.filter(p => p.bezerro?.situacao === 'morto').length
+        const mortalidade = nPartos > 0 ? (mortosBezerros / nPartos) * 100 : null
+
+        // Proporção de sexo + produção (kg/valor/ha) — mesma base partosSafra
+        // deste modo, mesmas fórmulas de sempre (ver comentário original em
+        // versões anteriores deste arquivo/git history).
+        const qtdMachos = partosSafra.filter(p => p.bezerro?.sexo === 'M').length
+        const qtdFemeas = partosSafra.filter(p => p.bezerro?.sexo === 'F').length
+        const pesosSafra = partosSafra.map(p => p.bezerro_id ? pesoTerneiroSafra(p.bezerro_id) : null).filter(v => v != null && v > 0)
+        const kgProduzido = pesosSafra.reduce((s, v) => s + v, 0)
+        const kgPorSexo = partosSafra.reduce((acc, p) => {
+          if (!p.bezerro_id) return acc
+          const peso = pesoTerneiroSafra(p.bezerro_id)
+          if (peso == null || peso <= 0) return acc
+          if (p.bezerro?.sexo === 'M') acc.kgMachos += peso
+          else if (p.bezerro?.sexo === 'F') acc.kgFemeas += peso
+          return acc
+        }, { kgMachos: 0, kgFemeas: 0 })
+        const valorMachos = qtdMachos * valorUnitTerneiro
+        const valorFemeas = qtdFemeas * valorUnitTerneira
+        const valorProduzido = valorMachos + valorFemeas
+        const kgPorHa    = hectareUtil > 0 ? kgProduzido / hectareUtil : null
+        const valorPorHa = hectareUtil > 0 ? valorProduzido / hectareUtil : null
+
+        // Custos — divide o total INVARIANTE (custoInseminacaoTotal) pelo
+        // cohort DESTE modo. Em Natural isso produziria um número (custo
+        // 100% de IA dividido por terneiros de monta natural) que não
+        // significa nada — por isso o modo Natural nunca usa estes campos na
+        // hora de montar `atuais` (ver construirAtuais, fora do loadAll);
+        // ficam calculados aqui só por uniformidade, não exibidos.
+        const custoPorTerneiro = (custoInseminacaoTotal != null && nPartos > 0) ? custoInseminacaoTotal / nPartos : null
+        const custoPctValor    = (custoInseminacaoTotal != null && valorProduzido > 0) ? (custoInseminacaoTotal / valorProduzido) * 100 : null
+        const custoPorMatriz   = (custoInseminacaoTotal != null && matrizesExpostas > 0) ? custoInseminacaoTotal / matrizesExpostas : null
+
+        return {
+          partosSafra, prenhas, matrizesExpostas, taxaPrenhez, taxaAproveitamento,
+          nPartos, taxaParicao, kgBezerroMatriz, kgDesmame,
+          nAbortos, gestandoTotal, perdasNaoIdentificadas, taxaAborto,
+          gmdTerneiros: media(gmdsT), gmdTerneirosFemeas: media(gmdsF), gmdTerneirosMachos: media(gmdsM),
+          gmdIndividuais: gmdsT,
+          mortosBezerros, mortalidade,
+          qtdMachos, qtdFemeas, pesosSafraLength: pesosSafra.length, kgProduzido, kgPorSexo,
+          valorMachos, valorFemeas, valorProduzido, kgPorHa, valorPorHa,
+          custoPorTerneiro, custoPctValor, custoPorMatriz,
+        }
+      }
+
+      const lotesIA      = lotesCiclo.filter(l => l.tipo !== 'natural')
+      const lotesNatural  = lotesCiclo.filter(l => l.tipo === 'natural')
+      const blocoIA          = calcularBloco(lotesIA)
+      const blocoNatural     = calcularBloco(lotesNatural)
+      const blocoConsolidado = calcularBloco(lotesCiclo) // = cálculo de hoje, intocado
+
+      // ── intervalo_partos — todo o histórico (não só este ciclo), mesma mãe.
+      // Consolidado usa TODOS os partos (mesmo os sem lote vinculado — monta
+      // natural não lançada/legado), exatamente como hoje. IA/Natural só
+      // conseguem classificar partos que TÊM lote com tipo conhecido — um
+      // parto sem lote não entra em nenhum dos dois modos específicos (mesmo
+      // critério de "não inventar um cohort novo" já usado no GMD).
+      const partosParaIntervalo = filtroProp ? todosPartos.filter(p => p.mae?.proprietario_id === filtroProp) : todosPartos
+      const intervaloConsolidado = calcIntervaloPartos(partosParaIntervalo).media
+      const intervaloIA          = calcIntervaloPartos(partosParaIntervalo.filter(p => p.lote?.tipo === 'ia')).media
+      const intervaloNatural     = calcIntervaloPartos(partosParaIntervalo.filter(p => p.lote?.tipo === 'natural')).media
+      blocoIA.intervaloPartos          = intervaloIA
+      blocoNatural.intervaloPartos     = intervaloNatural
+      blocoConsolidado.intervaloPartos = intervaloConsolidado
+      // custo_insem_total é INVARIANTE (mesmo total nos 3) — anexado aqui só
+      // pra valorIndicadorDoBloco ler de um lugar só; construirAtuais barra
+      // explicitamente o modo Natural antes de chegar a usar esse valor.
+      blocoIA.custoInseminacaoTotal          = custoInseminacaoTotal
+      blocoNatural.custoInseminacaoTotal     = custoInseminacaoTotal
+      blocoConsolidado.custoInseminacaoTotal = custoInseminacaoTotal
+
+      // ── Estado invariante (sempre Consolidado — cards/gráficos fora dos 5
+      // contêineres com seletor de modo, ver Metas.jsx render): proporção de
+      // sexo geral, produção (subtítulo "X de Y pesados"/gráfico por sexo) e
+      // "temValorCadastrado" (gate do AlertBox, sistema inteiro, não por modo).
+      setSexoTerneiros({ machos: blocoConsolidado.qtdMachos, femeas: blocoConsolidado.qtdFemeas })
+      setProducaoSafra({ temValorCadastrado, hectareUtil })
 
       // Custo de Inseminação por ciclo (todos os ciclos cadastrados, mesma
       // regra de recorte por data) — alimenta o gráfico comparativo do
@@ -844,12 +966,18 @@ export default function Metas() {
           .sort((a, b) => a.data.localeCompare(b.data)),
       })))
 
-      // ── Nascimentos por touro — touro do lote de inseminação que gerou o
-      // parto (_touroLote); se o parto não tiver lote vinculado (monta natural),
-      // cai pro campo `pai` gravado no bezerro. Mesma base partosSafra (já filtrada).
+      // ── Nascimentos por touro / Sexo por touro — SEMPRE Consolidado (não é
+      // um dos 5 contêineres com seletor de modo). Frente B: lote de monta
+      // natural com VÁRIOS touros (_loteTouros) vira paternidade indefinida —
+      // nunca atribuída ao 1º touro (_touroLote sozinho); sem lote cai pro
+      // campo `pai` gravado no bezerro (mesmo fallback de sempre).
+      const rotuloTouroDoParto = (p) => {
+        if (p._loteTouros?.length > 0) return `Monta natural (vários touros) — Lote Nº ${p._loteNumero}`
+        return (p._touroLote || p.bezerro?.pai || '').trim() || 'Não informado'
+      }
       const porTouroMap = {}
-      partosSafra.forEach(p => {
-        const touro = (p._touroLote || p.bezerro?.pai || '').trim() || 'Não informado'
+      blocoConsolidado.partosSafra.forEach(p => {
+        const touro = rotuloTouroDoParto(p)
         porTouroMap[touro] = (porTouroMap[touro] || 0) + 1
       })
       setNascPorTouro(
@@ -858,11 +986,9 @@ export default function Metas() {
           .sort((a, b) => b.qtd - a.qtd)
       )
 
-      // ── Sexo por touro — mesmo critério de touro do bloco acima, agora
-      // separando machos/fêmeas por touro (pro donut "sexo por touro").
       const porTouroSexoMap = {}
-      partosSafra.forEach(p => {
-        const touro = (p._touroLote || p.bezerro?.pai || '').trim() || 'Não informado'
+      blocoConsolidado.partosSafra.forEach(p => {
+        const touro = rotuloTouroDoParto(p)
         if (!porTouroSexoMap[touro]) porTouroSexoMap[touro] = { machos: 0, femeas: 0 }
         if (p.bezerro?.sexo === 'M') porTouroSexoMap[touro].machos++
         else if (p.bezerro?.sexo === 'F') porTouroSexoMap[touro].femeas++
@@ -873,33 +999,18 @@ export default function Metas() {
           .sort((a, b) => b.total - a.total)
       )
 
-      // ── Curva de parição — nascimentos agrupados no tempo (mesma base
-      // partosSafra). Granularidade adaptativa pelo período coberto pelos
-      // partos: safra curta agrupa fino (semana), safra longa agrupa grosso
-      // (mês), senão o gráfico vira uma parede de barras ou fica vazio demais.
-      const { modo: modoAgrup, dados: periodoDados } = agruparPorPeriodo(partosSafra)
+      // ── Curva de parição — nascimentos agrupados no tempo, SEMPRE
+      // Consolidado (mesmo motivo acima). Granularidade adaptativa pelo
+      // período coberto pelos partos.
+      const { modo: modoAgrup, dados: periodoDados } = agruparPorPeriodo(blocoConsolidado.partosSafra)
       setModoAgrupamento(modoAgrup)
       setNascPorPeriodo(periodoDados)
 
-      // Produção da safra — mesma condição de "sem dado" que o painel antigo já
-      // usava (qtdPesados/hectareUtil/temValorCadastrado), só que agora vira
-      // null em vez de '—' direto no JSX, pra IndicadorCard tratar igual aos
-      // outros indicadores (sem_dado, sem inventar um "0" enganoso).
-      const temValorCadastrado = !!(catTerneiro || catTerneira)
-      setAtuais({
-        taxa_prenhez: taxaPrenhez, taxa_paricao: taxaParicao, gmd_terneiros: gmdTerneiros, mortalidade,
-        gmd_terneiros_femeas: gmdTerneirosFemeas, gmd_terneiros_machos: gmdTerneirosMachos,
-        taxa_aproveitamento: taxaAproveitamento, kg_bezerro_matriz: kgBezerroMatriz,
-        intervalo_partos: intervaloPartosDias, taxa_aborto: taxaAborto, kg_desmame: kgDesmame,
-        producao_kg:       pesosSafra.length > 0 ? kgProduzido : null,
-        producao_valor:    temValorCadastrado ? valorProduzido : null,
-        producao_kg_ha:    kgPorHa,
-        producao_valor_ha: (hectareUtil > 0 && temValorCadastrado) ? valorPorHa : null,
-        custo_insem_terneiro:  custoPorTerneiro,
-        custo_insem_pct_valor: custoPctValor,
-        custo_insem_total:     custoInseminacaoTotal,
-        custo_insem_matriz:    custoPorMatriz,
-      })
+      // ── Guarda os 3 blocos calculados — `atuais`/gmdIndividuais/
+      // desfechosSafra/produção-por-sexo são DERIVADOS disto no render (ver
+      // construirAtuais, fora do loadAll), conforme o modo selecionado em
+      // cada contêiner — trocar o seletor não recarrega os dados.
+      setBlocosPorModo({ ia: blocoIA, natural: blocoNatural, consolidado: blocoConsolidado })
     } catch (e) {
       console.error('[Metas] erro ao carregar:', e)
       setLoadError(true)
@@ -960,6 +1071,34 @@ export default function Metas() {
     )
   }
 
+  // ── Fase 2 — Monta Natural: valores derivados de blocosPorModo + o modo
+  // selecionado em cada contêiner (trocar o seletor não refaz o fetch, só
+  // recalcula estas leituras). Com os 5 seletores em 'consolidado' (default),
+  // isso é bit-a-bit o `atuais`/gráficos de antes — regressão-zero.
+  const modos = { reproducao: modoReproducao, perdas: modoPerdas, gmd: modoGmd, producao: modoProducao, custos: modoCustos }
+  const atuais = construirAtuais(blocosPorModo, modos, producaoSafra?.temValorCadastrado)
+  const bGmdAtual      = blocosPorModo ? blocosPorModo[modoGmd]      : null
+  const bPerdasAtual   = blocosPorModo ? blocosPorModo[modoPerdas]   : null
+  const bProducaoAtual = blocosPorModo ? blocosPorModo[modoProducao] : null
+  const gmdIndividuais = bGmdAtual ? bGmdAtual.gmdIndividuais : []
+  const desfechosSafra = bPerdasAtual ? {
+    vivos: Math.max(0, bPerdasAtual.nPartos - bPerdasAtual.mortosBezerros),
+    mortos: bPerdasAtual.mortosBezerros,
+    abortos: bPerdasAtual.nAbortos,
+    perdasNaoIdentificadas: bPerdasAtual.perdasNaoIdentificadas,
+    gestando: bPerdasAtual.gestandoTotal,
+  } : null
+  const producaoDetalhes = bProducaoAtual ? {
+    pesados: bProducaoAtual.pesosSafraLength, totalTerneiros: bProducaoAtual.nPartos,
+    hectareUtil: producaoSafra?.hectareUtil || 0,
+    qtdMachos: bProducaoAtual.qtdMachos, qtdFemeas: bProducaoAtual.qtdFemeas,
+  } : null
+  const producaoPorSexo = bProducaoAtual ? {
+    kgMachos: bProducaoAtual.kgPorSexo.kgMachos, kgFemeas: bProducaoAtual.kgPorSexo.kgFemeas,
+    valorMachos: bProducaoAtual.valorMachos, valorFemeas: bProducaoAtual.valorFemeas,
+    temValorCadastrado: !!producaoSafra?.temValorCadastrado,
+  } : null
+
   // Card aparece pra TODO indicador em ORDEM, mesmo sem linha salva na tabela
   // `metas` (ex: auto-criação falhou, ou o usuário não tem permissão de editar
   // metas). Sem isso, um indicador sem meta salva simplesmente não renderizava
@@ -1015,63 +1154,112 @@ export default function Metas() {
         </div>
       </div>
 
-      <div ref={contentRef}>
-        {/* Cards agrupados em containers (Reprodução/Perdas/GMD/Produção), nesta
-            ordem fixa — Produção sempre por último. Cada grupo usa .grid-4 (4
-            colunas fixas no desktop, 1 no mobile, ver global.css); grupos com
-            menos de 4 indicadores (ex: Perdas) só deixam colunas vazias. */}
-        {GRUPOS.map(grupo => {
-          const cardsDoGrupo = grupo.indicadores
-            .map(ind => metasOrdenadas.find(m => m.indicador === ind))
-            .filter(Boolean)
-          const ehProducao = grupo.titulo.startsWith('Produção')
-          return (
-            <div key={grupo.titulo} className="card" style={{ marginBottom: 14 }}>
-              <div className="card-title">{grupo.titulo}</div>
-              {ehProducao && producaoSafra && !producaoSafra.temValorCadastrado && (
-                <div style={{ marginBottom: 12 }}>
-                  <AlertBox type="amber" icon="ti-alert-triangle"
-                    title="Preço médio de Terneiro/Terneira não cadastrado"
-                    body='Cadastre o peso médio e o preço/kg das categorias "Terneiro" e "Terneira" em Financeiro → Parâmetros para calcular o valor produzido.' />
-                </div>
-              )}
-              <div className="grid-4">
-                {cardsDoGrupo.map(m => (
-                  <IndicadorCard key={m.id} meta={m} atual={atuais[m.indicador] ?? null}
-                    subtitulo={subtituloProducao(m.indicador, producaoDetalhes) || subtituloCustos(m.indicador, custosDetalhes)} />
-                ))}
-              </div>
+      {/* Filtro GERAL — troca os 5 seletores por contêiner de uma vez (Opção A:
+          eles continuam existindo, só ficam sincronizados nesse sentido).
+          Default Consolidado = número de hoje; não recarrega dado nenhum, só
+          troca qual bloco já calculado (blocosPorModo) cada card lê. */}
+      <div style={{
+        marginBottom: 14, background: '#F9FAFB', border: '.5px solid #E5E7EB',
+        borderRadius: 10, padding: '10px 14px',
+      }}>
+        <div style={{ fontSize: '.72rem', fontWeight: 700, color: '#6B7280', textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 6 }}>
+          Ver por
+        </div>
+        <SeletorModo value={modoGeral} onChange={aplicarModoGeral} />
+      </div>
 
-              {/* Gráfico do container — abaixo dos cards, mesmo card visual */}
-              <div style={{ marginTop: 18, paddingTop: 16, borderTop: '.5px solid #F3F4F6' }}>
-                {grupo.titulo === 'Reprodução' && (
-                  <GraficoParicao dados={nascPorPeriodo} modo={modoAgrupamento} cicloNome={cicloLocal?.nome} />
-                )}
-                {grupo.titulo === 'Perdas' && (
-                  <GraficoDesfechos dados={desfechosSafra} />
-                )}
-                {grupo.titulo === 'GMD' && (
-                  <div className="grid-2">
-                    <div>
-                      <div style={{ fontSize: '.78rem', fontWeight: 600, color: '#374151', marginBottom: 6 }}>Distribuição de GMD individual</div>
-                      <GraficoHistogramaGMD valores={gmdIndividuais} />
-                    </div>
-                    <div>
-                      <div style={{ fontSize: '.78rem', fontWeight: 600, color: '#374151', marginBottom: 6 }}>Fêmeas x Machos x Meta</div>
-                      <GraficoComparativoGMD femeas={atuais.gmd_terneiros_femeas} machos={atuais.gmd_terneiros_machos} />
-                    </div>
+      <div ref={contentRef}>
+        {/* Cards agrupados em containers (Reprodução/Perdas/GMD/Produção/Custos),
+            nesta ordem fixa — Produção sempre por último. Cada grupo usa .grid-4
+            (4 colunas fixas no desktop, 1 no mobile, ver global.css); grupos com
+            menos de 4 indicadores (ex: Perdas) só deixam colunas vazias.
+            Fase 2 — Monta Natural: cada contêiner tem seu próprio seletor
+            Inseminação/Monta Natural/Consolidado (SELETORES abaixo), default
+            'consolidado' = número de hoje, sem mudar nada até o usuário trocar. */}
+        {(() => {
+          const SELETORES = {
+            'Reprodução': [modoReproducao, setModoReproducao],
+            'Perdas':     [modoPerdas, setModoPerdas],
+            'GMD':        [modoGmd, setModoGmd],
+            'Produção da Safra x Hectare Útil': [modoProducao, setModoProducao],
+            'Custos':     [modoCustos, setModoCustos],
+          }
+          return GRUPOS.map(grupo => {
+            const cardsDoGrupo = grupo.indicadores
+              .map(ind => metasOrdenadas.find(m => m.indicador === ind))
+              .filter(Boolean)
+            const ehProducao = grupo.titulo.startsWith('Produção')
+            const [modoAtual, setModoAtual] = SELETORES[grupo.titulo] || ['consolidado', () => {}]
+            return (
+              <div key={grupo.titulo} className="card" style={{ marginBottom: 14 }}>
+                <div className="card-title">{grupo.titulo}</div>
+                <SeletorModo value={modoAtual} onChange={setModoAtual} />
+                {ehProducao && producaoSafra && !producaoSafra.temValorCadastrado && (
+                  <div style={{ marginBottom: 12 }}>
+                    <AlertBox type="amber" icon="ti-alert-triangle"
+                      title="Preço médio de Terneiro/Terneira não cadastrado"
+                      body='Cadastre o peso médio e o preço/kg das categorias "Terneiro" e "Terneira" em Financeiro → Parâmetros para calcular o valor produzido.' />
                   </div>
                 )}
-                {ehProducao && (
-                  <GraficoProducaoPorSexo dados={producaoPorSexo} />
+                {grupo.titulo === 'Custos' && modoAtual === 'natural' && (
+                  <div style={{ marginBottom: 12 }}>
+                    <AlertBox type="amber" icon="ti-alert-triangle"
+                      title="Não aplicável"
+                      body="Não existe grupo financeiro de despesa específico de monta natural — não há como calcular custo por touro/terneiro deste modo." />
+                  </div>
                 )}
-                {grupo.titulo === 'Custos' && (
-                  <GraficoCustoPorCiclo dados={custoPorCiclo} cicloAtualNome={cicloLocal?.nome} />
+                <div className="grid-4">
+                  {cardsDoGrupo.map(m => (
+                    <IndicadorCard key={m.id} meta={m} atual={atuais[m.indicador] ?? null}
+                      subtitulo={subtituloProducao(m.indicador, producaoDetalhes) || subtituloCustos(m.indicador, custosDetalhes)} />
+                  ))}
+                </div>
+
+                {/* Gráfico do container — abaixo dos cards, mesmo card visual */}
+                <div style={{ marginTop: 18, paddingTop: 16, borderTop: '.5px solid #F3F4F6' }}>
+                  {grupo.titulo === 'Reprodução' && (
+                    <GraficoParicao dados={nascPorPeriodo} modo={modoAgrupamento} cicloNome={cicloLocal?.nome} />
+                  )}
+                  {grupo.titulo === 'Perdas' && (
+                    <GraficoDesfechos dados={desfechosSafra} />
+                  )}
+                  {grupo.titulo === 'GMD' && (
+                    <div className="grid-2">
+                      <div>
+                        <div style={{ fontSize: '.78rem', fontWeight: 600, color: '#374151', marginBottom: 6 }}>Distribuição de GMD individual</div>
+                        <GraficoHistogramaGMD valores={gmdIndividuais} />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '.78rem', fontWeight: 600, color: '#374151', marginBottom: 6 }}>Fêmeas x Machos x Meta</div>
+                        <GraficoComparativoGMD femeas={atuais.gmd_terneiros_femeas} machos={atuais.gmd_terneiros_machos} />
+                      </div>
+                    </div>
+                  )}
+                  {ehProducao && (
+                    <GraficoProducaoPorSexo dados={producaoPorSexo} />
+                  )}
+                  {grupo.titulo === 'Custos' && (
+                    <GraficoCustoPorCiclo dados={custoPorCiclo} cicloAtualNome={cicloLocal?.nome} />
+                  )}
+                </div>
+
+                {/* Modo Consolidado: comparativo IA × Monta Natural — mesmos
+                    números já calculados nos 2 modos, só visualização. Custos
+                    não tem esse gráfico (Natural já não é aplicável ali). */}
+                {modoAtual === 'consolidado' && grupo.titulo !== 'Custos' && blocosPorModo && (
+                  <div style={{ marginTop: 16, paddingTop: 16, borderTop: '.5px solid #F3F4F6' }}>
+                    <GraficoComparativoModo
+                      indicadores={grupo.indicadores}
+                      blocoIA={blocosPorModo.ia}
+                      blocoNatural={blocosPorModo.natural}
+                      temValorCadastrado={producaoSafra?.temValorCadastrado}
+                    />
+                  </div>
                 )}
               </div>
-            </div>
-          )
-        })}
+            )
+          })
+        })()}
 
         {/* Sexo dos terneiros + GMD fêmea×macho + nascimentos por touro — mesmo
             card, três donuts lado a lado (grid-3), todos sobre a mesma base
