@@ -480,7 +480,7 @@ export const GRUPOS_DES = [
   'Compra de Animais', 'Remédios', 'Suplementos', 'Mão de Obra', 'Combustível',
   'Ferramentas', 'Manutenção', 'Estrutura',
   'Máquinas e Equipamentos', 'Investimentos',
-  'Realização de Lucro', 'Inseminação'
+  'Realização de Lucro', 'Inseminação', 'Monta Natural', 'Frete'
 ]
 
 // ── Soma financeira segura ──────────────────────────────────────────────────

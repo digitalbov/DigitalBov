@@ -242,6 +242,10 @@ export const db = {
       if (!vinculos?.length) return { error: null }
       return supabase.from('sanidade_animais').insert(vinculos)
     },
+    // Usado por Sanidade.jsx::excluir — apaga os vínculos antes de apagar o
+    // procedimento em si (não depende de cascade do banco, que não confirmamos
+    // que existe pra esta tabela — ver diagnóstico do Bloco D6).
+    deletePorProcedimento: (procId) => escopo(T('sanidade_animais').raw().delete().eq('procedimento_id', procId)),
   },
 
   estoque: {
@@ -254,6 +258,19 @@ export const db = {
   movEstoque: {
     list:   ()       => T('estoque_movimentacoes').select('*, item:estoque_itens(item,unidade)').order('data', { ascending: false }).limit(500),
     insert: (data)   => T('estoque_movimentacoes').insertOne(data).select().single(),
+    // Exclusão/reversão (saída devolve ao estoque, entrada remove) é feita em
+    // 2 passos no client (ajustar estoque_itens.quantidade + apagar a linha),
+    // igual salvarMov já faz pra criar — ver reverterMov em Estoque.jsx. Não
+    // existe trigger no banco pra este módulo (tudo client-side de propósito).
+    delete: (id)     => escopo(T('estoque_movimentacoes').raw().delete().eq('id', id)),
+    // Bloco D6 — baixa automática vinculada a um procedimento sanitário via
+    // procedimento_id (ver migration_sanidade_estoque_d6_1.sql). listPorProcedimento
+    // é leitura fresca (não confia em cache local) usada por Sanidade.jsx::excluir
+    // pra reverter as baixas antes de apagar o procedimento. listComProcedimento
+    // traz TODAS de uma vez — usada no load() de Sanidade.jsx pra montar o mapa
+    // "itens baixados por procedimento" da lista inteira, sem N+1.
+    listPorProcedimento: (procId) => T('estoque_movimentacoes').select('*, item:estoque_itens(item,unidade)').eq('procedimento_id', procId),
+    listComProcedimento: ()       => T('estoque_movimentacoes').select('id,item_id,quantidade,procedimento_id,item:estoque_itens(item,unidade)').not('procedimento_id', 'is', null),
   },
 
   lancamentos: {
@@ -298,6 +315,7 @@ export const db = {
       p_contraparte: p.contraparte,
       p_comissao:    p.comissao,
       p_imposto:     p.imposto,
+      p_frete:       p.frete,
       p_detalhes:    p.detalhes,
       p_animal_ids:  p.animal_ids,
     }),
@@ -314,6 +332,7 @@ export const db = {
       p_contraparte: p.contraparte,
       p_comissao:    p.comissao,
       p_imposto:     p.imposto,
+      p_frete:       p.frete,
       p_detalhes:    p.detalhes,
     }),
   },

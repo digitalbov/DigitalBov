@@ -526,6 +526,7 @@ export default function Financeiro() {
       conta_id: contaAtual.id, fazenda_id: fazendaAtual.id, ciclo_id: ciclo.id, data: form.data,
       valor_total: totalCompra, descricao,
       contraparte: form.contraparte || '', comissao: parseFloat(form.comissao)||0, imposto: parseFloat(form.imposto)||0,
+      frete: parseFloat(form.frete)||0,
       detalhes,
     })
     setSaving(false)
@@ -569,6 +570,7 @@ export default function Financeiro() {
       conta_id: contaAtual.id, fazenda_id: fazendaAtual.id, ciclo_id: ciclo.id, data: form.data,
       valor_total: totalVenda, descricao,
       contraparte: form.contraparte || '', comissao: parseFloat(form.comissao)||0, imposto: parseFloat(form.imposto)||0,
+      frete: parseFloat(form.frete)||0,
       detalhes, animal_ids: vendaSelecionados,
     })
     setSaving(false)
@@ -932,7 +934,7 @@ export default function Financeiro() {
               <div className="table-wrap">
                 <table>
                   <thead>
-                    <tr><th>Data</th><th>Tipo</th><th>Categoria</th><th>Qt</th><th>Kg/un</th><th>R$/kg</th><th>Contraparte</th><th>Comissão</th><th>Imposto</th><th style={{textAlign:'right'}}>Total</th><th></th></tr>
+                    <tr><th>Data</th><th>Tipo</th><th>Categoria</th><th>Qt</th><th>Kg/un</th><th>R$/kg</th><th>Contraparte</th><th>Comissão</th><th>Imposto</th><th>Frete</th><th style={{textAlign:'right'}}>Total</th><th></th></tr>
                   </thead>
                   <tbody>
                     {transacsFiltradas.map(t=>{
@@ -950,6 +952,7 @@ export default function Financeiro() {
                         <td style={{fontSize:'.78rem',color:'#9CA3AF'}}>{t.contraparte||'—'}</td>
                         <td style={{color:'#9CA3AF'}}>{fmtMoeda(t.comissao)}</td>
                         <td style={{color:'#9CA3AF'}}>{fmtMoeda(t.imposto)}</td>
+                        <td style={{color:'#9CA3AF'}}>{fmtMoeda(t.frete)}</td>
                         <td style={{textAlign:'right',fontWeight:500,color:t.tipo==='V'?'#1E55B0':'#791F1F'}}>{fmtMoeda(t.valor_total)}</td>
                         <td>
                           <button className="btn-icon" title="Ver animais desta transação" onClick={() => toggleAnimaisTransacao(t)}>
@@ -1420,6 +1423,7 @@ export default function Financeiro() {
               <Field label="Contraparte"><input value={form.contraparte||''} onChange={e=>setForm(p=>({...p,contraparte:e.target.value}))} placeholder="Comprador"/></Field>
               <Field label="Comissão (R$)"><input type="number" step="0.01" value={form.comissao??''} onChange={e=>setForm(p=>({...p,comissao:e.target.value}))} placeholder="0,00"/></Field>
               <Field label="Funrural / Imposto (R$)"><input type="number" step="0.01" value={form.imposto??''} onChange={e=>setForm(p=>({...p,imposto:e.target.value}))} placeholder="0,00"/></Field>
+              <Field label="Frete (R$)"><input type="number" step="0.01" value={form.frete??''} onChange={e=>setForm(p=>({...p,frete:e.target.value}))} placeholder="0,00"/></Field>
             </div>
           </div>
         )}
@@ -1488,6 +1492,7 @@ export default function Financeiro() {
               <Field label="Contraparte"><input value={form.contraparte||''} onChange={e=>setForm(p=>({...p,contraparte:e.target.value}))} placeholder="Vendedor"/></Field>
               <Field label="Comissão (R$)"><input type="number" step="0.01" value={form.comissao??''} onChange={e=>setForm(p=>({...p,comissao:e.target.value}))} placeholder="0,00"/></Field>
               <Field label="Funrural / Imposto (R$)"><input type="number" step="0.01" value={form.imposto??''} onChange={e=>setForm(p=>({...p,imposto:e.target.value}))} placeholder="0,00"/></Field>
+              <Field label="Frete (R$)"><input type="number" step="0.01" value={form.frete??''} onChange={e=>setForm(p=>({...p,frete:e.target.value}))} placeholder="0,00"/></Field>
             </div>
           </div>
         )}

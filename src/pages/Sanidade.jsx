@@ -28,6 +28,13 @@ export default function Sanidade() {
 
   const { podeEditar } = usePermissoes()
   const podeEditarSanidade = podeEditar('sanidade')
+  // Bloco D6 — a seção "itens do estoque utilizados" é um cruzamento de dois
+  // módulos: exige sanidade (óbvio) E estoque (é uma baixa de verdade). Sem
+  // permissão de estoque, a seção fica OCULTA (não desabilitada) — quem só tem
+  // sanidade continua registrando procedimentos normalmente, só não vê a opção
+  // de baixar estoque, e nada tenta rodar no salvamento (itensEstoqueUsados
+  // nunca é preenchido porque a UI que preenche nem existe pra esse usuário).
+  const podeEditarEstoque = podeEditar('estoque')
   const { contaAtual }   = useConta()
   const { fazendaAtual } = useFazenda()
   const { dentroDoCiclo, cicloDaData, dataEhEditavel } = useCiclo()
@@ -56,6 +63,16 @@ export default function Sanidade() {
   const [filtroCategSan, setFiltroCategSan] = useState('')
   const [filtroPropSan,  setFiltroPropSan]  = useState('')
 
+  // Bloco D6 — baixa automática no estoque, opcional, por procedimento (não por
+  // animal — ver diagnóstico: quantidade em procedimentos_sanitarios é nº de
+  // animais, não dose de insumo, não dá pra derivar automaticamente).
+  const [estoqueItens,       setEstoqueItens]       = useState([])
+  const [itensEstoqueUsados, setItensEstoqueUsados] = useState([])
+  // Mapa procedimento_id -> [{item_id, quantidade, item:{item,unidade}}] —
+  // usado tanto pra mostrar "itens baixados" na lista/edição (visibilidade)
+  // quanto pra montar a mensagem de confirmação de exclusão.
+  const [movsPorProcedimento, setMovsPorProcedimento] = useState({})
+
   useEffect(() => { load() }, [])
 
   const load = async () => {
@@ -66,20 +83,59 @@ export default function Sanidade() {
         db.sanidade.list(),
         db.lotes.list(),
         db.animais.list({ situacao: 'ativo' }),
-        db.proprietarios.list()
+        db.proprietarios.list(),
+        db.estoque.list(),
+        db.movEstoque.listComProcedimento(),
       ])
       if (algumErro('[Sanidade]', results)) { setLoadError(true); return }
-      const [{ data: sanData }, { data: lotesData }, { data: animaisData }, { data: propsData }] = results
+      const [{ data: sanData }, { data: lotesData }, { data: animaisData }, { data: propsData }, { data: estoqueData }, { data: movsProcData }] = results
       setDados(sanData       || [])
       setLotes(lotesData     || [])
       setAnimais(animaisData || [])
       setProps(propsData     || [])
+      setEstoqueItens(estoqueData || [])
+      const mapa = {}
+      ;(movsProcData || []).forEach(m => {
+        if (!mapa[m.procedimento_id]) mapa[m.procedimento_id] = []
+        mapa[m.procedimento_id].push(m)
+      })
+      setMovsPorProcedimento(mapa)
     } catch (e) {
       console.error('[Sanidade] erro ao carregar:', e)
       setLoadError(true)
     } finally {
       setLoading(false)
     }
+  }
+
+  // Itens elegíveis pra baixa: categoria Medicamento/Vacina (únicas que fazem
+  // sentido numa aplicação sanitária — ver diagnóstico item b) e com saldo > 0
+  // (sem saldo, nem aparece na lista — evita escolher e só descobrir no bloqueio).
+  const itensEstoqueDisponiveis = estoqueItens.filter(i =>
+    ['Medicamento', 'Vacina'].includes(i.categoria) && parseFloat(i.quantidade) > 0
+  )
+
+  const adicionarLinhaEstoque = () => setItensEstoqueUsados(prev => [...prev, { item_id: '', quantidade: '' }])
+  const removerLinhaEstoque   = (idx) => setItensEstoqueUsados(prev => prev.filter((_, i) => i !== idx))
+  const atualizarLinhaEstoque = (idx, patch) => setItensEstoqueUsados(prev =>
+    prev.map((l, i) => i === idx ? { ...l, ...patch } : l)
+  )
+
+  // Valida ANTES de salvar (bloqueia a criação do procedimento inteiro, não só
+  // a baixa) — soma por item (2 linhas do mesmo item somam) e compara com o
+  // saldo atual. Nunca deixa o estoque ir negativo.
+  const validarSaldoEstoque = () => {
+    const linhas = itensEstoqueUsados.filter(l => l.item_id && parseFloat(l.quantidade) > 0)
+    const totais = {}
+    linhas.forEach(l => { totais[l.item_id] = (totais[l.item_id] || 0) + parseFloat(l.quantidade) })
+    for (const [itemId, total] of Object.entries(totais)) {
+      const item = estoqueItens.find(i => i.id === itemId)
+      if (!item) continue
+      if (total > parseFloat(item.quantidade)) {
+        return `Saldo insuficiente de "${item.item}": disponível ${parseFloat(item.quantidade).toFixed(1)} ${item.unidade}, solicitado ${total.toFixed(1)} ${item.unidade}.`
+      }
+    }
+    return null
   }
 
   const togLote = (nome) => setSelLotes(prev =>
@@ -93,6 +149,7 @@ export default function Sanidade() {
   const resetFormSelecao = () => {
     setSelLotes([]); setSelAnimais([]); setModoSelecao('lote')
     setFiltroCategSan(''); setFiltroPropSan('')
+    setItensEstoqueUsados([])
   }
 
   const fecharModal = () => { setModal(false); setForm({}); setEditandoId(null); resetFormSelecao() }
@@ -148,6 +205,12 @@ export default function Sanidade() {
         ? 'Não é possível lançar nesta data: ela está fora do ciclo atual (ou em um ciclo já encerrado).'
         : 'Data fora de qualquer ciclo cadastrado.', 'error')
       return
+    }
+    // Valida saldo ANTES de criar qualquer coisa — bloqueia o procedimento
+    // inteiro, não só a baixa, se algum item não tiver saldo suficiente.
+    if (!editandoId) {
+      const erroSaldo = validarSaldoEstoque()
+      if (erroSaldo) { toast(erroSaldo, 'error'); return }
     }
     setSaving(true)
 
@@ -208,16 +271,100 @@ export default function Sanidade() {
       if (errVinc) toast('Procedimento salvo, mas erro ao vincular animais: ' + errVinc.message, 'error')
     }
 
+    // ── Baixa de estoque (Bloco D6, opcional) — por procedimento, não por
+    // animal (ver diagnóstico). ORDEM É PROPOSITAL: grava a movimentação
+    // ANTES de ajustar estoque_itens.quantidade, uma linha de cada vez (não em
+    // paralelo). Se algo falhar no meio, é preferível ficar com uma
+    // movimentação SEM o saldo ajustado (visível em Estoque → Movimentar,
+    // auditável e corrigível manualmente) do que um saldo ajustado sem
+    // nenhuma movimentação explicando a diferença (invisível, indetectável).
+    // saldosLocais rastreia o saldo indo embora linha a linha (2 linhas do
+    // mesmo item têm que descontar em sequência, não do mesmo saldo "congelado").
+    if (podeEditarEstoque && procData?.id) {
+      const linhas = itensEstoqueUsados.filter(l => l.item_id && parseFloat(l.quantidade) > 0)
+      const motivo = `Sanidade: ${form.procedimento} em ${fmtData(form.data)}`
+      const saldosLocais = {}
+      for (const linha of linhas) {
+        const item = estoqueItens.find(i => i.id === linha.item_id)
+        if (!item) continue
+        if (!(linha.item_id in saldosLocais)) saldosLocais[linha.item_id] = parseFloat(item.quantidade)
+        const qt = parseFloat(linha.quantidade)
+
+        const { error: errMov } = await db.movEstoque.insert({
+          item_id: linha.item_id, data: form.data, tipo: 'S', quantidade: qt,
+          motivo, procedimento_id: procData.id,
+        })
+        if (errMov) {
+          toast(`Procedimento salvo, mas falhou ao baixar "${item.item}" do estoque: ${errMov.message}. As baixas seguintes foram interrompidas — confira em Estoque.`, 'error')
+          break // não tenta as próximas linhas — evita baixas fora de ordem sem a anterior registrada
+        }
+
+        saldosLocais[linha.item_id] -= qt
+        const { error: errSaldo } = await db.estoque.update(linha.item_id, { quantidade: saldosLocais[linha.item_id] })
+        if (errSaldo) {
+          // A movimentação JÁ existe (passo anterior deu certo) — o saldo é
+          // que não foi ajustado. Não interrompe as próximas linhas: cada uma
+          // é independente, e a inconsistência desta já ficou visível/auditável.
+          toast(`Baixa de "${item.item}" registrada, mas o saldo não foi atualizado automaticamente: ${errSaldo.message}. Confira e ajuste em Estoque.`, 'error')
+        }
+      }
+    }
+
     setSaving(false)
     toast('Procedimento registrado!')
     setModal(false); setForm({}); resetFormSelecao(); load()
   }
 
+  // Reverte a baixa de estoque (se houver) antes de apagar o procedimento —
+  // mesmo princípio da reversão de compra/venda (Financeiro): soma de volta,
+  // depois apaga o registro. Leitura fresca do banco (não confia no cache
+  // local movsPorProcedimento, que pode estar um pouco desatualizado) — é 1
+  // query a mais, mas evita reverter com base em dado velho E é a mesma leitura
+  // que decide o guard de permissão abaixo (nunca libera por engano com o cache
+  // vazio/desatualizado). Pára no primeiro erro (NÃO segue pra apagar o
+  // procedimento) — melhor deixar uma exclusão parcialmente feita e o usuário
+  // tentar de novo do que apagar o procedimento com estoque ainda inconsistente.
   const excluir = async (id) => {
     if (!podeEditarSanidadeCiclo) return
+    const { data: movsLigadas, error: errMovs } = await db.movEstoque.listPorProcedimento(id)
+    if (errMovs) { toast('Erro ao verificar itens de estoque ligados: ' + errMovs.message, 'error'); return }
+
+    // Reversão de baixa de estoque deixou de ser "efeito colateral livre" da
+    // exclusão de sanidade — decisão do usuário: se o procedimento baixou
+    // estoque, excluí-lo (e devolver o saldo) também exige podeEditar('estoque'),
+    // não só sanidade. Bloqueia ANTES de tocar em qualquer coisa — o guard vem
+    // logo depois da leitura fresca, antes do loop que muda saldo/apaga linhas.
+    if ((movsLigadas?.length) && !podeEditarEstoque) {
+      toast('Este registro baixou itens do estoque. É necessária permissão de edição no módulo Estoque para excluí-lo.', 'error')
+      return
+    }
+
+    const saldosLocais = {}
+    for (const m of (movsLigadas || [])) {
+      const item = estoqueItens.find(i => i.id === m.item_id)
+      const atualConhecido = item ? parseFloat(item.quantidade) : null
+      if (atualConhecido !== null) {
+        if (!(m.item_id in saldosLocais)) saldosLocais[m.item_id] = atualConhecido
+        saldosLocais[m.item_id] += parseFloat(m.quantidade)
+        const { error: errSaldo } = await db.estoque.update(m.item_id, { quantidade: saldosLocais[m.item_id] })
+        if (errSaldo) {
+          toast(`Erro ao devolver "${m.item?.item || 'item'}" ao estoque: ${errSaldo.message}. Exclusão interrompida — nada foi apagado.`, 'error')
+          return
+        }
+      }
+      const { error: errDelMov } = await db.movEstoque.delete(m.id)
+      if (errDelMov) {
+        toast('Erro ao remover movimentação de estoque: ' + errDelMov.message + '. Exclusão interrompida.', 'error')
+        return
+      }
+    }
+
+    const { error: errVinc } = await db.sanidadeAnimais.deletePorProcedimento(id)
+    if (errVinc) { toast('Erro ao remover vínculos de animais: ' + errVinc.message, 'error'); return }
+
     const { error } = await db.sanidade.delete(id)
     if (error) { toast('Erro ao excluir: ' + error.message, 'error'); return }
-    toast('Registro removido.')
+    toast('Registro removido' + ((movsLigadas?.length) ? ' — estoque devolvido.' : '.'))
     load()
   }
 
@@ -311,7 +458,13 @@ export default function Sanidade() {
                         <tr key={d.id}>
                           <td>{fmtData(d.data)}</td>
                           <td><Badge color={COR_TP[d.tipo] || 'gray'}>{d.tipo}</Badge></td>
-                          <td style={{ fontWeight:500 }}>{d.procedimento}</td>
+                          <td style={{ fontWeight:500 }}>
+                            {d.procedimento}
+                            {movsPorProcedimento[d.id]?.length > 0 && (
+                              <i className="ti ti-package" style={{ fontSize:12, color:'#7B2FBE', marginLeft:5 }}
+                                title={`Estoque baixado: ${movsPorProcedimento[d.id].map(m => `${parseFloat(m.quantidade).toFixed(1)} ${m.item?.unidade || ''} de ${m.item?.item || 'item'}`).join(', ')}`} />
+                            )}
+                          </td>
                           <td style={{ fontSize:'.78rem', color:'#9CA3AF' }}>{d.lote_descricao}</td>
                           <td>{d.quantidade || '—'}</td>
                           <td style={{ color: venc ? '#791F1F' : '#6B7280', fontSize:'.78rem' }}>
@@ -324,7 +477,7 @@ export default function Sanidade() {
                                 <button className="btn-icon" onClick={() => abrirEditar(d)} title="Editar">
                                   <i className="ti ti-edit" style={{ fontSize:13 }} />
                                 </button>
-                                <button className="btn-icon" onClick={() => setConfirmDel(d.id)} title="Excluir">
+                                <button className="btn-icon" onClick={() => setConfirmDel(d)} title="Excluir">
                                   <i className="ti ti-trash" style={{ fontSize:13 }} />
                                 </button>
                               </>
@@ -447,9 +600,14 @@ export default function Sanidade() {
       <Confirm
         open={!!confirmDel}
         onClose={() => setConfirmDel(null)}
-        onConfirm={() => excluir(confirmDel)}
+        onConfirm={() => excluir(confirmDel.id)}
         title="Excluir procedimento"
-        message="Excluir este procedimento? Esta ação não pode ser desfeita."
+        message={(() => {
+          const movs = confirmDel ? (movsPorProcedimento[confirmDel.id] || []) : []
+          if (movs.length === 0) return 'Excluir este procedimento? Esta ação não pode ser desfeita.'
+          const efeito = movs.map(m => `${parseFloat(m.quantidade).toFixed(1)} ${m.item?.unidade || ''} de ${m.item?.item || 'item'}`).join(', ')
+          return `Isto vai devolver ${efeito} ao estoque, e apagar o procedimento e seus vínculos. Esta ação não pode ser desfeita.`
+        })()}
         danger
       />
 
@@ -564,6 +722,58 @@ export default function Sanidade() {
               </>
             )}
           </div>
+          )}
+          {/* Bloco D6 — baixa de estoque opcional, só na criação (editar não
+              reabre isto, mesmo motivo de não reabrir a seleção de animais
+              acima: é um passo de CRIAÇÃO) e só pra quem tem permissão de
+              estoque também (sem ela, a seção nem existe — ver podeEditarEstoque). */}
+          {!editandoId && podeEditarEstoque && (
+            <div style={{ gridColumn:'1 / -1' }}>
+              <label style={{ fontSize:'.78rem', fontWeight:500, color:'#374151', display:'block', marginBottom:6 }}>
+                Itens do estoque utilizados <span style={{ fontWeight:400, color:'#9CA3AF' }}>(opcional)</span>
+              </label>
+              {itensEstoqueUsados.map((linha, idx) => {
+                const item = itensEstoqueDisponiveis.find(i => i.id === linha.item_id)
+                return (
+                  <div key={idx} style={{ display:'flex', gap:8, marginBottom:6, alignItems:'center' }}>
+                    <select value={linha.item_id} onChange={e => atualizarLinhaEstoque(idx, { item_id: e.target.value })}
+                      style={{ flex:2 }}>
+                      <option value="">— selecione o item —</option>
+                      {itensEstoqueDisponiveis.map(i => (
+                        <option key={i.id} value={i.id}>{i.item} ({parseFloat(i.quantidade).toFixed(1)} {i.unidade} disp.)</option>
+                      ))}
+                    </select>
+                    <input type="number" step="0.1" min="0" placeholder="Qtde" value={linha.quantidade}
+                      onChange={e => atualizarLinhaEstoque(idx, { quantidade: e.target.value })}
+                      style={{ flex:1 }} />
+                    {item && <span style={{ fontSize:'.72rem', color:'#9CA3AF', minWidth:28 }}>{item.unidade}</span>}
+                    <button type="button" className="btn-icon" onClick={() => removerLinhaEstoque(idx)} title="Remover">
+                      <i className="ti ti-trash" style={{ fontSize:13 }} />
+                    </button>
+                  </div>
+                )
+              })}
+              <button type="button" className="btn btn-secondary btn-xs" onClick={adicionarLinhaEstoque}
+                disabled={itensEstoqueDisponiveis.length === 0}>
+                <i className="ti ti-plus" /> Adicionar item do estoque
+              </button>
+              {itensEstoqueDisponiveis.length === 0 && (
+                <div style={{ fontSize:'.72rem', color:'#9CA3AF', marginTop:4 }}>Nenhum item de Medicamento/Vacina com saldo disponível.</div>
+              )}
+            </div>
+          )}
+          {editandoId && movsPorProcedimento[editandoId]?.length > 0 && (
+            <div style={{ gridColumn:'1 / -1', background:'#F9FAFB', border:'.5px solid #E5E7EB', borderRadius:8, padding:'8px 10px' }}>
+              <div style={{ fontSize:'.78rem', fontWeight:500, color:'#374151', marginBottom:4 }}>Itens do estoque baixados por este procedimento</div>
+              {movsPorProcedimento[editandoId].map(m => (
+                <div key={m.id} style={{ fontSize:'.78rem', color:'#374151' }}>
+                  {parseFloat(m.quantidade).toFixed(1)} {m.item?.unidade} de {m.item?.item}
+                </div>
+              ))}
+              <div style={{ fontSize:'.7rem', color:'#9CA3AF', marginTop:4 }}>
+                Não editável aqui — pra corrigir, exclua o procedimento (devolve ao estoque) e registre de novo.
+              </div>
+            </div>
           )}
           <Field label="Próxima aplicação"><input type="date" value={form.proximo||''} onChange={e=>setForm(p=>({...p,proximo:e.target.value}))}/></Field>
         </div>

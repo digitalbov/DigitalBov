@@ -46,10 +46,14 @@ const CFG = {
   // lançada já no ciclo seguinte e ainda assim pertencer à monta deste ciclo).
   // Sem meta padrão (como Produção): custo varia demais por região/protocolo pra
   // ter um "ideal" universal — fica "Sem meta" até o usuário definir um valor.
-  custo_insem_terneiro: { label: 'Custo de Inseminação / Terneiro', icon: '💉', inverted: true, desc: "Grupo financeiro 'Inseminação' do período de monta ÷ terneiros produzidos dessa safra", semDadosMsg: 'Sem despesas de Inseminação lançadas no período', mostraSubtitulo: true },
-  custo_insem_pct_valor: { label: 'Custo de Inseminação / Valor do Terneiro', icon: '📉', inverted: true, desc: "Grupo financeiro 'Inseminação' ÷ valor produzido da safra (Terneiro/Terneira)", semDadosMsg: 'Sem despesas de Inseminação lançadas no período', mostraSubtitulo: true },
-  custo_insem_total: { label: 'Custo Total de Inseminação', icon: '💰', inverted: true, desc: "Soma do grupo financeiro 'Inseminação' lançado dentro do período de monta deste ciclo", semDadosMsg: 'Sem despesas de Inseminação lançadas no período', mostraSubtitulo: true },
-  custo_insem_matriz: { label: 'Custo de Inseminação / Matriz Exposta', icon: '🐄', inverted: true, desc: "Grupo financeiro 'Inseminação' ÷ matrizes expostas no ciclo", semDadosMsg: 'Sem despesas de Inseminação lançadas no período', mostraSubtitulo: true },
+  // Rótulo/desc ficam mode-agnósticos de propósito (Inseminação/Monta Natural/
+  // Consolidado usam grupos financeiros diferentes — ver comentário em
+  // calcularBloco) — qual grupo entrou de fato na conta aparece no subtítulo
+  // de cada card (subtituloCustos), que É mode-aware.
+  custo_insem_terneiro: { label: 'Custo de Monta / Terneiro', icon: '💉', inverted: true, desc: 'Despesas da modalidade de monta selecionada, no período, ÷ terneiros produzidos dessa safra', semDadosMsg: 'Sem despesas lançadas no período', mostraSubtitulo: true },
+  custo_insem_pct_valor: { label: 'Custo de Monta / Valor do Terneiro', icon: '📉', inverted: true, desc: 'Despesas da modalidade de monta selecionada ÷ valor produzido da safra (Terneiro/Terneira)', semDadosMsg: 'Sem despesas lançadas no período', mostraSubtitulo: true },
+  custo_insem_total: { label: 'Custo Total de Monta', icon: '💰', inverted: true, desc: 'Soma das despesas da modalidade de monta selecionada, lançadas dentro do período de monta deste ciclo', semDadosMsg: 'Sem despesas lançadas no período', mostraSubtitulo: true },
+  custo_insem_matriz: { label: 'Custo de Monta / Matriz Exposta', icon: '🐄', inverted: true, desc: 'Despesas da modalidade de monta selecionada ÷ matrizes expostas no ciclo', semDadosMsg: 'Sem despesas lançadas no período', mostraSubtitulo: true },
 }
 
 // ── Texto de apoio dos 4 indicadores de Produção — mostra a base de cálculo
@@ -72,13 +76,20 @@ function subtituloProducao(indicador, d) {
   }
 }
 
-// ── Texto de apoio dos 4 indicadores de Custos — mostra quantos lançamentos
-// do grupo 'Inseminação' entraram na soma, pra deixar auditável (o rótulo
-// "baseado no grupo financeiro Inseminação" já está no `desc` de cada card).
-function subtituloCustos(indicador, d) {
-  if (!d || !['custo_insem_terneiro', 'custo_insem_pct_valor', 'custo_insem_total', 'custo_insem_matriz'].includes(indicador)) return null
-  if (d.nLancamentos === 0) return null
-  return `${d.nLancamentos} lançamento${d.nLancamentos === 1 ? '' : 's'} de Inseminação no período`
+// ── Texto de apoio dos 4 indicadores de Custos — rótulo HONESTO: diz de qual
+// grupo financeiro o número saiu de fato, o que muda por modo (ver
+// custosDetalhes em loadAll) — desc dos cards em CFG é mode-agnóstico de
+// propósito, então é aqui que a fonte real fica auditável.
+const GRUPO_CUSTO_LABEL = {
+  ia:          "no grupo financeiro 'Inseminação'",
+  natural:     "no grupo financeiro 'Monta Natural'",
+  consolidado: "nos grupos financeiros 'Inseminação' + 'Monta Natural'",
+}
+function subtituloCustos(indicador, custosPorModo, modo) {
+  if (!['custo_insem_terneiro', 'custo_insem_pct_valor', 'custo_insem_total', 'custo_insem_matriz'].includes(indicador)) return null
+  const d = custosPorModo?.[modo]
+  if (!d || d.nLancamentos === 0) return null
+  return `Baseado ${GRUPO_CUSTO_LABEL[modo]} — ${d.nLancamentos} lançamento${d.nLancamentos === 1 ? '' : 's'} no período`
 }
 // Posição no array = ordem de entrada nos GRUPOS abaixo — cada grupo tem seu
 // próprio grid de 4 colunas (.grid-4), então a posição dentro do array só
@@ -461,7 +472,7 @@ function GraficoProducaoPorSexo({ dados }) {
 // selecionado atualmente fica destacado no gradiente azul→roxo; os demais em
 // cinza-azulado, pra servir de referência histórica sem competir visualmente.
 function GraficoCustoPorCiclo({ dados, cicloAtualNome }) {
-  if (!dados || dados.every(d => d.total === 0)) return <SemDadosGrafico texto="Sem despesas do grupo 'Inseminação' lançadas em nenhum ciclo ainda." />
+  if (!dados || dados.every(d => d.total === 0)) return <SemDadosGrafico texto="Sem despesas dos grupos 'Inseminação' ou 'Monta Natural' lançadas em nenhum ciclo ainda." />
   return (
     <ResponsiveContainer width="100%" height={220}>
       <BarChart data={dados} margin={{ top: 20, right: 10, left: 0, bottom: 5 }}>
@@ -474,8 +485,8 @@ function GraficoCustoPorCiclo({ dados, cicloAtualNome }) {
         <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" />
         <XAxis dataKey="ciclo" tick={{ fontSize: 10 }} />
         <YAxis tick={{ fontSize: 10 }} tickFormatter={v => `R$${v >= 1000 ? (v / 1000).toFixed(1) + 'k' : v}`} />
-        <Tooltip {...TOOLTIP_STY} formatter={v => [fmtMoeda(v), "Grupo 'Inseminação'"]} />
-        <Bar dataKey="total" name="Custo de Inseminação" radius={[6, 6, 0, 0]}>
+        <Tooltip {...TOOLTIP_STY} formatter={v => [fmtMoeda(v), "Inseminação + Monta Natural"]} />
+        <Bar dataKey="total" name="Custo de Monta (Inseminação + Monta Natural)" radius={[6, 6, 0, 0]}>
           {dados.map((d, i) => <Cell key={i} fill={d.ciclo === cicloAtualNome ? 'url(#gradCusto)' : '#CBD5E1'} />)}
           <LabelList dataKey="total" position="top" formatter={v => v > 0 ? fmtMoeda(v) : ''} style={{ fontSize: 9, fill: '#374151', fontWeight: 600 }} />
         </Bar>
@@ -519,8 +530,8 @@ function valorIndicadorDoBloco(ind, bloco, temValorCadastrado) {
 // cada contêiner — NUNCA um cálculo novo, sempre valorIndicadorDoBloco lendo o
 // bloco certo. Com todo modo em 'consolidado' (default), isso lê só
 // blocos.consolidado pra tudo = exatamente o cálculo de hoje == regressão-zero.
-// Custos em modo 'natural' vira null explícito (não aplicável — não existe
-// grupo financeiro de monta natural), nunca um número calculado mas sem sentido.
+// Custos em modo 'natural' usa o grupo financeiro 'Monta Natural' (ver
+// calcularBloco em loadAll) — deixou de ser um null forçado.
 function construirAtuais(blocos, modos, temValorCadastrado) {
   if (!blocos) return {}
   const modoPorTitulo = {
@@ -531,9 +542,7 @@ function construirAtuais(blocos, modos, temValorCadastrado) {
   GRUPOS.forEach(grupo => {
     const modo = modoPorTitulo[grupo.titulo]
     grupo.indicadores.forEach(ind => {
-      out[ind] = (grupo.titulo === 'Custos' && modo === 'natural')
-        ? null
-        : valorIndicadorDoBloco(ind, blocos[modo], temValorCadastrado)
+      out[ind] = valorIndicadorDoBloco(ind, blocos[modo], temValorCadastrado)
     })
   })
   return out
@@ -751,30 +760,43 @@ export default function Metas() {
         return parseFloat(maisRecente.peso_kg) || null
       }
 
-      // ── Custos (grupo financeiro 'Inseminação') — fonte ÚNICA aprovada pelo
-      // usuário: lancamentos_financeiros com grupo='Inseminação' e tipo='D'
-      // (despesa), agrupados pela DATA do lançamento dentro do intervalo do
-      // ciclo selecionado — NÃO pelo `ciclo_id` gravado no lançamento, porque a
-      // despesa da monta pode ter sido lançada já no ciclo seguinte e ainda
-      // assim pertencer à safra deste ciclo. INVARIANTE por modo: a despesa não
-      // tem vínculo com lote/tipo (não dá pra saber se foi IA ou monta natural)
-      // — por isso Natural fica "não aplicável" (não zero) em vez de tentar
-      // dividir esse total por um cohort que não tem nada a ver com ele.
+      // ── Custos — cada modo tem seu PRÓPRIO grupo financeiro de origem:
+      // IA usa 'Inseminação', Natural usa 'Monta Natural' (espelha 'Inseminação'
+      // — mesmo mecanismo, custo de touro/monta natural), Consolidado soma os
+      // dois. Sempre lancamentos_financeiros tipo='D', agrupados pela DATA do
+      // lançamento dentro do intervalo do ciclo selecionado — NÃO pelo
+      // `ciclo_id` gravado nele, porque a despesa da monta pode ter sido
+      // lançada já no ciclo seguinte e ainda assim pertencer à safra deste
+      // ciclo. null (não 0) quando não há nenhum lançamento do(s) grupo(s) do
+      // modo no período — "sem despesa lançada" é diferente de "custou zero".
       const todosLancamentos = rLancamentos.data || []
       const despesasInseminacaoCiclo = todosLancamentos.filter(l =>
         l.tipo === 'D' && l.grupo === 'Inseminação' && dentroCicloLocal(l.data)
       )
+      const despesasMontaNaturalCiclo = todosLancamentos.filter(l =>
+        l.tipo === 'D' && l.grupo === 'Monta Natural' && dentroCicloLocal(l.data)
+      )
       const custoInseminacaoTotal = despesasInseminacaoCiclo.length > 0
         ? despesasInseminacaoCiclo.reduce((s, l) => s + (parseFloat(l.valor) || 0), 0)
         : null
-      setCustosDetalhes({ nLancamentos: despesasInseminacaoCiclo.length })
+      const custoMontaNaturalTotal = despesasMontaNaturalCiclo.length > 0
+        ? despesasMontaNaturalCiclo.reduce((s, l) => s + (parseFloat(l.valor) || 0), 0)
+        : null
+      const custoConsolidadoTotal = (custoInseminacaoTotal != null || custoMontaNaturalTotal != null)
+        ? (custoInseminacaoTotal || 0) + (custoMontaNaturalTotal || 0)
+        : null
+      setCustosDetalhes({
+        ia:          { nLancamentos: despesasInseminacaoCiclo.length },
+        natural:     { nLancamentos: despesasMontaNaturalCiclo.length },
+        consolidado: { nLancamentos: despesasInseminacaoCiclo.length + despesasMontaNaturalCiclo.length },
+      })
 
       // ── Bloco de indicadores POR MODO (Fase 2 — Monta Natural). Mecanismo
       // único: filtra os LOTES por tipo antes de rodar a MESMA fórmula que já
       // existia. calcularBloco(lotesCiclo) [= "Consolidado"] é bit-a-bit o
       // cálculo de hoje, sem nenhuma linha alterada — regressão-zero por
       // construção, nunca por coincidência.
-      const calcularBloco = (lotesX) => {
+      const calcularBloco = (lotesX, custoTotalModo) => {
         // taxa_prenhez / taxa_aproveitamento — prenhas deduplica por
         // animal_id (contarPrenhas), senão nem taxaPrenhez nem os
         // denominadores abaixo ficam corretos.
@@ -872,15 +894,12 @@ export default function Metas() {
         const kgPorHa    = hectareUtil > 0 ? kgProduzido / hectareUtil : null
         const valorPorHa = hectareUtil > 0 ? valorProduzido / hectareUtil : null
 
-        // Custos — divide o total INVARIANTE (custoInseminacaoTotal) pelo
-        // cohort DESTE modo. Em Natural isso produziria um número (custo
-        // 100% de IA dividido por terneiros de monta natural) que não
-        // significa nada — por isso o modo Natural nunca usa estes campos na
-        // hora de montar `atuais` (ver construirAtuais, fora do loadAll);
-        // ficam calculados aqui só por uniformidade, não exibidos.
-        const custoPorTerneiro = (custoInseminacaoTotal != null && nPartos > 0) ? custoInseminacaoTotal / nPartos : null
-        const custoPctValor    = (custoInseminacaoTotal != null && valorProduzido > 0) ? (custoInseminacaoTotal / valorProduzido) * 100 : null
-        const custoPorMatriz   = (custoInseminacaoTotal != null && matrizesExpostas > 0) ? custoInseminacaoTotal / matrizesExpostas : null
+        // Custos — divide o total do grupo financeiro DESTE modo
+        // (custoTotalModo — Inseminação/Monta Natural/soma dos dois, ver
+        // chamada de calcularBloco abaixo) pelo cohort deste mesmo modo.
+        const custoPorTerneiro = (custoTotalModo != null && nPartos > 0) ? custoTotalModo / nPartos : null
+        const custoPctValor    = (custoTotalModo != null && valorProduzido > 0) ? (custoTotalModo / valorProduzido) * 100 : null
+        const custoPorMatriz   = (custoTotalModo != null && matrizesExpostas > 0) ? custoTotalModo / matrizesExpostas : null
 
         return {
           partosSafra, prenhas, matrizesExpostas, taxaPrenhez, taxaAproveitamento,
@@ -897,9 +916,9 @@ export default function Metas() {
 
       const lotesIA      = lotesCiclo.filter(l => l.tipo !== 'natural')
       const lotesNatural  = lotesCiclo.filter(l => l.tipo === 'natural')
-      const blocoIA          = calcularBloco(lotesIA)
-      const blocoNatural     = calcularBloco(lotesNatural)
-      const blocoConsolidado = calcularBloco(lotesCiclo) // = cálculo de hoje, intocado
+      const blocoIA          = calcularBloco(lotesIA, custoInseminacaoTotal)
+      const blocoNatural     = calcularBloco(lotesNatural, custoMontaNaturalTotal)
+      const blocoConsolidado = calcularBloco(lotesCiclo, custoConsolidadoTotal)
 
       // ── intervalo_partos — todo o histórico (não só este ciclo), mesma mãe.
       // Consolidado usa TODOS os partos (mesmo os sem lote vinculado — monta
@@ -914,12 +933,12 @@ export default function Metas() {
       blocoIA.intervaloPartos          = intervaloIA
       blocoNatural.intervaloPartos     = intervaloNatural
       blocoConsolidado.intervaloPartos = intervaloConsolidado
-      // custo_insem_total é INVARIANTE (mesmo total nos 3) — anexado aqui só
-      // pra valorIndicadorDoBloco ler de um lugar só; construirAtuais barra
-      // explicitamente o modo Natural antes de chegar a usar esse valor.
+      // custo_insem_total — total do grupo financeiro DESTE modo (não é mais
+      // invariante entre os 3: Inseminação/Monta Natural/soma dos dois),
+      // anexado aqui só pra valorIndicadorDoBloco ler de um lugar só.
       blocoIA.custoInseminacaoTotal          = custoInseminacaoTotal
-      blocoNatural.custoInseminacaoTotal     = custoInseminacaoTotal
-      blocoConsolidado.custoInseminacaoTotal = custoInseminacaoTotal
+      blocoNatural.custoInseminacaoTotal     = custoMontaNaturalTotal
+      blocoConsolidado.custoInseminacaoTotal = custoConsolidadoTotal
 
       // ── Estado invariante (sempre Consolidado — cards/gráficos fora dos 5
       // contêineres com seletor de modo, ver Metas.jsx render): proporção de
@@ -928,14 +947,14 @@ export default function Metas() {
       setSexoTerneiros({ machos: blocoConsolidado.qtdMachos, femeas: blocoConsolidado.qtdFemeas })
       setProducaoSafra({ temValorCadastrado, hectareUtil })
 
-      // Custo de Inseminação por ciclo (todos os ciclos cadastrados, mesma
-      // regra de recorte por data) — alimenta o gráfico comparativo do
-      // container Custos, com o ciclo selecionado destacado.
+      // Custo de monta por ciclo (Inseminação + Monta Natural, todos os ciclos
+      // cadastrados, mesma regra de recorte por data) — alimenta o gráfico
+      // histórico do container Custos, com o ciclo selecionado destacado.
       setCustoPorCiclo(
         [...ciclos].sort((a, b) => a.inicio.localeCompare(b.inicio)).map(c => ({
           ciclo: c.nome,
           total: todosLancamentos
-            .filter(l => l.tipo === 'D' && l.grupo === 'Inseminação' && l.data >= c.inicio && l.data <= c.fim)
+            .filter(l => l.tipo === 'D' && (l.grupo === 'Inseminação' || l.grupo === 'Monta Natural') && l.data >= c.inicio && l.data <= c.fim)
             .reduce((s, l) => s + (parseFloat(l.valor) || 0), 0),
         }))
       )
@@ -1201,17 +1220,10 @@ export default function Metas() {
                       body='Cadastre o peso médio e o preço/kg das categorias "Terneiro" e "Terneira" em Financeiro → Parâmetros para calcular o valor produzido.' />
                   </div>
                 )}
-                {grupo.titulo === 'Custos' && modoAtual === 'natural' && (
-                  <div style={{ marginBottom: 12 }}>
-                    <AlertBox type="amber" icon="ti-alert-triangle"
-                      title="Não aplicável"
-                      body="Não existe grupo financeiro de despesa específico de monta natural — não há como calcular custo por touro/terneiro deste modo." />
-                  </div>
-                )}
                 <div className="grid-4">
                   {cardsDoGrupo.map(m => (
                     <IndicadorCard key={m.id} meta={m} atual={atuais[m.indicador] ?? null}
-                      subtitulo={subtituloProducao(m.indicador, producaoDetalhes) || subtituloCustos(m.indicador, custosDetalhes)} />
+                      subtitulo={subtituloProducao(m.indicador, producaoDetalhes) || subtituloCustos(m.indicador, custosDetalhes, modoAtual)} />
                   ))}
                 </div>
 
@@ -1245,8 +1257,9 @@ export default function Metas() {
 
                 {/* Modo Consolidado: comparativo IA × Monta Natural — mesmos
                     números já calculados nos 2 modos, só visualização. Custos
-                    não tem esse gráfico (Natural já não é aplicável ali). */}
-                {modoAtual === 'consolidado' && grupo.titulo !== 'Custos' && blocosPorModo && (
+                    entra aqui também (deixou de ser só uma nota "não aplicável"
+                    — grupo 'Monta Natural' dá número de verdade pro modo Natural). */}
+                {modoAtual === 'consolidado' && blocosPorModo && (
                   <div style={{ marginTop: 16, paddingTop: 16, borderTop: '.5px solid #F3F4F6' }}>
                     <GraficoComparativoModo
                       indicadores={grupo.indicadores}

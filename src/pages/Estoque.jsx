@@ -44,6 +44,11 @@ export default function Estoque() {
   const [confirmDel, setConfirmDel] = useState(null)
   const [loadError,  setLoadError]  = useState(false)
   const [itemExpandido, setItemExpandido] = useState(null)
+  // Exclusão de saída / reversão de entrada (ver reverterMov abaixo) —
+  // confirmMov guarda a movimentação em questão pro Confirm mostrar o efeito
+  // exato antes de executar.
+  const [confirmMov,  setConfirmMov]  = useState(null)
+  const [revertendo,  setRevertendo]  = useState(false)
 
   useEffect(() => { loadAll() }, [])
 
@@ -160,6 +165,54 @@ export default function Estoque() {
     if (r1.error || r2.error) { toast('Erro ao salvar.', 'error'); return }
     toast(form.tipo === 'E' ? 'Entrada registrada!' : 'Saída registrada!')
     setModal(null); setForm({}); loadAll()
+  }
+
+  // ── Exclusão de saída / reversão de entrada ────────────────────────────
+  // Desfaz o efeito de UMA movimentação: saída (tipo 'S') devolve a
+  // quantidade ao saldo do item; entrada (tipo 'E') remove. Mesma mecânica de
+  // salvarMov (2 chamadas: ajustar estoque_itens.quantidade + mexer na linha
+  // de estoque_movimentacoes), só que ao contrário e terminando em DELETE em
+  // vez de INSERT — não existe trigger no banco pra este módulo, então o
+  // efeito tem que ser calculado aqui, igual já era na criação.
+  const efeitoReversaoMov = (m) => {
+    const item = itens.find(i => i.id === m.item_id)
+    if (!item) return null
+    const qt    = parseFloat(m.quantidade)
+    const atual = parseFloat(item.quantidade)
+    const novaQt = m.tipo === 'S' ? atual + qt : atual - qt
+    return { item, qt, atual, novaQt }
+  }
+
+  const clicarReverterMov = (m) => {
+    if (!podeEditarMovCiclo || !dataEhEditavel(m.data)) return
+    const efeito = efeitoReversaoMov(m)
+    if (!efeito) { toast('Item do estoque não encontrado (pode ter sido excluído).', 'error'); return }
+    // Só entrada pode deixar o saldo negativo ao reverter (reverter uma saída
+    // só soma) — bloqueia ANTES de abrir a confirmação, com o número exato.
+    if (m.tipo === 'E' && efeito.novaQt < 0) {
+      toast(
+        `Não é possível reverter: o estoque de "${efeito.item.item}" ficaria negativo ` +
+        `(saldo atual: ${efeito.atual.toFixed(1)} ${efeito.item.unidade}, entrada: ${efeito.qt.toFixed(1)} ${efeito.item.unidade}).`,
+        'error'
+      )
+      return
+    }
+    setConfirmMov(m)
+  }
+
+  const reverterMov = async (m) => {
+    if (revertendo) return // guarda contra duplo clique/duplo confirm em voo
+    const efeito = efeitoReversaoMov(m)
+    if (!efeito) { toast('Item do estoque não encontrado (pode ter sido excluído).', 'error'); return }
+    setRevertendo(true)
+    const [r1, r2] = await Promise.all([
+      db.estoque.update(m.item_id, { quantidade: efeito.novaQt }),
+      db.movEstoque.delete(m.id),
+    ])
+    setRevertendo(false)
+    if (r1.error || r2.error) { toast('Erro ao reverter: ' + (r1.error || r2.error).message, 'error'); return }
+    toast(m.tipo === 'S' ? 'Saída excluída — estoque devolvido.' : 'Entrada revertida — estoque atualizado.')
+    loadAll()
   }
 
   const vozMov = (text) => {
@@ -354,7 +407,7 @@ export default function Estoque() {
               : (
                 <div className="table-wrap">
                   <table>
-                    <thead><tr><th>Data</th><th>Tipo</th><th>Item</th><th style={{ textAlign: 'right' }}>Qtde</th><th>Motivo</th></tr></thead>
+                    <thead><tr><th>Data</th><th>Tipo</th><th>Item</th><th style={{ textAlign: 'right' }}>Qtde</th><th>Motivo</th><th></th></tr></thead>
                     <tbody>
                       {movsFiltrados.map(m => (
                         <tr key={m.id}>
@@ -364,7 +417,24 @@ export default function Estoque() {
                           <td style={{ textAlign: 'right', fontWeight: 500, color: m.tipo === 'E' ? '#1E55B0' : '#791F1F' }}>
                             {m.tipo === 'E' ? '+' : '-'}{parseFloat(m.quantidade).toFixed(1)} {m.item?.unidade}
                           </td>
-                          <td style={{ color: '#9CA3AF', fontSize: '.78rem' }}>{m.motivo}</td>
+                          <td style={{ color: '#9CA3AF', fontSize: '.78rem' }}>
+                            {m.procedimento_id && <Badge color="purple">Sanidade</Badge>} {m.motivo}
+                          </td>
+                          <td style={{ whiteSpace: 'nowrap' }}>
+                            {podeEditarMovCiclo && dataEhEditavel(m.data) && (
+                              m.tipo === 'S' ? (
+                                <button className="btn-icon" title="Excluir saída (devolve ao estoque)"
+                                  onClick={() => clicarReverterMov(m)} style={{ color: '#E24B4A', padding: '4px 6px' }}>
+                                  <i className="ti ti-trash" style={{ fontSize: 15 }} />
+                                </button>
+                              ) : (
+                                <button className="btn-icon" title="Reverter entrada"
+                                  onClick={() => clicarReverterMov(m)} style={{ color: '#2B6CD9', padding: '4px 6px' }}>
+                                  <i className="ti ti-arrow-back-up" style={{ fontSize: 15 }} />
+                                </button>
+                              )
+                            )}
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -499,6 +569,24 @@ export default function Estoque() {
         onConfirm={() => excluirItem(confirmDel)}
         title="Excluir item do estoque"
         message={`Excluir "${confirmDel?.item}"? Esta ação não pode ser desfeita.`}
+        danger
+      />
+
+      {/* ── Confirm excluir saída / reverter entrada — mensagem diz o efeito
+          exato ANTES de executar (quanto volta ou sai do saldo). ── */}
+      <Confirm
+        open={!!confirmMov}
+        onClose={() => setConfirmMov(null)}
+        onConfirm={() => reverterMov(confirmMov)}
+        title={confirmMov?.tipo === 'S' ? 'Excluir saída' : 'Reverter entrada'}
+        message={(() => {
+          if (!confirmMov) return ''
+          const efeito = efeitoReversaoMov(confirmMov)
+          if (!efeito) return ''
+          return confirmMov.tipo === 'S'
+            ? `Isto vai devolver ${efeito.qt.toFixed(1)} ${efeito.item.unidade} ao estoque de "${efeito.item.item}" (saldo passa de ${efeito.atual.toFixed(1)} para ${efeito.novaQt.toFixed(1)} ${efeito.item.unidade}). Esta ação não pode ser desfeita.`
+            : `Isto vai remover ${efeito.qt.toFixed(1)} ${efeito.item.unidade} do estoque de "${efeito.item.item}", revertendo a entrada (saldo passa de ${efeito.atual.toFixed(1)} para ${efeito.novaQt.toFixed(1)} ${efeito.item.unidade}). Esta ação não pode ser desfeita.`
+        })()}
         danger
       />
 
