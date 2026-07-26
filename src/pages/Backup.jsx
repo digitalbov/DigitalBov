@@ -120,6 +120,20 @@ export default function Backup() {
   }, [contaId, fazendaId])
 
   // ── Backup JSON ─────────────────────────────────────────────────
+  // Cobertura completa (Bloco D10): todas as 25 tabelas que guardam dado de
+  // FAZENDA (mapeadas lendo T()/supabase.js inteiro, não só o que já estava
+  // aqui) — as 17 originais + as 8 que faltavam (rateios, detalhe de compra/
+  // venda por animal, vínculo sanidade↔animal, touros extras da monta
+  // natural, estações de monta, planejamento e simulações). De propósito NÃO
+  // inclui: benchmarks_rentabilidade (referência global, não é dado desta
+  // fazenda) nem contas/conta_membros/usuario_permissoes/usuario_fazendas
+  // (dado de CONTA/usuário, não de fazenda — vazaria gente de fora do escopo
+  // de um backup de fazenda). Todas filtradas por conta_id + fazenda_id como
+  // as demais — as 4 mais novas (lancamento_rateios, lote_touros,
+  // estacoes_monta, sanidade_animais) não têm CREATE TABLE rastreado nos
+  // migration_*.sql deste repo (foram criadas direto no Supabase), mas T()
+  // em supabase.js já as usa com .eq('conta_id',...)/.eq('fazenda_id',...)
+  // sem erro em produção — confirma que a coluna existe em todas.
   const gerarJSON = async () => {
     if (!contaId || !fazendaId) { toast('Aguarde a fazenda carregar e tente novamente.', 'error'); return }
     setLoadingJSON(true)
@@ -130,7 +144,10 @@ export default function Backup() {
         pesagens, procedimentos_sanitarios,
         estoque_itens, estoque_movimentacoes,
         lancamentos_financeiros, transacoes_animais,
-        ciclos_financeiros, categorias_preco, metas
+        ciclos_financeiros, categorias_preco, metas,
+        lancamento_rateios, transacao_animais_itens, sanidade_animais,
+        lote_touros, estacoes_monta,
+        planejamentos, planejamento_acoes, simulacoes_transacoes,
       ] = await Promise.all([
         safeQ('proprietarios', contaId, fazendaId),
         // "fazendas" não tem coluna fazenda_id (é a própria fazenda) — filtra
@@ -152,27 +169,39 @@ export default function Backup() {
         safeQ('ciclos_financeiros', contaId, fazendaId),
         safeQ('categorias_preco', contaId, fazendaId),
         safeQ('metas', contaId, fazendaId),
+        safeQ('lancamento_rateios', contaId, fazendaId),
+        safeQ('transacao_animais_itens', contaId, fazendaId),
+        safeQ('sanidade_animais', contaId, fazendaId),
+        safeQ('lote_touros', contaId, fazendaId),
+        safeQ('estacoes_monta', contaId, fazendaId),
+        safeQ('planejamentos', contaId, fazendaId),
+        safeQ('planejamento_acoes', contaId, fazendaId),
+        safeQ('simulacoes_transacoes', contaId, fazendaId),
       ])
 
+      const dados = {
+        proprietarios, fazendas, piquetes, lotes,
+        animais, lotes_inseminacao, inseminacoes, partos, abortos,
+        pesagens, procedimentos_sanitarios,
+        estoque_itens, estoque_movimentacoes,
+        lancamentos_financeiros, transacoes_animais,
+        ciclos_financeiros, categorias_preco, metas,
+        lancamento_rateios, transacao_animais_itens, sanidade_animais,
+        lote_touros, estacoes_monta,
+        planejamentos, planejamento_acoes, simulacoes_transacoes,
+      }
+
+      // Cabeçalho de metadados — é o que uma futura restauração usa pra
+      // validar o arquivo ANTES de tocar no banco (versão do formato,
+      // origem exata, contagem esperada por tabela).
       const payload = {
-        data_backup: new Date().toISOString(),
-        versao:      '1.0',
-        sistema:     'DigitalBov',
-        totais: {
-          animais:            animais.length,
-          lancamentos:        lancamentos_financeiros.length,
-          pesagens:           pesagens.length,
-          procedimentos:      procedimentos_sanitarios.length,
-          estoque_itens:      estoque_itens.length,
-        },
-        dados: {
-          proprietarios, fazendas, piquetes, lotes,
-          animais, lotes_inseminacao, inseminacoes, partos, abortos,
-          pesagens, procedimentos_sanitarios,
-          estoque_itens, estoque_movimentacoes,
-          lancamentos_financeiros, transacoes_animais,
-          ciclos_financeiros, categorias_preco, metas,
-        }
+        formato_versao: '2',
+        data_backup:    new Date().toISOString(),
+        sistema:        'DigitalBov',
+        conta:          { id: contaId, nome: contaAtual?.nome || '' },
+        fazenda:        { id: fazendaId, nome: fazendaAtual?.nome || '' },
+        contagens:      Object.fromEntries(Object.entries(dados).map(([k, v]) => [k, v.length])),
+        dados,
       }
 
       baixar(
@@ -309,12 +338,12 @@ export default function Backup() {
           title="Backup Completo (JSON)"
           desc="Exporta todos os dados do sistema em um único arquivo estruturado e restaurável."
           bullet={[
-            'Animais, proprietários, lotes e fazendas',
-            'Reprodutivo: inseminações e partos',
-            'Pesagens e sanidade animal',
+            'Animais, proprietários, lotes e fazenda',
+            'Reprodutivo: estações, lotes (com touros da monta natural), inseminações e partos',
+            'Pesagens e sanidade (com o vínculo de cada procedimento aos animais)',
             'Estoque e movimentações',
-            'Financeiro completo e ciclos',
-            'Metas e configurações',
+            'Financeiro completo, com rateios, detalhe de compra/venda por animal e ciclos',
+            'Metas, planejamento e simulações',
           ]}
           stat={
             counts.animais > 0

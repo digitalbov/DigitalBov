@@ -11,10 +11,16 @@ export default function SecaoBackup({ item }) {
       </p>
 
       <ul style={{ color: '#374151', fontSize: '.85rem', lineHeight: 1.8, marginBottom: 18, paddingLeft: 20 }}>
-        <li><strong>Backup Completo (.json)</strong> — todos os dados da fazenda num arquivo só: animais, proprietários, lotes, piquetes, reprodutivo (inseminações, partos, abortos), pesagens, sanidade, estoque e movimentações, financeiro completo e ciclos, categorias de preço e metas.</li>
+        <li><strong>Backup Completo (.json)</strong> — todos os dados da fazenda num arquivo só: animais, proprietários, lotes, piquetes, reprodutivo (estações de monta, lotes de inseminação com os touros da monta natural, inseminações, partos, abortos), pesagens, sanidade (com o vínculo de cada procedimento aos animais tratados), estoque e movimentações, financeiro completo (com o rateio por proprietário de cada lançamento e o detalhe por animal de cada compra/venda) e ciclos, categorias de preço, metas, planejamento e simulações.</li>
         <li><strong>Exportar Animais (.xlsx)</strong> — planilha com o cadastro completo do rebanho (inclusive vendidos e mortos), com categoria calculada, genealogia, proprietário, lote e situação.</li>
         <li><strong>Exportar Financeiro (.xlsx)</strong> — lançamentos do ciclo atual, em planilha.</li>
       </ul>
+
+      <p style={{ color: '#374151', fontSize: '.85rem', lineHeight: 1.8, marginBottom: 18 }}>
+        O arquivo .json começa com um cabeçalho de metadados — versão do formato, data em que foi gerado,
+        conta e fazenda de origem, e a contagem de linhas de cada tabela — pensado para uma futura
+        restauração conferir se o arquivo está íntegro antes de tocar em qualquer dado.
+      </p>
 
       <p style={{ color: '#374151', fontSize: '.85rem', lineHeight: 1.8, marginBottom: 18 }}>
         Recomendação do próprio sistema: baixe o Backup Completo pelo menos uma vez por mês e guarde em local
