@@ -5,6 +5,8 @@ import { toast } from '../components/UI'
 import { useConta } from '../lib/ContaContext'
 import { useFazenda } from '../lib/FazendaContext'
 import { useCiclo } from '../lib/CicloContext'
+import { usePermissoes } from '../lib/PermissoesContext'
+import RestaurarBackup from '../components/RestaurarBackup'
 
 // ── Helpers ───────────────────────────────────────────────────────
 
@@ -97,6 +99,7 @@ export default function Backup() {
   const { contaAtual }   = useConta()
   const { fazendaAtual } = useFazenda()
   const { cicloAtual }   = useCiclo()
+  const { ehAdmin }      = usePermissoes()
   const contaId    = contaAtual?.id || null
   const fazendaId  = fazendaAtual?.id || null
 
@@ -405,6 +408,16 @@ export default function Backup() {
           <strong>.xlsx (Excel):</strong> Ideal para análise, impressão e compartilhamento com parceiros ou contadores. Não pode ser reimportado automaticamente no sistema.
         </div>
       </div>
+
+      {/* Restaurar backup — Fase 0 (só validação, ver RestaurarBackup.jsx).
+          Só dono/admin: restauração mexe potencialmente com a fazenda
+          inteira, mesmo nível de acesso do botão "Nova fazenda" em
+          Propriedade. */}
+      {ehAdmin && (
+        <div style={{ marginTop: 20 }}>
+          <RestaurarBackup />
+        </div>
+      )}
     </div>
   )
 }
