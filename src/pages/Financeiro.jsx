@@ -257,10 +257,17 @@ export default function Financeiro() {
   const vendaFiltroProprietario = form.vendaFiltroProprietario || ''
   const vendaFiltroLote         = form.vendaFiltroLote         || ''
   const vendaSelecionados = form.vendaSelecionados || []
+  // Nunca oferece pra venda um animal que ainda nem tinha nascido na data da
+  // venda (bug real já visto em produção: 32 animais vendidos meses antes de
+  // nascer, porque nada aqui comparava data_nascimento com a data escolhida).
+  // Sem form.data ainda, não filtra por data (deixa o usuário escolher a data
+  // primeiro) — sem data_nascimento cadastrada, também não filtra (não dá pra
+  // provar que é inválido).
   const animaisFiltradosVenda = animaisAtivos.filter(a => {
     if (vendaFiltroCategoria && categoriaReal(a) !== vendaFiltroCategoria) return false
     if (vendaFiltroProprietario && a.proprietario_id !== vendaFiltroProprietario) return false
     if (vendaFiltroLote && a.lote_id !== vendaFiltroLote) return false
+    if (form.data && a.data_nascimento && a.data_nascimento > form.data) return false
     return true
   })
   const animaisSelecionadosObjs = animaisAtivos.filter(a => vendaSelecionados.includes(a.id))
@@ -1328,7 +1335,27 @@ export default function Financeiro() {
               <option value="compra_sim">Simular compra</option>
             </select>
           </Field>
-          <Field label="Data" required><input type="date" value={form.data||''} onChange={e=>setForm(p=>({...p,data:e.target.value}))}/></Field>
+          <Field label="Data" required>
+            <input type="date" value={form.data||''} onChange={e => {
+              const novaData = e.target.value
+              // Trocar a data DEPOIS de já ter selecionado animais pode deixar
+              // a seleção inválida (animal que só nasceu depois da nova data)
+              // — revalida e desmarca, avisando quem saiu, em vez de deixar o
+              // usuário só descobrir isso no "Registrar" (ou pior, não descobrir).
+              if (ehVendaShape && novaData) {
+                const invalidos = animaisSelecionadosObjs.filter(a => a.data_nascimento && a.data_nascimento > novaData)
+                if (invalidos.length > 0) {
+                  setForm(p => ({
+                    ...p, data: novaData,
+                    vendaSelecionados: (p.vendaSelecionados || []).filter(id => !invalidos.some(a => a.id === id)),
+                  }))
+                  toast(`${invalidos.length} animal(is) desmarcado(s) por nascer depois da nova data: ${invalidos.map(a => a.brinco).join(', ')}.`, 'error')
+                  return
+                }
+              }
+              setForm(p => ({ ...p, data: novaData }))
+            }} />
+          </Field>
         </div>
 
         {ehVendaShape && (

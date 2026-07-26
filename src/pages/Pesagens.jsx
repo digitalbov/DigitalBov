@@ -136,6 +136,14 @@ export default function Pesagens() {
     if (peso === null) { toast('Peso inválido: informe um número maior que zero.', 'error'); return }
     if (peso > 1500) { toast('Peso acima de 1500 kg — confira o valor digitado.', 'error'); return }
     if (!dataNaoFutura(form.data)) { toast('Data da pesagem não pode ser futura.', 'error'); return }
+    // Nenhum evento pode ser registrado antes do nascimento do animal — bloqueio
+    // final aqui, independente do filtro do dropdown (defesa em profundidade:
+    // o filtro só evita a escolha errada, isto aqui garante que nunca salva).
+    const animalPesado = animais.find(a => a.id === form.animal_id)
+    if (animalPesado?.data_nascimento && animalPesado.data_nascimento > form.data) {
+      toast(`Animal ${animalPesado.brinco} nasceu em ${fmtData(animalPesado.data_nascimento)} — não é possível registrar pesagem com data anterior (${fmtData(form.data)}).`, 'error')
+      return
+    }
     if (!dataEhEditavel(form.data)) {
       const c = cicloDaData(form.data)
       toast(c
@@ -241,6 +249,9 @@ export default function Pesagens() {
   const candidatosDesmame = animais
     .filter(a => a.situacao === 'ativo' && !a.data_desmame && ['Terneiro','Terneira'].includes(calcCategoria(a.data_nascimento, a.sexo)))
     .filter(a => !filtroLoteDesm || a.lote_id === filtroLoteDesm)
+    // Mesmo princípio das outras telas: nunca oferece um animal que ainda nem
+    // tinha nascido na data de desmame escolhida.
+    .filter(a => !dataDesmame || !a.data_nascimento || a.data_nascimento <= dataDesmame)
     .sort((a, b) => a.brinco.localeCompare(b.brinco, undefined, { numeric: true }))
 
   const togSelDesmame = (id) => setSelDesmame(prev =>
@@ -261,6 +272,16 @@ export default function Pesagens() {
     }
     const semPeso = selDesmame.filter(id => numeroPositivo(pesosDesmame[id]) === null)
     if (semPeso.length > 0) { toast('Informe um peso válido para todos os animais selecionados.', 'error'); return }
+    // Defesa em profundidade — o filtro do candidatosDesmame já evita isto na
+    // maioria dos casos, mas selDesmame pode ter sido marcado antes da data
+    // mudar (mesmo raciocínio do bloqueio individual acima).
+    const nascidosDepois = selDesmame
+      .map(id => animais.find(a => a.id === id))
+      .filter(a => a?.data_nascimento && a.data_nascimento > dataDesmame)
+    if (nascidosDepois.length > 0) {
+      toast(`${nascidosDepois.map(a => `${a.brinco} (nasceu ${fmtData(a.data_nascimento)})`).join(', ')} — não pode desmamar antes de nascer. Desmarque e tente de novo.`, 'error')
+      return
+    }
 
     setSalvandoDesmame(true)
     let erros = 0
@@ -648,7 +669,17 @@ export default function Pesagens() {
 
           <div className="grid-form" style={{ marginBottom: 14 }}>
             <Field label="Data do desmame" required>
-              <input type="date" value={dataDesmame} onChange={e => setDataDesmame(e.target.value)} />
+              <input type="date" value={dataDesmame} onChange={e => {
+                const novaData = e.target.value
+                const invalidos = selDesmame
+                  .map(id => animais.find(a => a.id === id))
+                  .filter(a => a?.data_nascimento && novaData && a.data_nascimento > novaData)
+                if (invalidos.length > 0) {
+                  setSelDesmame(prev => prev.filter(id => !invalidos.some(a => a.id === id)))
+                  toast(`${invalidos.length} animal(is) desmarcado(s) por nascer depois da nova data: ${invalidos.map(a => a.brinco).join(', ')}.`, 'error')
+                }
+                setDataDesmame(novaData)
+              }} />
             </Field>
             <Field label="Filtrar por lote">
               <select value={filtroLoteDesm} onChange={e => setFiltroLoteDesm(e.target.value)}>
@@ -731,11 +762,25 @@ export default function Pesagens() {
           <Field label="Animal (brinco)" required>
             <select value={form.animal_id||''} onChange={e=>setForm(p=>({...p,animal_id:e.target.value}))}>
               <option value="">— selecione —</option>
-              {animais.map(a => <option key={a.id} value={a.id}>{a.brinco}</option>)}
+              {animais
+                .filter(a => !form.data || !a.data_nascimento || a.data_nascimento <= form.data)
+                .map(a => <option key={a.id} value={a.id}>{a.brinco}</option>)}
             </select>
           </Field>
           <Field label="Data" required>
-            <input type="date" value={form.data||''} onChange={e=>setForm(p=>({...p,data:e.target.value}))}/>
+            <input type="date" value={form.data||''} onChange={e => {
+              const novaData = e.target.value
+              // Trocar a data DEPOIS de já ter escolhido o animal pode deixar a
+              // escolha inválida (animal que só nasceu depois da nova data) —
+              // limpa a seleção e avisa, mesmo padrão usado na venda (Financeiro.jsx).
+              const atual = animais.find(a => a.id === form.animal_id)
+              if (atual?.data_nascimento && novaData && atual.data_nascimento > novaData) {
+                setForm(p => ({ ...p, data: novaData, animal_id: '' }))
+                toast(`Animal ${atual.brinco} desmarcado: nasceu em ${fmtData(atual.data_nascimento)}, depois da nova data.`, 'error')
+                return
+              }
+              setForm(p => ({ ...p, data: novaData }))
+            }}/>
           </Field>
           <Field label="Tipo" required>
             <select value={form.tipo||'intermediaria'} onChange={e=>setForm(p=>({...p,tipo:e.target.value}))}>

@@ -287,9 +287,23 @@ function FiltroGrupo({ label, children }) {
 }
 
 export default function Animais() {
-  const { podeEditar } = usePermissoes()
+  const { podeEditar, podeVer } = usePermissoes()
   const podeEditarAnimais = podeEditar('animais')
+  // Atalho pra Lotes vive em Propriedade (é lá que lotes são criados/editados —
+  // ver Propriedade.jsx). É só navegação (não edita nada aqui), então checa
+  // podeVer('propriedade'), não podeEditar — respeita a permissão do módulo de
+  // DESTINO, que pode ser diferente da de Animais.
+  const podeVerLotes = podeVer('propriedade')
   const navigate = useNavigate()
+
+  // Com animal selecionado, leva pro lote DELE (se tiver um); sem seleção
+  // (tela de lista), leva pra seção de Lotes geral. Propriedade.jsx lê esse
+  // state (location.state.section/loteId) pra abrir direto na seção certa e
+  // destacar o lote, em vez de sempre cair no resumo.
+  const irParaLotes = () => {
+    if (!podeVerLotes) return
+    navigate('/propriedade', { state: { section: 'lotes', loteId: selected?.lote_id || null } })
+  }
 
 
   const listaRef   = useRef(null)
@@ -779,6 +793,11 @@ export default function Animais() {
               <i className="ti ti-trash" /> Excluir
             </button>
           )}
+          {podeVerLotes && (
+            <button className="btn btn-secondary btn-sm" onClick={irParaLotes} title={a.lote_id ? 'Ir para o lote deste animal' : 'Ir para a tela de Lotes'}>
+              <i className="ti ti-layers" /> {a.lote_id ? 'Ver lote' : 'Ver Lotes'}
+            </button>
+          )}
           <BotaoPDF contentRef={detalheRef} filename={`animal-${a.brinco}`} titulo="Animais: Ficha do Animal" />
         </div>
 
@@ -1035,6 +1054,11 @@ export default function Animais() {
                 <i className="ti ti-plus" /> Novo animal
               </button>
             </>
+          )}
+          {podeVerLotes && (
+            <button className="btn btn-secondary btn-sm" onClick={irParaLotes} title="Ir para a tela de Lotes">
+              <i className="ti ti-layers" /> Ver Lotes
+            </button>
           )}
           <BotaoPDF contentRef={listaRef} filename="animais-cadastro" titulo="Animais: Cadastro" />
         </div>

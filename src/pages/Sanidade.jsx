@@ -187,10 +187,15 @@ export default function Sanidade() {
     calcCategoriaRebanho(a.data_nascimento, a.sexo, a.sit_reprodutiva, a.is_touro)
   ))].sort()
 
+  // Mesmo filtro de data_nascimento que o modo "Por lote" já aplicava (ver
+  // animaisParaVincular/autoQtd acima) — modo Individual estava sem essa
+  // checagem, deixando vincular um procedimento a um animal que ainda nem
+  // tinha nascido na data escolhida. Uniformiza os dois modos.
   const animaisFiltradosSan = animais.filter(a => {
     const cat = calcCategoriaRebanho(a.data_nascimento, a.sexo, a.sit_reprodutiva, a.is_touro)
     if (filtroCategSan && cat !== filtroCategSan) return false
     if (filtroPropSan && a.proprietario_id !== filtroPropSan) return false
+    if (form.data && a.data_nascimento && a.data_nascimento > form.data) return false
     return true
   })
 
@@ -247,7 +252,12 @@ export default function Sanidade() {
 
     let animaisParaVincular = []
     if (modoSelecao === 'individual') {
-      animaisParaVincular = selAnimais
+      // Defesa em profundidade — o dropdown já filtra, isto garante que nunca
+      // vincula mesmo se selAnimais ficou desatualizado por algum motivo.
+      animaisParaVincular = selAnimais.filter(id => {
+        const a = animais.find(x => x.id === id)
+        return !a?.data_nascimento || a.data_nascimento <= form.data
+      })
     } else if (modoSelecao === 'lote' && selLotes.length > 0) {
       const idsLotes = lotes.filter(l => selLotes.includes(l.nome)).map(l => l.id)
       // Só vincula quem já existia na data do procedimento — sem isso, um bezerro
@@ -632,7 +642,25 @@ export default function Sanidade() {
           </>
         )}
         <div className="grid-form">
-          <Field label="Data" required><input type="date" value={form.data||''} onChange={e=>setForm(p=>({...p,data:e.target.value}))}/></Field>
+          <Field label="Data" required>
+            <input type="date" value={form.data||''} onChange={e => {
+              const novaData = e.target.value
+              // Trocar a data DEPOIS de já ter selecionado animais (modo
+              // individual) pode deixar a seleção inválida — revalida e
+              // desmarca, mesmo padrão usado na venda (Financeiro.jsx) e nas
+              // pesagens.
+              if (modoSelecao === 'individual' && novaData) {
+                const invalidos = animais.filter(a => selAnimais.includes(a.id) && a.data_nascimento && a.data_nascimento > novaData)
+                if (invalidos.length > 0) {
+                  setForm(p => ({ ...p, data: novaData }))
+                  setSelAnimais(prev => prev.filter(id => !invalidos.some(a => a.id === id)))
+                  toast(`${invalidos.length} animal(is) desmarcado(s) por nascer depois da nova data: ${invalidos.map(a => a.brinco).join(', ')}.`, 'error')
+                  return
+                }
+              }
+              setForm(p => ({ ...p, data: novaData }))
+            }}/>
+          </Field>
           <Field label="Tipo" required>
             <select value={form.tipo||'Vacina'} onChange={e=>setForm(p=>({...p,tipo:e.target.value}))}>
               {TIPOS.map(t => <option key={t}>{t}</option>)}

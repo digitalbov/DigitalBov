@@ -9,7 +9,7 @@ import { useCicloLocal } from '../lib/useCicloLocal'
 import {
   fmtData, pct, contarMatrizes, contarExpostas, contarPrenhas, calcTaxaPrenhez, calcCategoriaRebanho, algumErro,
   GESTACAO_MAX_DIAS, calcGestacaoLote, calcDesmameMetrics, calcIntervaloPartos, statusReprodutivoExibicao,
-  dataNaoFutura, resolverPaiDerivado,
+  dataNaoFutura, resolverPaiDerivado, mesesDeVida,
 } from '../lib/helpers'
 import { hoje as hojeAgora, hojeISO } from '../lib/hoje'
 import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, AlertBox, BotaoPDF, ErroCarregamento, BannerCicloEncerrado, SeletorCicloLocal } from '../components/UI'
@@ -21,6 +21,13 @@ import {
 const TABS = ['Lotes / Montas','Nascimentos','Índices']
 const GESTACAO_ANGUS_DIAS = 283
 const GESTACAO_MIN_DIAS = 260
+// Guards de coerência de datas (Bloco D7) — valores confirmados com o usuário,
+// não inventados: 24 meses é o MESMO corte que ehMatriz (helpers.js) já usa
+// pra "matriz apta"; 20 meses de idade mínima no parto vem de 24 (exposição) +
+// GESTACAO_MIN_DIAS (~8,5 meses) arredondado pra baixo, aproximando o piso já
+// usado em encontrarLoteSafra.
+const IDADE_MIN_EXPOSICAO_MESES = 24
+const IDADE_MIN_PARTO_MESES = 20
 
 // Card único do funil da safra reprodutiva (Matrizes aptas → Aproveitamento →
 // Inseminadas → Prenhez → Partos/Parição → Perdas). Reaproveitado tanto no
@@ -332,10 +339,26 @@ export default function Reprodutivo() {
   const categoriasInsemDisponiveis = [...new Set(
     femsVaziasPreCateg.map(a => calcCategoriaRebanho(a.data_nascimento, a.sexo, a.sit_reprodutiva, a.is_touro))
   )].sort()
-  const femsVaziasFiltradas = femsVaziasPreCateg
+  const femsVaziasPreData = femsVaziasPreCateg
     .filter(a => !filtroCategInsem || calcCategoriaRebanho(a.data_nascimento, a.sexo, a.sit_reprodutiva, a.is_touro) === filtroCategInsem)
+  // Nunca oferece pra exposição (IA/monta natural) uma fêmea que ainda nem
+  // tinha nascido na data da monta — mesmo bug já corrigido na venda
+  // (Financeiro.jsx): "Novo lote" usa form.data (a monta sendo criada agora);
+  // "Adicionar animais" usa selLote.data (o lote JÁ existe com data fixa —
+  // form.data pode estar vazio/desatualizado nesse fluxo, não é aberto a
+  // partir de um formulário de nova data). Idade mínima de exposição
+  // (IDADE_MIN_EXPOSICAO_MESES, mesmo corte de ehMatriz) calculada NA DATA DA
+  // MONTA (histórica), não hoje — senão uma novilha exposta há anos, hoje já
+  // adulta, ficaria bloqueada retroativamente por uma checagem contra a idade
+  // atual dela.
+  const femsVaziasFiltradas = femsVaziasPreData
+    .filter(a => !form.data || !a.data_nascimento || a.data_nascimento <= form.data)
+    .filter(a => !form.data || !a.data_nascimento || mesesDeVida(a.data_nascimento, form.data) > IDADE_MIN_EXPOSICAO_MESES)
   const femsForaDoLote = selLote
-    ? femsVaziasFiltradas.filter(a => !(selLote.inseminacoes||[]).some(i => i.animal_id === a.id))
+    ? femsVaziasPreData
+        .filter(a => !selLote.data || !a.data_nascimento || a.data_nascimento <= selLote.data)
+        .filter(a => !selLote.data || !a.data_nascimento || mesesDeVida(a.data_nascimento, selLote.data) > IDADE_MIN_EXPOSICAO_MESES)
+        .filter(a => !(selLote.inseminacoes||[]).some(i => i.animal_id === a.id))
     : []
 
   // Apenas fêmeas com diagnóstico 'P' confirmado em algum lote de inseminação.
@@ -503,6 +526,18 @@ export default function Reprodutivo() {
         : 'Data fora de qualquer ciclo cadastrado.', 'error')
       return
     }
+    // Defesa em profundidade — o filtro de femsVaziasFiltradas já evita isto na
+    // UI, isto garante que nunca salva mesmo se selBrs ficou desatualizado.
+    const nascidasDepois = animais.filter(a => selBrs.includes(a.brinco) && a.data_nascimento && a.data_nascimento > form.data)
+    if (nascidasDepois.length > 0) {
+      toast(`${nascidasDepois.map(a => `${a.brinco} (nasceu ${fmtData(a.data_nascimento)})`).join(', ')} — não pode ser exposta antes de nascer. Desmarque e tente de novo.`, 'error')
+      return
+    }
+    const jovemDemais = animais.filter(a => selBrs.includes(a.brinco) && a.data_nascimento && mesesDeVida(a.data_nascimento, form.data) <= IDADE_MIN_EXPOSICAO_MESES)
+    if (jovemDemais.length > 0) {
+      toast(`${jovemDemais.map(a => a.brinco).join(', ')} — com menos de ${IDADE_MIN_EXPOSICAO_MESES} meses na data da monta, idade abaixo do mínimo pra exposição. Desmarque e tente de novo.`, 'error')
+      return
+    }
     setSaving(true)
     const cicloDoLote = cicloDaData(form.data)
     let estacaoId = form.estacao_monta_id || null
@@ -573,6 +608,21 @@ export default function Reprodutivo() {
   const adicionarAnimaisLote = async () => {
     if (!podeEditarReprodCiclo) return
     if (selBrsAdd.length === 0) { toast('Selecione ao menos um animal.', 'error'); return }
+    // Defesa em profundidade — femsForaDoLote já filtra por selLote.data na UI.
+    const nascidasDepois = selLote?.data
+      ? animais.filter(a => selBrsAdd.includes(a.brinco) && a.data_nascimento && a.data_nascimento > selLote.data)
+      : []
+    if (nascidasDepois.length > 0) {
+      toast(`${nascidasDepois.map(a => `${a.brinco} (nasceu ${fmtData(a.data_nascimento)})`).join(', ')} — não pode ser exposta antes de nascer.`, 'error')
+      return
+    }
+    const jovemDemais = selLote?.data
+      ? animais.filter(a => selBrsAdd.includes(a.brinco) && a.data_nascimento && mesesDeVida(a.data_nascimento, selLote.data) <= IDADE_MIN_EXPOSICAO_MESES)
+      : []
+    if (jovemDemais.length > 0) {
+      toast(`${jovemDemais.map(a => a.brinco).join(', ')} — com menos de ${IDADE_MIN_EXPOSICAO_MESES} meses na data da monta, idade abaixo do mínimo pra exposição.`, 'error')
+      return
+    }
     setSaving(true)
     const ins = selBrsAdd.map(br => {
       const a = animais.find(x => x.brinco === br)
@@ -720,6 +770,12 @@ export default function Reprodutivo() {
         : 'Data fora de qualquer ciclo cadastrado.', 'error')
       return
     }
+    // Mesmo princípio do parto: a mãe não pode ter abortado antes de ter nascido.
+    const maeAborto = animais.find(a => a.id === abortoAlvo.animal_id)
+    if (maeAborto?.data_nascimento && formAborto.data < maeAborto.data_nascimento) {
+      toast(`${maeAborto.brinco} nasceu em ${fmtData(maeAborto.data_nascimento)} — o aborto não pode ser antes disso (${fmtData(formAborto.data)}).`, 'error')
+      return
+    }
     setSaving(true)
     const cicloDoAborto = cicloDaData(formAborto.data)
     const { error } = await db.abortos.insert({
@@ -767,6 +823,12 @@ export default function Reprodutivo() {
       toast('A data do aborto não pode ser no futuro.', 'error')
       return
     }
+    // Mesmo princípio do parto: a mãe não pode ter abortado antes de ter nascido.
+    const maeEditAborto = animais.find(a => a.brinco === editAborto.brinco)
+    if (maeEditAborto?.data_nascimento && editAborto.data < maeEditAborto.data_nascimento) {
+      toast(`${maeEditAborto.brinco} nasceu em ${fmtData(maeEditAborto.data_nascimento)} — o aborto não pode ser antes disso (${fmtData(editAborto.data)}).`, 'error')
+      return
+    }
     const { error } = await db.abortos.update(editAborto.id, {
       data: editAborto.data, causa: editAborto.causa || 'desconhecido', observacoes: editAborto.observacoes || ''
     })
@@ -812,6 +874,29 @@ export default function Reprodutivo() {
     }
     const mae = animais.find(a => a.brinco === form.mae_brinco)
     if (!mae) { toast('Mãe não encontrada.', 'error'); return }
+    // Nenhum evento pode ser registrado antes do nascimento do animal — aqui é
+    // a MÃE que não pode ter parido antes de ter nascido.
+    if (mae.data_nascimento && form.data_parto < mae.data_nascimento) {
+      toast(`A mãe ${mae.brinco} nasceu em ${fmtData(mae.data_nascimento)} — o parto não pode ser antes disso (${fmtData(form.data_parto)}).`, 'error')
+      return
+    }
+    // Idade mínima plausível da mãe no parto (ver IDADE_MIN_PARTO_MESES).
+    if (mae.data_nascimento && mesesDeVida(mae.data_nascimento, form.data_parto) <= IDADE_MIN_PARTO_MESES) {
+      toast(`A mãe ${mae.brinco} teria menos de ${IDADE_MIN_PARTO_MESES} meses na data deste parto (${fmtData(form.data_parto)}) — idade abaixo do mínimo plausível.`, 'error')
+      return
+    }
+    // Aviso (NÃO bloqueia) se o intervalo entre a monta vinculada e o parto
+    // foge da janela de gestação plausível — mesma janela (260-300 dias) que
+    // encontrarLoteSafra já usa pra escolher qual lote é a safra deste parto.
+    if (form.lote_inseminacao_id) {
+      const loteVinculado = todosLotes.find(l => l.id === form.lote_inseminacao_id)
+      if (loteVinculado?.data) {
+        const diasGestacao = Math.round((new Date(form.data_parto + 'T12:00:00') - new Date(loteVinculado.data + 'T12:00:00')) / 86400000)
+        if (diasGestacao < GESTACAO_MIN_DIAS || diasGestacao > GESTACAO_MAX_DIAS) {
+          toast(`Aviso: ${diasGestacao} dias entre a monta (${fmtData(loteVinculado.data)}) e este parto — fora da janela usual de gestação (${GESTACAO_MIN_DIAS}-${GESTACAO_MAX_DIAS} dias). Registrando mesmo assim — confira se é o lote certo.`, 'error')
+        }
+      }
+    }
     const cicloDoParto = cicloDaData(form.data_parto)
 
     // Tudo dentro de try/catch/finally: setSaving(false) TEM que rodar mesmo se
@@ -2255,7 +2340,25 @@ export default function Reprodutivo() {
         <div className="grid-form">
           <Field label={`Data da ${ehNatural ? 'monta' : 'inseminação'}`} required>
             <input type="date" value={form.data||''}
-              onChange={e=>setForm(p=>({...p,data:e.target.value}))} />
+              onChange={e => {
+                const novaData = e.target.value
+                // Trocar a data DEPOIS de já ter selecionado fêmeas pode deixar
+                // a seleção inválida (fêmea que só nasceu depois da nova data,
+                // ou que fica jovem demais na nova data) — revalida e desmarca,
+                // mesmo padrão da venda (Financeiro.jsx).
+                const nascidasDepois = novaData
+                  ? animais.filter(a => selBrs.includes(a.brinco) && a.data_nascimento && a.data_nascimento > novaData)
+                  : []
+                const jovensDemais = novaData
+                  ? animais.filter(a => selBrs.includes(a.brinco) && a.data_nascimento && a.data_nascimento <= novaData && mesesDeVida(a.data_nascimento, novaData) <= IDADE_MIN_EXPOSICAO_MESES)
+                  : []
+                const invalidas = [...nascidasDepois, ...jovensDemais]
+                if (invalidas.length > 0) {
+                  setSelBrs(prev => prev.filter(br => !invalidas.some(a => a.brinco === br)))
+                  toast(`${invalidas.length} animal(is) desmarcado(s): ${invalidas.map(a => a.brinco).join(', ')} (nascimento incompatível ou idade mínima não atingida na nova data).`, 'error')
+                }
+                setForm(p => ({ ...p, data: novaData }))
+              }} />
           </Field>
           {!ehNatural && (
             <Field label="Touro" required>

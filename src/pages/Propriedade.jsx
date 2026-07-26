@@ -5,6 +5,7 @@ import '@geoman-io/leaflet-geoman-free'
 import '@geoman-io/leaflet-geoman-free/dist/leaflet-geoman.css'
 import area from '@turf/area'
 import { kml as toGeoJson } from '@tmcw/togeojson'
+import { useLocation } from 'react-router-dom'
 import { db, supabase } from '../lib/supabase'
 import { useFazenda } from '../lib/FazendaContext'
 import { useConta } from '../lib/ContaContext'
@@ -255,6 +256,28 @@ export default function Propriedade() {
   const [animaisDoLote, setAnimaisDoLote] = useState([])
   const [filtroCategLote, setFiltroCategLote] = useState('')
   const [filtroPropLote, setFiltroPropLote] = useState('')
+  // Atalho de outras telas (ex: Animais → "Ver Lotes"/"Ver lote") — chega via
+  // navigate('/propriedade', {state:{section,loteId}}), ver Animais.jsx. Sem
+  // isso, a página sempre abre no resumo, ignorando de onde o usuário veio.
+  const [loteDestacadoId, setLoteDestacadoId] = useState(null)
+
+  const location = useLocation()
+  useEffect(() => {
+    if (location.state?.section) {
+      setSection(location.state.section)
+      setLoteDestacadoId(location.state.loteId || null)
+    }
+  }, [location.state])
+
+  // Rola até o card do lote destacado (chegada via atalho) — só quando o
+  // destaque muda, não a cada render (senão a página ficaria "puxando" a
+  // rolagem sozinha toda hora que qualquer outro estado mudasse).
+  useEffect(() => {
+    if (loteDestacadoId && section === 'lotes') {
+      const el = document.getElementById(`lote-card-${loteDestacadoId}`)
+      el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
+  }, [loteDestacadoId, section])
 
   const carregarInativas = async () => {
     const { data, error } = await db.fazendas.listInativas()
@@ -835,7 +858,12 @@ export default function Propriedade() {
           {lotes.length === 0
             ? <EmptyState icon="📦" title="Nenhum lote cadastrado" sub="Clique em Novo lote para começar" />
             : lotes.map(l => (
-              <div key={l.id} className="card" style={{ marginBottom:10 }}>
+              <div key={l.id} id={`lote-card-${l.id}`} className="card" style={{
+                marginBottom:10,
+                ...(loteDestacadoId === l.id
+                  ? { border:'2px solid #7B2FBE', boxShadow:'0 0 0 3px rgba(123,47,190,.15)' }
+                  : {}),
+              }}>
                 <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:8 }}>
                   <div style={{ display:'flex', alignItems:'center', gap:10 }}>
                     <div style={{ width:34,height:34,borderRadius:8,background:'#EEEDFE',color:'#3C3489',display:'flex',alignItems:'center',justifyContent:'center',fontSize:15 }}>
