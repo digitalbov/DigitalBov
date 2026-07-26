@@ -292,6 +292,28 @@ export default function Financeiro() {
   const ehVendaShape  = form.tipo === 'V' || form.tipo === 'venda_sim'
   const ehCompraShape = form.tipo === 'C' || form.tipo === 'compra_sim'
 
+  // Handler ÚNICO do campo Data — usado tanto no formulário normal (venda/
+  // compra reais) quanto no banner de simulação (venda_sim/compra_sim), pra
+  // nunca ter duas cópias divergentes da mesma lógica. Revalida a seleção de
+  // animais (mesmo em venda_sim, que reaproveita vendaSelecionados/
+  // ehVendaShape) — trocar a data DEPOIS de já ter selecionado animais pode
+  // deixar a seleção inválida (animal que só nasceu depois da nova data).
+  const handleDataChange = e => {
+    const novaData = e.target.value
+    if (ehVendaShape && novaData) {
+      const invalidos = animaisSelecionadosObjs.filter(a => a.data_nascimento && a.data_nascimento > novaData)
+      if (invalidos.length > 0) {
+        setForm(p => ({
+          ...p, data: novaData,
+          vendaSelecionados: (p.vendaSelecionados || []).filter(id => !invalidos.some(a => a.id === id)),
+        }))
+        toast(`${invalidos.length} animal(is) desmarcado(s) por nascer depois da nova data: ${invalidos.map(a => a.brinco).join(', ')}.`, 'error')
+        return
+      }
+    }
+    setForm(p => ({ ...p, data: novaData }))
+  }
+
   // Pré-preenche peso/preço de uma categoria só na primeira vez que ela entra
   // na seleção (a partir de categorias_preco, se existir) — sem sobrescrever o
   // que o usuário já tiver digitado/alterado.
@@ -1336,25 +1358,7 @@ export default function Financeiro() {
             </select>
           </Field>
           <Field label="Data" required>
-            <input type="date" value={form.data||''} onChange={e => {
-              const novaData = e.target.value
-              // Trocar a data DEPOIS de já ter selecionado animais pode deixar
-              // a seleção inválida (animal que só nasceu depois da nova data)
-              // — revalida e desmarca, avisando quem saiu, em vez de deixar o
-              // usuário só descobrir isso no "Registrar" (ou pior, não descobrir).
-              if (ehVendaShape && novaData) {
-                const invalidos = animaisSelecionadosObjs.filter(a => a.data_nascimento && a.data_nascimento > novaData)
-                if (invalidos.length > 0) {
-                  setForm(p => ({
-                    ...p, data: novaData,
-                    vendaSelecionados: (p.vendaSelecionados || []).filter(id => !invalidos.some(a => a.id === id)),
-                  }))
-                  toast(`${invalidos.length} animal(is) desmarcado(s) por nascer depois da nova data: ${invalidos.map(a => a.brinco).join(', ')}.`, 'error')
-                  return
-                }
-              }
-              setForm(p => ({ ...p, data: novaData }))
-            }} />
+            <input type="date" value={form.data||''} onChange={handleDataChange} />
           </Field>
         </div>
 

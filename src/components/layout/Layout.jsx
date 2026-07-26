@@ -4,10 +4,11 @@ import Sidebar from './Sidebar'
 import BottomNav from './BottomNav'
 import { Loading, Modal } from '../UI'
 import ErrorBoundary from '../ErrorBoundary'
-import { hoje as hojeAgora, hojeISO, getDataSimulada, limparDataSimulada } from '../../lib/hoje'
+import { hoje as hojeAgora, hojeISO, getDataSimulada, setDataSimulada, limparDataSimulada } from '../../lib/hoje'
 import { fmtData } from '../../lib/helpers'
 import { useCiclo, calcularCicloEsperado, CARENCIA_DIAS } from '../../lib/CicloContext'
 import { useFazenda } from '../../lib/FazendaContext'
+import { usePermissoes } from '../../lib/PermissoesContext'
 
 const PAGE_TITLES = {
   '/':             { title: 'Dashboard',            sub: 'Visão geral da fazenda' },
@@ -37,6 +38,22 @@ export default function Layout({ user, perfil }) {
   const dataSimulada = getDataSimulada()
   const { cicloAtual } = useCiclo()
   const { fazendaAtual } = useFazenda()
+  const { ehAdmin } = usePermissoes()
+  // Edição inline da data simulada — mesma fonte única (hoje.js/localStorage)
+  // e o MESMO mecanismo de aplicação da tela Usuários (setDataSimulada +
+  // reload): hoje()/hojeISO() leem localStorage direto, não são reativos a
+  // estado React, então só um reload garante que tudo em tela (ciclo atual,
+  // vencimentos, idades etc.) passe a usar o valor novo. Por serem a mesma
+  // fonte e o mesmo helper dos dois lugares, não tem como divergir. Gated por
+  // ehAdmin — mesma permissão (dono/admin) que já protege isto em Usuários;
+  // o botão "voltar ao normal" continua sem gate, como já era.
+  const [novaDataSim, setNovaDataSim] = useState(dataSimulada || '')
+
+  const aplicarNovaDataSimulada = () => {
+    if (!novaDataSim) return
+    setDataSimulada(novaDataSim)
+    window.location.reload()
+  }
 
   const sairDoModoSimulacao = () => {
     limparDataSimulada()
@@ -85,6 +102,21 @@ export default function Layout({ user, perfil }) {
             <i className="ti ti-alert-triangle" style={{ marginRight:6 }} />
             MODO SIMULAÇÃO (ferramenta de teste) — o sistema está usando <strong>{fmtData(dataSimulada)}</strong> como data de hoje
           </span>
+          {ehAdmin && (
+            <span style={{ display:'flex', alignItems:'center', gap:6 }}>
+              <label htmlFor="faixa-nova-data-sim" style={{ fontWeight:600 }}>Mudar para:</label>
+              <input id="faixa-nova-data-sim" type="date" value={novaDataSim}
+                onChange={e => setNovaDataSim(e.target.value)}
+                style={{ fontSize:'.75rem', padding:'2px 6px', borderRadius:6, border:`1px solid #F3D5A3` }} />
+              <button onClick={aplicarNovaDataSimulada} disabled={!novaDataSim || novaDataSim === dataSimulada} style={{
+                background:'#92400E', color:'white', border:'none', borderRadius:6,
+                padding:'3px 10px', fontSize:'.75rem', fontWeight:700, cursor:'pointer',
+                opacity:(!novaDataSim || novaDataSim === dataSimulada) ? .5 : 1,
+              }}>
+                aplicar
+              </button>
+            </span>
+          )}
           <button onClick={sairDoModoSimulacao} style={{
             background:'#92400E', color:'white', border:'none', borderRadius:6,
             padding:'3px 10px', fontSize:'.75rem', fontWeight:700, cursor:'pointer',

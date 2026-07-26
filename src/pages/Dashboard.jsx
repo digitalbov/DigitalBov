@@ -1,7 +1,7 @@
 ﻿import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase, db } from '../lib/supabase'
-import { calcCategoria, calcCategoriaRebanho, calcTaxaPrenhez, contarExpostas, contarPrenhas, fmtMoeda, valorPropLanc, contarMatrizes, algumErro, calcLotesFEFO, diasAteValidade, CATEGORIAS_VALOR } from '../lib/helpers'
+import { calcCategoria, calcCategoriaRebanho, calcTaxaPrenhez, contarExpostas, contarPrenhas, fmtMoeda, valorPropLanc, contarMatrizes, algumErro, calcLotesFEFO, diasAteValidade, CATEGORIAS_VALOR, mesesDeVida } from '../lib/helpers'
 import { Loading, FullLoading, AlertBox, IndexCard, ErroCarregamento } from '../components/UI'
 import { useFazenda } from '../lib/FazendaContext'
 import { useCiclo } from '../lib/CicloContext'
@@ -360,7 +360,14 @@ export default function Dashboard({ perfil }) {
         {[
           { value: filtAnimais.length,                             label:'Total de animais',     sub:'Ativos',                    icon:'ti-chart-bar',    bg:'#E8F0FC', color:'#1E55B0' },
           { value: matrizes,                                       label:'Matrizes',             sub:'Vacas em produção',         icon:'ti-users',        bg:'#FAEEDA', color:'#633806' },
-          { value: filtAnimais.filter(a=>a.sexo==='F'&&calcCategoria(a.data_nascimento,'F').includes('ovilha')).length, label:'Novilhas',  sub:'Em desenvolvimento',  icon:'ti-arrow-up-right', bg:'#EEEDFE', color:'#3C3489' },
+          // Idade real (mesesDeVida), não filtro por texto — ".includes('ovilha')"
+          // batia em "Novilha 25-36m" e não distinguia Prenha, contando fêmea
+          // acima de 24 meses (mesmo corte de matriz apta, ehMatriz) como se
+          // ainda fosse novilha. Faixa 13-24m: Terneira (0-12m) fica de fora de
+          // propósito — é categoria própria em todo o resto do sistema
+          // (calcCategoriaRebanho nunca funde as duas), e "Em desenvolvimento"
+          // aqui sempre leu como pós-desmame, não bezerro recém-nascido.
+          { value: filtAnimais.filter(a=>a.sexo==='F'&&mesesDeVida(a.data_nascimento)>12&&mesesDeVida(a.data_nascimento)<=24).length, label:'Novilhas',  sub:'13-24 meses',  icon:'ti-arrow-up-right', bg:'#EEEDFE', color:'#3C3489' },
           { value: `${totalHa.toFixed(1)} ha`,                       label:'Área útil',            sub:`${emUsoCnt} piquetes em uso`, icon:'ti-map',          bg:'#E6F1FB', color:'#0C447C' },
         ].map(k => (
           <div key={k.label} className="kpi-card">
