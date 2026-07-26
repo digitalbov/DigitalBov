@@ -1,11 +1,30 @@
 import { useRef, useState } from 'react'
-import { AlertBox, Badge } from './UI'
+import { AlertBox, Badge, Field, toast } from './UI'
+import { useConta } from '../lib/ContaContext'
+import { usePermissoes } from '../lib/PermissoesContext'
+import { importarBackup } from '../lib/importarBackup'
 
-// ── FASE 0 da restauração: só VALIDA o arquivo no navegador — nenhuma chamada
-// a supabase/banco acontece neste componente, em nenhum caminho. A fase que
-// de fato grava dados (Fase 1) é um passo futuro separado; aqui o botão de
-// prosseguir nunca fica clicável, só existe pra mostrar que o arquivo passou
-// na validação.
+// ── Fase 0 da restauração: VALIDA o arquivo no navegador — nenhuma chamada a
+// supabase/banco acontece em validarArquivo()/onEscolherArquivo(). Fase 1
+// (mais abaixo, iniciarImportacao) é quem de fato grava dados, só depois do
+// arquivo passar 100% na validação e do usuário confirmar explicitamente.
+
+const LABEL_TABELA = {
+  __fazenda__: 'Fazenda',
+  __seed__: 'Limpando categorias/ciclo/metas padrão da fazenda nova',
+  proprietarios: 'Proprietários', piquetes: 'Piquetes', lotes: 'Lotes', ciclos_financeiros: 'Ciclos financeiros',
+  categorias_preco: 'Categorias de preço', estacoes_monta: 'Estações de monta',
+  animais: 'Animais', lotes_inseminacao: 'Lotes de inseminação/monta',
+  lote_touros: 'Touros da monta natural', inseminacoes: 'Inseminações',
+  partos: 'Partos', abortos: 'Abortos',
+  lancamentos_financeiros: 'Lançamentos financeiros', lancamento_rateios: 'Rateios por proprietário',
+  transacoes_animais: 'Transações de animais', transacao_animais_itens: 'Itens de compra/venda',
+  pesagens: 'Pesagens', procedimentos_sanitarios: 'Procedimentos sanitários',
+  sanidade_animais: 'Vínculo sanidade ↔ animal', estoque_itens: 'Itens de estoque',
+  estoque_movimentacoes: 'Movimentações de estoque', metas: 'Metas',
+  planejamentos: 'Planejamentos', planejamento_acoes: 'Ações de planejamento',
+  simulacoes_transacoes: 'Simulações',
+}
 
 // Formato aceito — qualquer outro valor (ou ausente) é rejeitado antes de
 // tentar ler a estrutura, porque um arquivo de versão diferente pode nem ter
@@ -37,7 +56,10 @@ const REFERENCIAS = [
   ['partos', 'lote_inseminacao_id', 'lotes_inseminacao', true],
   ['partos', 'mae_id', 'animais', true],
   ['partos', 'bezerro_id', 'animais', true],
+  ['partos', 'ciclo_id', 'ciclos_financeiros', true],
   ['abortos', 'animal_id', 'animais', true],
+  ['abortos', 'ciclo_id', 'ciclos_financeiros', true],
+  ['estacoes_monta', 'ciclo_id', 'ciclos_financeiros', true],
   ['pesagens', 'animal_id', 'animais', true],
   ['pesagens', 'transacao_id', 'transacoes_animais', true],
   ['sanidade_animais', 'procedimento_id', 'procedimentos_sanitarios', false],
@@ -49,6 +71,7 @@ const REFERENCIAS = [
   ['lancamento_rateios', 'lancamento_id', 'lancamentos_financeiros', false],
   ['lancamento_rateios', 'proprietario_id', 'proprietarios', true],
   ['transacoes_animais', 'lancamento_id', 'lancamentos_financeiros', true],
+  ['transacoes_animais', 'ciclo_id', 'ciclos_financeiros', true],
   ['transacao_animais_itens', 'transacao_id', 'transacoes_animais', false],
   ['transacao_animais_itens', 'animal_id', 'animais', true],
   ['planejamento_acoes', 'planejamento_id', 'planejamentos', false],
@@ -146,9 +169,19 @@ function validarArquivo(payload) {
 
 export default function RestaurarBackup() {
   const inputRef = useRef(null)
+  const { contaAtual } = useConta()
+  const { ehAdmin } = usePermissoes()
+
   const [analisando, setAnalisando] = useState(false)
   const [resultado, setResultado]   = useState(null)
+  const [payload, setPayload]       = useState(null) // arquivo bruto validado — só isto alimenta a Fase 1
   const [nomeArquivo, setNomeArquivo] = useState('')
+
+  // ── Fase 1 — importação de verdade ──────────────────────────────
+  const [nomeFazendaNovo, setNomeFazendaNovo] = useState('')
+  const [importando, setImportando]           = useState(false)
+  const [progresso, setProgresso]             = useState([]) // [{tabela, status, esperado, importado}]
+  const [relatorioFinal, setRelatorioFinal]   = useState(null)
 
   const onEscolherArquivo = (e) => {
     const file = e.target.files?.[0]
@@ -156,19 +189,27 @@ export default function RestaurarBackup() {
     if (!file) return
     setNomeArquivo(file.name)
     setResultado(null)
+    setPayload(null)
+    setRelatorioFinal(null)
+    setProgresso([])
     setAnalisando(true)
 
     const reader = new FileReader()
     reader.onload = (ev) => {
-      let payload
+      let p
       try {
-        payload = JSON.parse(ev.target.result)
+        p = JSON.parse(ev.target.result)
       } catch {
         setResultado({ integro: false, erros: ['O arquivo não é um JSON válido.'], avisos: [], orfas: [], divergencias: [], meta: null })
         setAnalisando(false)
         return
       }
-      setResultado(validarArquivo(payload))
+      const r = validarArquivo(p)
+      setResultado(r)
+      if (r.integro) {
+        setPayload(p)
+        setNomeFazendaNovo(`${p.fazenda?.nome || 'Fazenda'} (restaurado)`)
+      }
       setAnalisando(false)
     }
     reader.onerror = () => {
@@ -176,6 +217,34 @@ export default function RestaurarBackup() {
       setAnalisando(false)
     }
     reader.readAsText(file)
+  }
+
+  const aoProgredir = (ev) => {
+    setProgresso(prev => {
+      const idx = prev.findIndex(p => p.tabela === ev.tabela)
+      if (idx === -1) return [...prev, ev]
+      const novo = [...prev]
+      novo[idx] = { ...novo[idx], ...ev }
+      return novo
+    })
+  }
+
+  const iniciarImportacao = async () => {
+    if (!ehAdmin || !payload) return
+    if (!nomeFazendaNovo.trim()) { toast('Informe o nome da fazenda nova.', 'error'); return }
+    if (!contaAtual?.id) { toast('Conta não identificada — recarregue a página.', 'error'); return }
+    const nAnimais = payload.dados?.animais?.length ?? 0
+    const nLancs   = payload.dados?.lancamentos_financeiros?.length ?? 0
+    if (!confirm(
+      `Isto vai CRIAR uma fazenda nova chamada "${nomeFazendaNovo.trim()}" nesta conta e gravar nela ${nAnimais} animais, ${nLancs} lançamentos financeiros e o restante dos dados do arquivo. Nenhuma fazenda existente é alterada. Confirma?`
+    )) return
+
+    setImportando(true)
+    setRelatorioFinal(null)
+    setProgresso([])
+    const relatorio = await importarBackup(payload, { contaId: contaAtual.id, nomeFazenda: nomeFazendaNovo.trim() }, aoProgredir)
+    setRelatorioFinal(relatorio)
+    setImportando(false)
   }
 
   return (
@@ -187,7 +256,7 @@ export default function RestaurarBackup() {
         body="Esta tela só lê e analisa o arquivo dentro do seu navegador — nenhuma informação é enviada ao banco de dados ou alterada no sistema aqui. É só um raio-x do arquivo antes de qualquer restauração de verdade." />
 
       <div style={{ marginTop: 14, marginBottom: 14 }}>
-        <button className="btn btn-secondary btn-sm" onClick={() => inputRef.current?.click()} disabled={analisando}>
+        <button className="btn btn-secondary btn-sm" onClick={() => inputRef.current?.click()} disabled={analisando || importando}>
           <i className="ti ti-file-upload" /> {analisando ? 'Analisando...' : 'Escolher arquivo .json'}
         </button>
         <input ref={inputRef} type="file" accept=".json,application/json" style={{ display: 'none' }} onChange={onEscolherArquivo} />
@@ -275,12 +344,60 @@ export default function RestaurarBackup() {
               <AlertBox type="green" icon="ti-circle-check"
                 title="Arquivo íntegro"
                 body="Passou em todas as checagens: formato reconhecido, contagens batem, nenhuma referência quebrada." />
-              <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                <button className="btn btn-primary btn-sm" disabled title="A importação de verdade ainda não foi implementada">
-                  <i className="ti ti-database-import" /> Restaurar estes dados
-                </button>
-                <span style={{ fontSize: '.78rem', color: '#9CA3AF' }}>Importação será liberada na próxima etapa.</span>
-              </div>
+
+              {!importando && !relatorioFinal && (
+                <div style={{ marginTop: 12 }}>
+                  <AlertBox type="amber" icon="ti-plus"
+                    title="A importação cria uma FAZENDA NOVA — nunca sobrescreve nada"
+                    body='Nada existente é apagado ou alterado. Todo o conteúdo do arquivo entra numa fazenda vazia criada agora, na sua conta atual — com IDs novos para tudo. A única exceção: a fazenda nova já nasce com categorias de preço, ciclo atual e metas padrão do sistema — esses 3 conjuntos padrão são removidos antes de entrar os do arquivo (senão duplicaria), mas isso acontece SÓ nessa fazenda recém-criada, vazia, antes de qualquer outro dado entrar nela. Se algo der errado no meio do caminho, a fazenda criada até aquele ponto fica disponível pra você excluir manualmente e tentar de novo (nada é desfeito automaticamente).' />
+                  <div style={{ maxWidth: 420, marginTop: 10 }}>
+                    <Field label="Nome da fazenda nova" required>
+                      <input value={nomeFazendaNovo} onChange={e => setNomeFazendaNovo(e.target.value)} />
+                    </Field>
+                  </div>
+                  <button className="btn btn-primary btn-sm" style={{ marginTop: 10 }} onClick={iniciarImportacao}>
+                    <i className="ti ti-database-import" /> Importar para fazenda nova
+                  </button>
+                </div>
+              )}
+
+              {(importando || relatorioFinal) && (
+                <div style={{ marginTop: 14 }}>
+                  <div style={{ fontWeight: 700, fontSize: '.83rem', color: '#374151', marginBottom: 8 }}>
+                    {importando ? 'Importando...' : relatorioFinal.sucesso ? 'Importação concluída' : 'Importação parou'}
+                  </div>
+                  <div className="table-wrap" style={{ maxHeight: 340, overflowY: 'auto' }}>
+                    <table>
+                      <thead><tr><th></th><th>Etapa</th><th style={{ textAlign: 'right' }}>Esperado</th><th style={{ textAlign: 'right' }}>Importado</th></tr></thead>
+                      <tbody>
+                        {progresso.map((p, i) => (
+                          <tr key={i}>
+                            <td>{p.status === 'ok' ? '✅' : p.status === 'erro' ? '❌' : '⏳'}</td>
+                            <td>{LABEL_TABELA[p.tabela] || p.tabela}</td>
+                            <td style={{ textAlign: 'right' }}>{p.esperado ?? '—'}</td>
+                            <td style={{ textAlign: 'right', fontWeight: p.status === 'erro' ? 700 : 400, color: p.status === 'erro' ? '#791F1F' : undefined }}>
+                              {p.importado ?? 0}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {relatorioFinal && !relatorioFinal.sucesso && (
+                    <AlertBox type="red" icon="ti-alert-triangle" title="Parou antes de terminar" body={
+                      relatorioFinal.fazendaCriada
+                        ? `${relatorioFinal.erro} A fazenda "${relatorioFinal.fazendaCriada.nome}" já foi criada com os dados que entraram até aqui — nada foi desfeito automaticamente. Vá em Propriedade, exclua essa fazenda manualmente e tente a importação de novo.`
+                        : `${relatorioFinal.erro} Nenhuma fazenda chegou a ser criada.`
+                    } />
+                  )}
+
+                  {relatorioFinal?.sucesso && (
+                    <AlertBox type="green" icon="ti-circle-check" title="Tudo importado"
+                      body={`Fazenda "${relatorioFinal.fazendaCriada?.nome}" criada com todos os dados do arquivo. Confira a coluna "Importado" acima — deve bater exatamente com "Esperado" em cada linha.`} />
+                  )}
+                </div>
+              )}
             </div>
           )}
         </div>
