@@ -106,15 +106,30 @@ export default function Relatorios() {
   const rec      = filtroProp ? valorPropLanc(lancs, 'R', filtroProp) : somaFinita(lancs.filter(l=>l.tipo==='R'), 'valor')
   const desp     = filtroProp ? valorPropLanc(lancs, 'D', filtroProp) : somaFinita(lancs.filter(l=>l.tipo==='D'), 'valor')
   const resu     = rec - desp
-  // Valor de um grupo (ex: "Remédios") respeitando o filtro de proprietário —
-  // via rateio do lançamento, mesmo critério de valorPropLanc acima.
-  const grupoValor = (gr, tipo) => {
-    const doGrupo = lancs.filter(l=>l.tipo===tipo&&l.grupo===gr)
-    if (!filtroProp) return doGrupo.reduce((s,l)=>s+Number(l.valor),0)
-    return doGrupo.reduce((s,l)=>{
-      const r = l.rateios?.find(x=>x.proprietario_id===filtroProp)
-      return s + (r ? (Number(r.valor)||0) : 0)
-    }, 0)
+  // Grupos "por valor" (receita/despesa) DERIVADOS dos lançamentos reais, não
+  // de lista fixa — uma lista fixa deixa de fora qualquer grupo criado depois
+  // (ex: 'Comissão'/'Impostos'/'Frete'/'Monta Natural', criados automático
+  // pelas RPCs de compra/venda e custo de monta natural) ou digitado à mão
+  // pelo usuário (grupo é texto livre em Financeiro), e a soma dos grupos
+  // exibidos fica menor que o total sem nenhuma explicação. Mesmo critério de
+  // valor por lançamento que valorPropLanc (helpers.js) usa pra `rec`/`desp`
+  // acima — sem grupo (nulo/vazio) cai em "Sem grupo" em vez de sumir, e a
+  // soma dos grupos retornados bate exatamente com rec/desp por construção
+  // (mesmo filtro, mesma extração de valor, só agrupada).
+  const gruposPorValor = (tipo) => {
+    const porGrupo = {}
+    lancs.filter(l=>l.tipo===tipo).forEach(l => {
+      const grupo = l.grupo || 'Sem grupo'
+      let v = filtroProp
+        ? Number(l.rateios?.find(r=>r.proprietario_id===filtroProp)?.valor)
+        : Number(l.valor)
+      if (!Number.isFinite(v)) v = 0
+      porGrupo[grupo] = (porGrupo[grupo] || 0) + v
+    })
+    return Object.entries(porGrupo)
+      .map(([grupo, valor]) => ({ grupo, valor }))
+      .filter(g => g.valor > 0)
+      .sort((a,b) => b.valor - a.valor)
   }
 
   // Taxa de prenhez — fórmula oficial única (helpers.calcTaxaPrenhez), a mesma
@@ -437,25 +452,19 @@ export default function Relatorios() {
                 ))}
               </div>
               <div className="sl">Receitas por grupo</div>
-              {['Venda de Animais','Valores a Receber','Aporte','Outras Receitas'].map(gr => {
-                const vl = grupoValor(gr, 'R')
-                return vl > 0 ? (
-                  <div key={gr} className="row">
-                    <span className="row-label">{gr}</span>
-                    <span className="row-value" style={{ color:'#1E55B0' }}>{fmtMoeda(vl)}</span>
-                  </div>
-                ) : null
-              })}
+              {gruposPorValor('R').map(({ grupo, valor }) => (
+                <div key={grupo} className="row">
+                  <span className="row-label">{grupo}</span>
+                  <span className="row-value" style={{ color:'#1E55B0' }}>{fmtMoeda(valor)}</span>
+                </div>
+              ))}
               <div className="sl" style={{ marginTop:12 }}>Despesas por grupo</div>
-              {['Remédios','Suplementos','Mão de Obra','Combustível','Inseminação','Manutenção','Ferramentas','Estrutura','Máquinas e Equipamentos'].map(gr => {
-                const vl = grupoValor(gr, 'D')
-                return vl > 0 ? (
-                  <div key={gr} className="row">
-                    <span className="row-label">{gr}</span>
-                    <span className="row-value" style={{ color:'#791F1F' }}>{fmtMoeda(vl)}</span>
-                  </div>
-                ) : null
-              })}
+              {gruposPorValor('D').map(({ grupo, valor }) => (
+                <div key={grupo} className="row">
+                  <span className="row-label">{grupo}</span>
+                  <span className="row-value" style={{ color:'#791F1F' }}>{fmtMoeda(valor)}</span>
+                </div>
+              ))}
             </div>
             <div className="card">
               <div className="sl" style={{ marginBottom:10 }}>Indicadores de rentabilidade</div>

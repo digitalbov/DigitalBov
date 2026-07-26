@@ -3,7 +3,7 @@ import { db } from '../lib/supabase'
 import { usePermissoes } from '../lib/PermissoesContext'
 import { useCiclo, statusCiclo } from '../lib/CicloContext'
 import { useCicloLocal } from '../lib/useCicloLocal'
-import { fmtData, calcGMD, fmtPeso, numeroPositivo, dataNaoFutura, calcCategoria, mesesDeVida, algumErro } from '../lib/helpers'
+import { fmtData, calcGMD, fmtPeso, numeroPositivo, dataNaoFutura, calcCategoria, mesesDeVida, algumErro, pesagensDeManejo } from '../lib/helpers'
 import { hoje as hojeAgora, hojeISO } from '../lib/hoje'
 import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, IndexCard, BotaoPDF, Confirm, ErroCarregamento, BannerCicloEncerrado, SeletorCicloLocal } from '../components/UI'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
@@ -56,11 +56,13 @@ function agruparPesoPorData(pesagensGrupo) {
 }
 
 // GMD médio de um grupo de animais — média dos GMDs individuais (não o GMD da
-// curva média), consistente com a aba Desempenho.
+// curva média), consistente com a aba Desempenho. pesagensDeManejo exclui
+// compra/venda do cálculo (peso MÉDIO da categoria na transação, não o peso
+// real do animal — ver aviso na seção Pesagens do manual).
 function gmdMedioGrupo(pesagensArr, animalIds) {
   const gmds = animalIds.map(id => {
     const ps = pesagensArr.filter(p => p.animal_id === id).sort((a,b)=>a.data.localeCompare(b.data))
-    const g = calcGMD(ps)
+    const g = calcGMD(pesagensDeManejo(ps))
     return g ? parseFloat(g) : null
   }).filter(g => g !== null)
   return gmds.length ? gmds.reduce((s,v)=>s+v,0)/gmds.length : null
@@ -203,7 +205,10 @@ export default function Pesagens() {
   const pesAnimal  = animalIdSelecionado
     ? pesagens.filter(p => p.animal_id === animalIdSelecionado).sort((a,b)=>a.data.localeCompare(b.data))
     : []
-  const gmd        = calcGMD(pesAnimal)
+  // GMD exclui compra/venda (peso médio da categoria, não o peso real do
+  // animal) — pesagensDeManejo() faz isso; gráfico/histórico continuam
+  // mostrando TODAS as pesagens, só o número do GMD muda.
+  const gmd        = calcGMD(pesagensDeManejo(pesAnimal))
   const ultimoPeso = pesAnimal[pesAnimal.length-1]
   const chartData  = pesAnimal.map(p => ({ data: fmtData(p.data), peso: parseFloat(p.peso_kg) }))
 
@@ -233,7 +238,7 @@ export default function Pesagens() {
   const gmds = animaisComPeso.map(aid => {
     const ps = pesagens.filter(p => p.animal_id === aid).sort((a,b)=>a.data.localeCompare(b.data))
     const brinco = ps.find(p => p.animal?.brinco)?.animal?.brinco
-    const g  = calcGMD(ps)
+    const g  = calcGMD(pesagensDeManejo(ps))
     return { brinco: brinco || '?', gmd: g ? parseFloat(g) : null, ultPeso: ps[ps.length-1]?.peso_kg }
   }).filter(x => x.gmd !== null).sort((a,b) => b.gmd - a.gmd)
 
@@ -542,7 +547,12 @@ export default function Pesagens() {
         const hoje = hojeAgora(); hoje.setHours(0, 0, 0, 0)
 
         const projecao = animaisComPeso.map(aid => {
-          const ps = pesagens.filter(p => p.animal_id === aid).sort((a, b) => a.data.localeCompare(b.data))
+          const psRaw = pesagens.filter(p => p.animal_id === aid).sort((a, b) => a.data.localeCompare(b.data))
+          // GMD e último peso excluem compra/venda (peso médio da categoria,
+          // não o peso real do animal) — pesagensDeManejo() faz isso, com
+          // fallback pras pesagens de compra/venda só se não houver nenhuma
+          // pesagem de manejo registrada.
+          const ps = pesagensDeManejo(psRaw)
           if (ps.length < 2) return null
           // Projeção é prospectiva (quando o animal atinge o peso-alvo) — só
           // faz sentido pra quem ainda está no plantel. `animais` (só ativos)

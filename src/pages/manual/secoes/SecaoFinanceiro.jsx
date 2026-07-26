@@ -1,0 +1,194 @@
+import { useState } from 'react'
+import { AlertBox } from '../../../components/UI'
+
+const H4 = { fontSize: '.88rem', fontWeight: 700, color: '#1a1a1a', marginBottom: 8 }
+const P  = { color: '#374151', fontSize: '.85rem', lineHeight: 1.8, marginBottom: 18 }
+const OL = { color: '#374151', fontSize: '.85rem', lineHeight: 1.8, marginBottom: 18, paddingLeft: 20 }
+const UL_DISC = { color: '#374151', fontSize: '.85rem', lineHeight: 1.8, marginBottom: 18, paddingLeft: 20, listStyle: 'disc' }
+
+// ── Recriação do rateio por proprietário (Financeiro.jsx) — % e R$ ligados,
+// mais o botão "Dividir igualmente". Estado 100% local, não grava nada.
+function DemoRateio() {
+  const total = 1000
+  const [linhas, setLinhas] = useState([
+    { nome: 'João', pct: '', valor: '' },
+    { nome: 'Maria', pct: '', valor: '' },
+  ])
+
+  const dividirIgualmente = () => {
+    const cada = +(total / linhas.length).toFixed(2)
+    setLinhas(linhas.map(l => ({ ...l, pct: (100 / linhas.length).toFixed(1), valor: cada.toFixed(2) })))
+  }
+
+  const setPct = (i, v) => {
+    const novo = [...linhas]
+    novo[i] = { ...novo[i], pct: v, valor: v ? (total * (parseFloat(v) / 100)).toFixed(2) : '' }
+    setLinhas(novo)
+  }
+  const setValor = (i, v) => {
+    const novo = [...linhas]
+    novo[i] = { ...novo[i], valor: v, pct: v ? ((parseFloat(v) / total) * 100).toFixed(1) : '' }
+    setLinhas(novo)
+  }
+
+  return (
+    <div style={{
+      border: '1.5px dashed #C7D2E8', borderRadius: 12, padding: 18,
+      background: '#F8FAFD', marginTop: 10, marginBottom: 18,
+    }}>
+      <div style={{
+        display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 14,
+        background: '#EEEDFE', color: '#3C3489', borderRadius: 8,
+        padding: '3px 10px', fontSize: '.72rem', fontWeight: 700,
+      }}>
+        <i className="ti ti-flask" /> MODO DEMONSTRAÇÃO — não salva dados reais (lançamento de R$ {total.toFixed(2)})
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+        <span style={{ fontSize: '.82rem', fontWeight: 600 }}>Rateio por proprietário</span>
+        <button className="btn btn-secondary btn-sm" onClick={dividirIgualmente}>Dividir igualmente</button>
+      </div>
+      {linhas.map((l, i) => (
+        <div key={l.nome} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+          <span style={{ width: 60, fontSize: '.82rem' }}>{l.nome}</span>
+          <input type="number" placeholder="%" value={l.pct} onChange={e => setPct(i, e.target.value)} style={{ width: 70 }} />
+          <span style={{ fontSize: '.78rem', color: '#9CA3AF' }}>%</span>
+          <input type="number" placeholder="0,00" value={l.valor} onChange={e => setValor(i, e.target.value)} style={{ width: 90 }} />
+          <span style={{ fontSize: '.78rem', color: '#9CA3AF' }}>R$</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+export default function SecaoFinanceiro({ item }) {
+  return (
+    <div className="card">
+      <div className="card-title"><i className={`ti ${item.icone}`} /> {item.titulo}</div>
+
+      <p style={{ ...P, marginBottom: 16 }}>
+        A <strong>Gestão Financeira</strong> reúne lançamentos de receita e despesa, compra e venda de
+        animais, resultado por ciclo, os preços usados para estimar o valor do rebanho, e um modo de
+        simulação para testar cenários sem afetar nada real. As abas, na ordem: <strong>Resumo</strong>,
+        <strong> Lançamentos</strong>, <strong>Compra & Venda</strong>, <strong>Resultados</strong>,
+        <strong> Parâmetros</strong>, <strong>Ciclos</strong> e <strong>Simulações</strong>.
+      </p>
+
+      <div id="financeiro-lancamentos" style={{ scrollMarginTop: 90 }}>
+        <h4 style={H4}>Lançamentos</h4>
+        <p style={P}>
+          Clique em <strong>"Novo lançamento"</strong>. Escolha <strong>Tipo</strong> (Despesa ou Receita),
+          <strong> Data</strong>, um <strong>Grupo</strong> (uma lista pronta — em Despesa: Remédios,
+          Suplementos, Mão de Obra, Combustível, Ferramentas, Manutenção, Estrutura, Máquinas e
+          Equipamentos, Investimentos, Inseminação, Monta Natural, Frete, entre outros; em Receita: Venda de
+          Animais, Valores a Receber, Aporte, Empréstimos, Juros, Outras Receitas — ou crie um grupo novo
+          digitando o nome em <strong>"+ Novo grupo..."</strong>), o <strong>Valor</strong> e uma
+          <strong> Descrição</strong>. Em despesas, dá pra marcar <strong>"Lançar também como entrada no
+          estoque"</strong>, ligando o lançamento a um item existente ou criando um novo ali mesmo.
+        </p>
+        <h4 style={{ ...H4, fontSize: '.85rem' }}>Rateio por proprietário</h4>
+        <p style={P}>
+          Se você tem mais de um proprietário cadastrado, aparece um bloco de rateio. Cada proprietário tem
+          um campo de <strong>%</strong> e um de <strong>R$</strong> — preencher um calcula o outro sozinho.
+          O botão <strong>"Dividir igualmente"</strong> reparte o valor em partes iguais entre todos (até o
+          centavo, sem sobrar nem faltar). Em <strong>despesa o rateio é obrigatório</strong>: se você deixar
+          em branco e salvar, o sistema aplica a divisão igual sozinho. Em receita é opcional.
+        </p>
+        <p style={{ color: '#9CA3AF', fontSize: '.78rem', marginBottom: 4 }}>
+          Experimente o rateio abaixo — é uma recriação exata da tela real, mas não grava nada:
+        </p>
+        <DemoRateio />
+        <p style={P}>
+          Voz: <em>"Fale nesta ordem: [dia] do [mês] [despesa/receita] [grupo] [valor em reais]
+          [descrição]"</em> — ex: "dezoito do sete despesa remédios trinta reais vacina aftosa".
+        </p>
+      </div>
+
+      <div id="financeiro-compra-venda" style={{ scrollMarginTop: 90 }}>
+        <h4 style={H4}>Compra & Venda</h4>
+        <p style={P}>
+          Clique em <strong>"Registrar transação"</strong> e escolha o tipo: <strong>Venda</strong>,
+          <strong> Compra</strong>, <strong>Simular venda</strong> ou <strong>Simular compra</strong>.
+        </p>
+        <h4 style={{ ...H4, fontSize: '.85rem' }}>Venda</h4>
+        <ol style={OL}>
+          <li>Informe a <strong>data</strong> — animais nascidos depois dela nem aparecem para seleção.</li>
+          <li>Filtre por categoria, proprietário e/ou lote, e marque os animais (ou "Selecionar todos do filtro").</li>
+          <li>Para cada categoria selecionada, informe <strong>peso médio</strong> e <strong>preço/kg</strong> — pré-preenchidos a partir de Parâmetros na primeira vez.</li>
+          <li>Preencha contraparte, comissão, imposto e frete, se houver.</li>
+          <li>Clique em <strong>Registrar</strong>.</li>
+        </ol>
+        <h4 style={{ ...H4, fontSize: '.85rem' }}>Compra</h4>
+        <ol style={OL}>
+          <li>Informe a <strong>data</strong>.</li>
+          <li>Para cada categoria comprada, clique em <strong>"+ Adicionar categoria"</strong> e preencha quantidade, peso médio, preço/kg, proprietário e a data de nascimento estimada (pré-preenchida pela categoria, ajustável).</li>
+          <li>Preencha contraparte, comissão, imposto e frete, se houver.</li>
+          <li>Clique em <strong>Registrar</strong>.</li>
+        </ol>
+        <p style={P}>
+          Ao salvar, o sistema cria sozinho: o lançamento financeiro (grupo "Venda de Animais" ou "Compra de
+          Animais"), uma despesa separada para cada um de <strong>Comissão</strong>, <strong>Impostos</strong> e
+          <strong> Frete</strong> informados (cada uma já rateada entre os proprietários), e uma
+          <strong> pesagem automática</strong> de entrada ou saída por animal (com o peso médio da
+          categoria — veja o aviso na seção Pesagens sobre isso não contar no GMD). Na compra, os animais
+          novos entram com um brinco provisório (PROV-0001, PROV-0002...) até você editar com o brinco
+          definitivo.
+        </p>
+      </div>
+
+      <div id="financeiro-resultados" style={{ scrollMarginTop: 90 }}>
+        <h4 style={H4}>Resultados</h4>
+        <p style={P}>
+          Mostra uma tabela com receita, despesa, resultado e margem de cada ciclo já lançado (o ciclo atual
+          vem destacado), mais uma análise automática resumindo o resultado do ciclo selecionado em uma
+          frase.
+        </p>
+      </div>
+
+      <div id="financeiro-parametros" style={{ scrollMarginTop: 90 }}>
+        <h4 style={H4}>Parâmetros</h4>
+        <p style={P}>
+          Uma tabela com o <strong>peso médio</strong> e o <strong>preço por kg</strong> de cada categoria do
+          rebanho — esses valores alimentam o "Total estimado" desta tela e o valor de mercado estimado
+          mostrado em outras partes do sistema (Dashboard, Relatórios), além de pré-preencher peso/preço na
+          primeira vez que uma categoria entra numa venda. Edite direto na tabela — salva sozinho ao sair do
+          campo.
+        </p>
+      </div>
+
+      <div id="financeiro-ciclos" style={{ scrollMarginTop: 90 }}>
+        <h4 style={H4}>Ciclos</h4>
+        <p style={P}>
+          Tela só de consulta: lista todos os ciclos da fazenda com início, fim e status (atual, carência,
+          encerrado — leitura, ou futuro). Não existe um botão para criar ciclo manualmente — um ciclo novo
+          nasce sozinho assim que a data vira 1º de julho, encerrando automaticamente o anterior. Um ciclo
+          fora do período atual/carência fica só para consulta: qualquer tela mostra o aviso "Somente
+          leitura" e recusa qualquer lançamento/edição nele.
+        </p>
+      </div>
+
+      <div id="financeiro-simulacoes" style={{ scrollMarginTop: 90 }}>
+        <h4 style={H4}>Simulações</h4>
+        <p style={P}>
+          "Simular venda" e "Simular compra" usam exatamente a mesma tela e os mesmos campos da transação
+          real, mas <strong>não geram lançamento financeiro, não dão baixa nem cadastram animais, não
+          rateiam e não afetam a apuração</strong> — servem só para testar um cenário ("e se eu vendesse
+          esse lote agora?"). A aba <strong>Simulações</strong> lista tudo que já foi simulado (data, tipo,
+          categorias, valor total) e permite excluir — excluir uma simulação não afeta nenhum dado real.
+        </p>
+      </div>
+
+      <h4 style={{ ...H4, marginTop: 4 }}>Avisos importantes</h4>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <AlertBox type="amber" icon="ti-arrow-back-up"
+          title="Excluir uma venda reativa os animais"
+          body='Excluir o lançamento de uma venda reverte tudo: os animais voltam a "ativo" (a menos que já tenham sido vendidos de novo ou marcados como mortos desde então), e as despesas de comissão/imposto/frete ligadas a ela também são excluídas.' />
+        <AlertBox type="amber" icon="ti-lock"
+          title="Excluir uma compra pode ser bloqueado"
+          body='Excluir o lançamento de uma compra tenta apagar os animais cadastrados por ela — mas só consegue se nenhum deles tiver ganhado pesagem de manejo, procedimento sanitário, evento reprodutivo ou outra transação desde a compra. Se algum tiver, a exclusão inteira é recusada, com o aviso de qual animal e qual histórico está travando.' />
+        <AlertBox type="green" icon="ti-info-circle"
+          title="Despesa exige rateio, receita não"
+          body='Se você não preencher o rateio numa despesa, o sistema divide igualmente entre os proprietários sozinho ao salvar. Numa receita, pode deixar em branco sem problema.' />
+      </div>
+    </div>
+  )
+}

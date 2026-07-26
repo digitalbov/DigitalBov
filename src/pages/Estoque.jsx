@@ -185,6 +185,15 @@ export default function Estoque() {
 
   const clicarReverterMov = (m) => {
     if (!podeEditarMovCiclo || !dataEhEditavel(m.data)) return
+    // Baixa originada de um procedimento sanitário (badge "Sanidade") não
+    // pode ser excluída/revertida direto por aqui — isso deixaria o
+    // procedimento em Sanidade.jsx apontando para uma baixa inexistente.
+    // O caminho certo é excluir o procedimento lá, que já reverte o estoque
+    // e mantém os dois módulos consistentes (ver Sanidade.jsx: excluir()).
+    if (m.procedimento_id) {
+      toast('Esta baixa veio de um registro de Sanidade — para revertê-la, exclua o procedimento correspondente na tela Sanidade.', 'error')
+      return
+    }
     const efeito = efeitoReversaoMov(m)
     if (!efeito) { toast('Item do estoque não encontrado (pode ter sido excluído).', 'error'); return }
     // Só entrada pode deixar o saldo negativo ao reverter (reverter uma saída

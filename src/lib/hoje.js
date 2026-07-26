@@ -11,7 +11,22 @@
 // cálculos/validações que dependem de "que dia é hoje".
 const CHAVE_DATA_SIMULADA = 'digitalbov_data_simulada'
 
+// Permissão da CONTA ativa (contas.testes) de usar data simulada — setada por
+// ContaContext.jsx toda vez que a conta ativa muda (login, troca de conta).
+// Módulo puro fora de React (hoje()/hojeISO() são chamados em toda parte,
+// inclusive fora de componentes), por isso é variável de módulo e não Context.
+// Começa false por padrão: enquanto a conta ainda não carregou, ou se é uma
+// conta sem a flag, getDataSimulada() ignora qualquer valor no localStorage —
+// mesmo que exista de uma sessão anterior numa conta de teste no mesmo
+// navegador, ele nunca vaza para uma conta sem permissão.
+let contaPermiteSimulacao = false
+
+export function definirPermissaoSimulacao(permite) {
+  contaPermiteSimulacao = !!permite
+}
+
 export function getDataSimulada() {
+  if (!contaPermiteSimulacao) return null
   try {
     return localStorage.getItem(CHAVE_DATA_SIMULADA) || null
   } catch {

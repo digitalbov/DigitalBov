@@ -11,12 +11,26 @@
 // próximas fases não exige mexer nem aqui nem no layout de Manual.jsx.
 export const MANUAL_INDICE = [
   {
+    id: 'primeiros-passos', titulo: 'Primeiros Passos', icone: 'ti-rocket',
+    resumo: 'Como entrar no sistema, estrutura conta → fazenda → ciclo, usuários e permissões, e recursos gerais da interface.',
+  },
+  {
     id: 'dashboard', titulo: 'Painel (Dashboard)', icone: 'ti-layout-dashboard',
     resumo: 'Visão geral da fazenda: composição do rebanho, KPIs financeiros, piquetes, planejamento e alertas de estoque.',
   },
   {
     id: 'metas', titulo: 'Metas e Indicadores', icone: 'ti-target',
-    resumo: 'Indicadores zootécnicos e financeiros com meta, semáforo de status (verde/amarelo/vermelho) e gráficos por safra.',
+    resumo: 'Indicadores zootécnicos e financeiros com meta, semáforo (verde/amarelo/vermelho), os 3 modos (Inseminação/Monta Natural/Consolidado) e gráficos por safra.',
+    subsecoes: [
+      { id: 'metas-modos',       titulo: 'Os 3 modos' },
+      { id: 'metas-reproducao',  titulo: 'Reprodução' },
+      { id: 'metas-perdas',      titulo: 'Perdas' },
+      { id: 'metas-gmd',         titulo: 'GMD' },
+      { id: 'metas-producao',    titulo: 'Produção' },
+      { id: 'metas-custos',      titulo: 'Custos' },
+      { id: 'metas-metas',       titulo: 'Definir metas e o semáforo' },
+      { id: 'metas-graficos',    titulo: 'Gráficos' },
+    ],
   },
   {
     id: 'rebanho', titulo: 'Controle de Rebanho', icone: 'ti-chart-line',
@@ -44,7 +58,15 @@ export const MANUAL_INDICE = [
   },
   {
     id: 'reprodutivo', titulo: 'Gestão Reprodutiva', icone: 'ti-activity',
-    resumo: 'Lotes de inseminação (IATF/repasse), diagnósticos, partos/abortos e o funil completo de índices da safra.',
+    resumo: 'Estação de monta, lotes de inseminação (IATF) e monta natural com múltiplos touros, diagnóstico de gestação, partos, abortos e o funil de índices da safra.',
+    subsecoes: [
+      { id: 'reprodutivo-estacoes',    titulo: 'Estação de monta' },
+      { id: 'reprodutivo-lotes',       titulo: 'Lotes de inseminação e monta natural' },
+      { id: 'reprodutivo-diagnostico', titulo: 'Diagnóstico de gestação' },
+      { id: 'reprodutivo-partos',      titulo: 'Partos' },
+      { id: 'reprodutivo-abortos',     titulo: 'Abortos' },
+      { id: 'reprodutivo-indices',     titulo: 'Índices e funil da safra' },
+    ],
   },
   {
     id: 'sanidade', titulo: 'Sanidade', icone: 'ti-shield-check',
@@ -66,6 +88,7 @@ export const MANUAL_INDICE = [
       { id: 'financeiro-compra-venda',  titulo: 'Compra & Venda' },
       { id: 'financeiro-resultados',    titulo: 'Resultados' },
       { id: 'financeiro-parametros',    titulo: 'Parâmetros' },
+      { id: 'financeiro-ciclos',        titulo: 'Ciclos' },
       { id: 'financeiro-simulacoes',    titulo: 'Simulações' },
     ],
   },
@@ -80,5 +103,9 @@ export const MANUAL_INDICE = [
   {
     id: 'assistente', titulo: 'Assistente IA', icone: 'ti-message-chatbot',
     resumo: 'Chat com IA que responde perguntas sobre os dados reais da fazenda (rebanho, finanças, estoque).',
+  },
+  {
+    id: 'faq', titulo: 'Perguntas frequentes', icone: 'ti-help-circle',
+    resumo: 'Dúvidas comuns: por que um índice não muda ao vender um animal, o que acontece ao excluir um lançamento, diferença entre os 3 modos de Metas e outros avisos espalhados pelo sistema.',
   },
 ]

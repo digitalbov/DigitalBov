@@ -193,10 +193,10 @@ export default function Usuarios() {
 
   return (
     <div>
-      {/* Data simulada — visível só para dono/admin. Ferramenta de TESTE: define
-          um "hoje" artificial pra simular vencimentos, ciclos, prenhez etc. sem
-          esperar o tempo passar de verdade; não altera nada gravado no banco. */}
-      {ehAdmin && (
+      {/* Data simulada — ferramenta INTERNA de teste, não existe do ponto de
+          vista do cliente: só aparece na conta marcada com contas.testes=true
+          (ver migration_conta_testes_d9_1.sql), e mesmo lá só para dono/admin. */}
+      {ehAdmin && contaAtual?.testes && (
         <div className="card" style={{ marginBottom:16, borderLeft:'3px solid #D97706' }}>
           <div className="card-title"><i className="ti ti-clock-play" /> Data simulada (ferramenta de teste)</div>
           <div style={{ fontSize:'.8rem', color:'#6B7280', marginBottom:12 }}>
