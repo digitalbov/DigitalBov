@@ -77,16 +77,30 @@ export default function SecaoFinanceiro({ item }) {
       <div id="financeiro-resumo" style={{ scrollMarginTop: 90 }}>
         <h4 style={H4}>Resumo</h4>
         <p style={P}>
-          No topo, os cards de <strong>Receitas</strong>, <strong>Despesas</strong>, <strong>Resultado</strong>{' '}
-          e <strong>Vendas de animais</strong> do ciclo. Logo abaixo, uma faixa compacta com o{' '}
-          <strong>ciclo selecionado</strong> (início, encerramento e status). Depois, lado a lado,{' '}
-          <strong>Despesas por grupo</strong> e <strong>Receitas por grupo</strong> — barras derivadas direto
-          dos lançamentos reais (nunca uma lista fixa: um grupo criado pela venda/compra de animais, como
-          "Comissão" ou "Frete", ou digitado à mão em "+ Novo grupo...", aparece igual), com o nome do grupo
-          por inteiro, quebrando linha se for longo — nunca cortado com reticências, mesmo em nomes que você
-          mesmo digitou. Em tela estreita os dois gráficos empilham em vez de espremer. Por fim, o card{' '}
-          <strong>Vendas no ciclo</strong>, com a lista de cada venda de animais do período.
+          No topo, os cards de <strong>Receitas</strong>, <strong>Despesas</strong>, <strong>Resultado</strong>,{' '}
+          <strong>Caixa disponível</strong> e <strong>Vendas de animais</strong> do ciclo. Logo abaixo, uma
+          faixa compacta com o <strong>ciclo selecionado</strong> (início, encerramento, status e saldo
+          anterior). Depois, lado a lado, <strong>Despesas por grupo</strong> e <strong>Receitas por
+          grupo</strong> — barras derivadas direto dos lançamentos reais (nunca uma lista fixa: um grupo
+          criado pela venda/compra de animais, como "Comissão" ou "Frete", ou digitado à mão em "+ Novo
+          grupo...", aparece igual), com o nome do grupo por inteiro, quebrando linha se for longo — nunca
+          cortado com reticências, mesmo em nomes que você mesmo digitou. Em tela estreita os dois gráficos
+          empilham em vez de espremer. Por fim, o card <strong>Vendas no ciclo</strong>, com a lista de cada
+          venda de animais do período.
         </p>
+        <h4 style={{ ...H4, fontSize: '.85rem' }}>Resultado × Caixa disponível — não é a mesma coisa</h4>
+        <p style={P}>
+          <strong>Resultado</strong> é só receitas menos despesas <em>deste ciclo</em> — o desempenho do
+          período, isolado. <strong>Caixa disponível</strong> (e a coluna "Caixa acumulado" na aba
+          Resultados) é o resultado deste ciclo <strong>somado ao saldo que sobrou dos ciclos
+          anteriores</strong> — quanto você realmente tem acumulado, olhando pra trás. Um ciclo pode fechar
+          no negativo (Resultado ruim) e ainda assim a fazenda ter Caixa disponível positivo, se sobrou saldo
+          de safras passadas — e o contrário também: um ciclo com Resultado ótimo pode conviver com Caixa
+          baixo, se ciclos anteriores fecharam no vermelho.
+        </p>
+        <AlertBox type="purple" icon="ti-wallet"
+          title="O saldo anterior nunca vira lançamento, nunca entra no Resultado"
+          body='O saldo anterior é calculado só pra exibição — somando o resultado de TODOS os ciclos anteriores da fazenda, direto no banco, toda vez que a tela abre (nunca fica guardado em nenhum lugar). Ele nunca é criado como um lançamento de receita/despesa: se fosse, contaminaria as Receitas/Despesas do ciclo novo e distorceria todos os indicadores (Resultado, custo por terneiro, os gráficos por grupo). Por isso ele aparece sempre em roxo, numa cor diferente de Receita (azul) e Despesa (vermelho) — pra deixar claro que é um número "de fora" deste ciclo. Se você editar ou excluir um lançamento retroativo de um ciclo anterior (dentro da carência de 180 dias), o saldo anterior dos ciclos seguintes já sai corrigido na próxima vez que a tela for aberta — sem precisar recalcular nada manualmente.' />
       </div>
 
       <div id="financeiro-lancamentos" style={{ scrollMarginTop: 90 }}>
@@ -173,7 +187,10 @@ export default function SecaoFinanceiro({ item }) {
         <p style={P}>
           Mostra uma tabela com receita, despesa, resultado e margem de cada ciclo já lançado (o ciclo atual
           vem destacado), mais uma análise automática resumindo o resultado do ciclo selecionado em uma
-          frase.
+          frase. Duas colunas extras, em cinza pra não confundir com receita/despesa: <strong>Saldo
+          anterior</strong> (soma do resultado de todos os ciclos anteriores daquele) e <strong>Caixa
+          acumulado</strong> (saldo anterior + resultado daquele ciclo) — ver "Resultado × Caixa disponível"
+          na seção Resumo acima.
         </p>
       </div>
 

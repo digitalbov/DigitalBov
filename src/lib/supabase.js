@@ -405,6 +405,14 @@ export const db = {
       if (fid()) q = q.eq('fazenda_id', fid())
       return q
     },
+    // Bloco D11 — soma receitas-despesas de TODOS os ciclos anteriores (mesma
+    // fazenda), calculada no banco a cada chamada — nunca armazenada, nunca
+    // cacheada. Ver migration_saldo_anterior_ciclo_d11_1.sql pro porquê de
+    // filtrar por data (não por ciclo_id, que é nullable) e por que só usa
+    // lancamento_rateios (proprietario_id direto em lancamentos_financeiros
+    // é coluna legada, nunca escrita/lida por este app).
+    saldoAnterior: (cicloId, proprietarioId = null) =>
+      supabase.rpc('saldo_anterior_ciclo', { p_ciclo_id: cicloId, p_proprietario_id: proprietarioId }),
   },
 
   categoriasPreco: {

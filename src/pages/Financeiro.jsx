@@ -70,6 +70,11 @@ export default function Financeiro() {
   const [estoqueDoLancDel,  setEstoqueDoLancDel]     = useState([]) // movs de estoque vinculadas ao lanc em confirmDelLanc (Bloco D10)
   const [simulacoes,        setSimulacoes]          = useState([])
   const [confirmDelSim,     setConfirmDelSim]       = useState(null)
+  // Bloco D11 — saldo anterior (caixa acumulado de ciclos passados), sempre
+  // buscado do banco (nunca cache local) — ver db.ciclos.saldoAnterior.
+  const [saldoAnteriorCiclo,   setSaldoAnteriorCiclo]   = useState(null)
+  const [saldosPorCiclo,       setSaldosPorCiclo]       = useState({})
+  const [loadingSaldosCiclos,  setLoadingSaldosCiclos]  = useState(false)
 
   const { podeEditar } = usePermissoes()
   const podeEditarFinanceiro = podeEditar('financeiro')
@@ -85,7 +90,21 @@ export default function Financeiro() {
 
   useEffect(() => { loadBase() }, [])
   useEffect(() => { if (cicloLocal) loadCiclo() }, [cicloLocal?.id])
-  useEffect(() => { if (tab === 3 && ciclos.length > 0) loadResultadosPorCiclo() }, [tab, ciclos.length])
+  useEffect(() => { if (tab === 3 && ciclos.length > 0) loadResultadosPorCiclo() }, [tab, ciclos.length, filtProp])
+
+  // Bloco D11 — saldo anterior do ciclo exibido no Resumo (faixa do ciclo +
+  // card "Caixa disponível"). Sempre recalculado no banco a cada troca de
+  // ciclo/proprietário — nunca guardado em estado que sobrevive à troca.
+  useEffect(() => {
+    if (!cicloLocal) { setSaldoAnteriorCiclo(null); return }
+    let cancelado = false
+    db.ciclos.saldoAnterior(cicloLocal.id, filtProp || null).then(({ data, error }) => {
+      if (cancelado) return
+      if (error) { console.error('[Financeiro] erro ao buscar saldo anterior:', error); setSaldoAnteriorCiclo(null); return }
+      setSaldoAnteriorCiclo(Number(data) || 0)
+    })
+    return () => { cancelado = true }
+  }, [cicloLocal?.id, filtProp])
 
   // Busca os lançamentos de TODOS os ciclos (usado só na aba Resultados, para
   // comparar receita/despesa/resultado de cada ciclo lado a lado)
@@ -98,6 +117,20 @@ export default function Financeiro() {
     }))
     setLancsPorCiclo(Object.fromEntries(pares))
     setLoadingResultados(false)
+
+    // Bloco D11 — saldo anterior de cada ciclo, para as colunas "Saldo
+    // anterior"/"Caixa acumulado" da tabela abaixo. Consulta separada (é
+    // agregado no banco, não dá pra derivar de lancsPorCiclo) — refeita
+    // sempre que filtProp muda, já que o resultado por proprietário depende
+    // do rateio, calculado no próprio banco.
+    setLoadingSaldosCiclos(true)
+    const paresSaldo = await Promise.all(ciclos.map(async c => {
+      const { data, error } = await db.ciclos.saldoAnterior(c.id, filtProp || null)
+      if (error) console.error(`[Financeiro] erro ao buscar saldo anterior do ciclo ${c.nome}:`, error)
+      return [c.id, error ? null : (Number(data) || 0)]
+    }))
+    setSaldosPorCiclo(Object.fromEntries(paresSaldo))
+    setLoadingSaldosCiclos(false)
   }
 
   const loadBase = async () => {
@@ -780,6 +813,11 @@ export default function Financeiro() {
               { v:fmtMoeda(rec),  l:'Receitas',  s:lancs.filter(l=>l.tipo==='R').length+' lançamentos', c:'#1E55B0' },
               { v:fmtMoeda(desp), l:'Despesas',  s:lancs.filter(l=>l.tipo==='D').length+' lançamentos', c:'#791F1F' },
               { v:fmtMoeda(Math.abs(resu)), l:resu>=0?'Resultado positivo':'Resultado negativo', s:`Margem ${rec>0?Math.round(resu/rec*100):0}%`, c:resu>=0?'#2B6CD9':'#791F1F' },
+              // Bloco D11 — "Caixa disponível" = saldo anterior (ciclos passados,
+              // calculado no banco) + resultado deste ciclo. Nunca soma no `resu`
+              // acima (que fica intocado) — é um card à parte, cor roxa pra nunca
+              // ser confundido com Receita/Despesa/Resultado.
+              { v: saldoAnteriorCiclo !== null ? fmtMoeda(saldoAnteriorCiclo + resu) : '…', l:'Caixa disponível', s:'saldo anterior + resultado do ciclo', c:'#7B2FBE' },
               { v:transacs.filter(t=>t.tipo==='V').length, l:'Vendas de animais', s:'no ciclo', c:'#633806' },
             ].map(k=>(
               <div key={k.l} className="kpi-card" style={{ borderLeft:`3px solid ${k.c}` }}>
@@ -804,6 +842,9 @@ export default function Financeiro() {
             <span style={{ color:'#6B7280' }}>Início: <strong style={{ color:'#374151' }}>{fmtData(cicloLocal?.inicio)}</strong></span>
             <span style={{ color:'#6B7280' }}>Encerramento: <strong style={{ color:'#374151' }}>{fmtData(cicloLocal?.fim)}</strong></span>
             <Badge color={statusCicloLocal==='atual'?'green':statusCicloLocal==='carencia'?'amber':'gray'}>{STATUS_CICLO_LABEL[statusCicloLocal]||'—'}</Badge>
+            <span style={{ color:'#6B7280' }}>
+              Saldo anterior: <strong style={{ color:'#7B2FBE' }}>{saldoAnteriorCiclo !== null ? fmtMoeda(saldoAnteriorCiclo) : '…'}</strong>
+            </span>
           </div>
 
           {/* Despesas/Receitas por grupo lado a lado — .grid-2 já empilha em 1
@@ -1048,10 +1089,18 @@ export default function Financeiro() {
           <div ref={refResultados}>
           <div className="card" style={{marginBottom:12}}>
             <div className="card-title"><i className="ti ti-chart-bar"/> Resultado por ciclo</div>
-            {loadingResultados ? <Loading /> : (
+            {(loadingResultados || loadingSaldosCiclos) ? <Loading /> : (
             <div className="table-wrap" style={{border:'none'}}>
               <table>
-                <thead><tr><th>Ciclo</th><th style={{textAlign:'right'}}>Receitas</th><th style={{textAlign:'right'}}>Despesas</th><th style={{textAlign:'right'}}>Resultado</th><th style={{textAlign:'right'}}>Margem</th></tr></thead>
+                <thead><tr>
+                  <th>Ciclo</th>
+                  <th style={{textAlign:'right'}}>Receitas</th>
+                  <th style={{textAlign:'right'}}>Despesas</th>
+                  <th style={{textAlign:'right'}}>Resultado</th>
+                  <th style={{textAlign:'right'}}>Margem</th>
+                  <th style={{textAlign:'right', color:'#6B7280'}}>Saldo anterior</th>
+                  <th style={{textAlign:'right', color:'#6B7280'}}>Caixa acumulado</th>
+                </tr></thead>
                 <tbody>
                   {ciclos.map(c=>{
                     const ehAtual = c.id === cicloAtual?.id
@@ -1059,6 +1108,11 @@ export default function Financeiro() {
                     const recC  = lancsCiclo ? valorPropLanc(lancsCiclo, 'R', filtProp) : null
                     const despC = lancsCiclo ? valorPropLanc(lancsCiclo, 'D', filtProp) : null
                     const resuC = recC !== null && despC !== null ? recC - despC : null
+                    // Bloco D11 — saldo anterior/caixa acumulado NUNCA entram no
+                    // Resultado/Margem acima (colunas intocadas) — são valores à
+                    // parte, buscados em saldosPorCiclo (soma no banco).
+                    const saldoAntC = saldosPorCiclo[c.id]
+                    const caixaC = (resuC !== null && saldoAntC !== null && saldoAntC !== undefined) ? resuC + saldoAntC : null
                     return (
                     <tr key={c.id} style={{fontWeight:ehAtual?600:''}}>
                       <td>{c.nome}{ehAtual&&<Badge color="purple" style={{marginLeft:6}}>atual</Badge>}</td>
@@ -1066,6 +1120,8 @@ export default function Financeiro() {
                       <td style={{textAlign:'right',color:'#791F1F'}}>{despC !== null ? fmtMoeda(despC) : '—'}</td>
                       <td style={{textAlign:'right',color:resuC>=0?'#1E55B0':'#791F1F'}}>{resuC !== null ? fmtMoeda(resuC) : '—'}</td>
                       <td style={{textAlign:'right',color:'#6B7280'}}>{recC>0?Math.round(resuC/recC*100)+'%':'—'}</td>
+                      <td style={{textAlign:'right',color:'#6B7280'}}>{saldoAntC !== null && saldoAntC !== undefined ? fmtMoeda(saldoAntC) : '—'}</td>
+                      <td style={{textAlign:'right',color:'#6B7280',fontWeight:600}}>{caixaC !== null ? fmtMoeda(caixaC) : '—'}</td>
                     </tr>
                     )
                   })}
