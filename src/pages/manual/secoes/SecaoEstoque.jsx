@@ -23,6 +23,10 @@ export default function SecaoEstoque({ item }) {
         <li>Escolha a <strong>categoria</strong>: Medicamento, Vacina, Sêmen, Suplemento, Ração ou Outro.</li>
         <li>Informe a <strong>unidade</strong> (texto livre: ml, kg, dose, L...), preço unitário e estoque mínimo — todos opcionais.</li>
         <li>Se já tiver uma quantidade em mãos, preencha <strong>"Quantidade inicial"</strong> — isso vira automaticamente uma entrada de estoque de verdade, com sua própria data e validade, não é só um número solto no cadastro.</li>
+        <li>Com quantidade inicial preenchida e permissão nos dois módulos, aparece o mesmo checkbox
+          <strong> "Lançar também como despesa no financeiro"</strong> do "Movimentar" (veja abaixo) — é
+          <strong> opcional</strong>: se este estoque já existia antes do sistema (não foi uma compra de
+          verdade), simplesmente não marque.</li>
         <li>Clique em <strong>Salvar</strong>.</li>
       </ol>
 
@@ -34,6 +38,32 @@ export default function SecaoEstoque({ item }) {
         <li>Só em entrada: informe a <strong>validade</strong>, se o item tiver — cada entrada forma um lote com sua própria validade.</li>
         <li>Descreva o <strong>motivo</strong>, se quiser (ex: "Vermifugação geral"), e clique em <strong>Salvar</strong>.</li>
       </ol>
+
+      <h4 style={{ fontSize: '.88rem', fontWeight: 700, color: '#1a1a1a', marginBottom: 8 }}>Gerar despesa ou receita junto (opcional)</h4>
+      <p style={{ color: '#374151', fontSize: '.85rem', lineHeight: 1.8, marginBottom: 10 }}>
+        Ao lançar uma <strong>entrada</strong>, se você também tem permissão em Financeiro, aparece o checkbox
+        <strong> "Lançar também como despesa no financeiro"</strong> — marque, informe o <strong>valor
+        unitário</strong> e o <strong>grupo</strong> (já vem sugerido pela categoria do item, mas você pode
+        trocar, ou digitar um grupo novo em <strong>"+ Novo grupo..."</strong>). Ao lançar uma
+        <strong> saída</strong>, o checkbox equivalente é <strong>"Lançar também como receita no
+        financeiro"</strong> — informe o valor da venda (não tem relação com o preço cadastrado do item) e o
+        grupo. Nos dois casos é <strong>opcional</strong>: registrar a movimentação sem tocar no financeiro
+        continua funcionando exatamente como sempre. O mesmo checkbox (com os mesmos campos) também aparece
+        ao cadastrar um item novo com quantidade inicial — é a mesma mecânica, só que na criação do item em
+        vez de numa movimentação avulsa.
+      </p>
+      <p style={{ color: '#374151', fontSize: '.85rem', lineHeight: 1.8, marginBottom: 10 }}>
+        Marcando o checkbox aparece também o <strong>rateio por proprietário</strong> — a mesma grade de
+        <strong> %</strong> e <strong>R$</strong> por proprietário do "Novo lançamento" do Financeiro, com o
+        botão <strong>"Dividir igualmente"</strong>. Em despesa o rateio é <strong>obrigatório</strong>: se
+        você deixar em branco, o sistema divide igualmente entre os proprietários sozinho ao salvar; em
+        receita é opcional.
+      </p>
+      <p style={{ color: '#374151', fontSize: '.85rem', lineHeight: 1.8, marginBottom: 18 }}>
+        A lista de grupos é sempre a lista pronta do Financeiro somada aos grupos já usados em qualquer
+        lançamento da fazenda — inclusive um grupo digitado à mão na tela Financeiro aparece aqui, e
+        vice-versa, assim que você salva (sem precisar recarregar a página).
+      </p>
 
       <h4 style={{ fontSize: '.88rem', fontWeight: 700, color: '#1a1a1a', marginBottom: 8 }}>Validade e FEFO</h4>
       <p style={{ color: '#374151', fontSize: '.85rem', lineHeight: 1.8, marginBottom: 18 }}>
@@ -51,28 +81,33 @@ export default function SecaoEstoque({ item }) {
         Alertas, mostrando quanto tem, qual o mínimo e quanto falta repor.
       </p>
 
-      <h4 style={{ fontSize: '.88rem', fontWeight: 700, color: '#1a1a1a', marginBottom: 8 }}>Exclusão e reversão de movimentações</h4>
+      <h4 style={{ fontSize: '.88rem', fontWeight: 700, color: '#1a1a1a', marginBottom: 8 }}>Reversão de movimentações</h4>
       <p style={{ color: '#374151', fontSize: '.85rem', lineHeight: 1.8, marginBottom: 10 }}>
-        Na aba Movimentar, cada lançamento tem um ícone de ação:
+        Na aba Movimentar, toda linha tem o mesmo ícone de ação — <strong>↩️ "Reverter lançamento"</strong>
+        (seta circular) — porque é sempre a mesma ação, só o efeito é oposto dependendo do tipo:
       </p>
       <ul style={{ color: '#374151', fontSize: '.85rem', lineHeight: 1.8, marginBottom: 18, paddingLeft: 20 }}>
-        <li><strong>🗑️ Lixeira, numa saída</strong> — exclui a saída e <strong>devolve</strong> a quantidade ao estoque.</li>
-        <li><strong>↩️ Seta circular, numa entrada</strong> — reverte a entrada, removendo a quantidade do estoque. Se isso deixaria o saldo negativo, o sistema recusa e avisa o saldo atual e o tamanho da entrada.</li>
+        <li><strong>Numa saída</strong> — reverter <strong>devolve</strong> a quantidade ao estoque.</li>
+        <li><strong>Numa entrada</strong> — reverter <strong>remove</strong> a quantidade do estoque. Se isso deixaria o saldo negativo, o sistema recusa e avisa o saldo atual e o tamanho da entrada.</li>
       </ul>
       <p style={{ color: '#374151', fontSize: '.85rem', lineHeight: 1.8, marginBottom: 18 }}>
-        Os dois avisam antes de confirmar, informando o saldo antes e depois — e "Esta ação não pode ser
-        desfeita" depois de confirmada.
+        Antes de confirmar, a tela sempre mostra o efeito exato (quanto entra ou sai, saldo antes e depois) —
+        e "Esta ação não pode ser desfeita" depois de confirmada.
       </p>
 
-      <h4 style={{ fontSize: '.88rem', fontWeight: 700, color: '#1a1a1a', marginBottom: 8 }}>Badge "Sanidade"</h4>
-      <p style={{ color: '#374151', fontSize: '.85rem', lineHeight: 1.8 }}>
-        Movimentações de saída geradas pela baixa automática de um procedimento sanitário aparecem com o selo{' '}
-        <Badge color="purple">Sanidade</Badge> na coluna Motivo. Essas linhas <strong>não podem ser excluídas
-        nem revertidas direto por aqui</strong> — clicar no ícone mostra o aviso "Esta baixa veio de um
-        registro de Sanidade — para revertê-la, exclua o procedimento correspondente na tela Sanidade." O
-        caminho certo é excluir o procedimento na tela Sanidade, que devolve o estoque e mantém os dois
-        módulos consistentes.
+      <h4 style={{ fontSize: '.88rem', fontWeight: 700, color: '#1a1a1a', marginBottom: 8 }}>Badges de origem</h4>
+      <p style={{ color: '#374151', fontSize: '.85rem', lineHeight: 1.8, marginBottom: 10 }}>
+        Uma movimentação criada automaticamente por outro módulo mostra um selo na coluna Motivo, ao lado do
+        texto:
       </p>
+      <ul style={{ color: '#374151', fontSize: '.85rem', lineHeight: 1.8, marginBottom: 14, paddingLeft: 20 }}>
+        <li><Badge color="purple">Sanidade</Badge> — baixa automática de um procedimento sanitário.</li>
+        <li><Badge color="red">Despesa</Badge> — entrada criada junto de uma despesa no Financeiro (pelo lançamento, por "Movimentar" ou pela criação de um item novo, aqui em Estoque).</li>
+        <li><Badge color="green">Receita</Badge> — saída criada junto de uma receita no Financeiro.</li>
+      </ul>
+      <AlertBox type="amber" icon="ti-swords"
+        title="Sanidade só se desfaz pela Sanidade — Despesa/Receita se desfazem pelos dois lados"
+        body='Uma movimentação com o selo "Sanidade" não pode ser excluída nem revertida direto por aqui — clicar no ícone mostra o aviso pra ir excluir o procedimento na tela Sanidade, que devolve o estoque de lá. Já uma movimentação com o selo "Despesa" ou "Receita" PODE ser revertida direto por aqui: reverter também apaga o lançamento financeiro vinculado (exige permissão de Financeiro além de Estoque). Essa diferença é proposital — Sanidade pode baixar vários itens de uma vez só e por isso "é dona" da baixa; despesa/receita ligam sempre 1 movimentação a 1 lançamento, então qualquer um dos dois lados pode desfazer com segurança.' />
     </div>
   )
 }

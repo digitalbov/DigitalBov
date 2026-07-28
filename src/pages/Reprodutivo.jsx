@@ -9,7 +9,7 @@ import { useCicloLocal } from '../lib/useCicloLocal'
 import {
   fmtData, pct, contarMatrizes, contarExpostas, contarPrenhas, calcTaxaPrenhez, calcCategoriaRebanho, algumErro,
   GESTACAO_MAX_DIAS, calcGestacaoLote, calcDesmameMetrics, calcIntervaloPartos, statusReprodutivoExibicao,
-  dataNaoFutura, resolverPaiDerivado, mesesDeVida,
+  dataNaoFutura, resolverPaiDerivado, mesesDeVida, capitalizarPrimeira, capitalizarNome,
 } from '../lib/helpers'
 import { hoje as hojeAgora, hojeISO } from '../lib/hoje'
 import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, AlertBox, BotaoPDF, ErroCarregamento, BannerCicloEncerrado, SeletorCicloLocal } from '../components/UI'
@@ -399,7 +399,7 @@ export default function Reprodutivo() {
     }
     const { data, error } = await db.estacoesMonta.insert({
       ciclo_id: cicloId,
-      nome:     form.nova_estacao_nome,
+      nome:     capitalizarNome(form.nova_estacao_nome),
       inicio:   form.nova_estacao_inicio,
       fim:      form.nova_estacao_fim || null,
     })
@@ -435,7 +435,7 @@ export default function Reprodutivo() {
     }
 
     setSavingEstacao(true)
-    const { error } = await db.estacoesMonta.update(id, { nome, inicio, fim: fim || null })
+    const { error } = await db.estacoesMonta.update(id, { nome: capitalizarNome(nome), inicio, fim: fim || null })
     setSavingEstacao(false)
     if (error) { toast('Erro ao salvar estação: ' + error.message, 'error'); return }
     toast('Estação de monta atualizada!')
@@ -473,8 +473,8 @@ export default function Reprodutivo() {
     // Lista única "Touros" (só monta natural) — o 1º item vai pra
     // lotes_inseminacao.touro (preserva as ~29 leituras que assumem uma
     // string única), o resto vai pra lote_touros. IA continua com form.touro.
-    const listaTouros    = ehNaturalSalvar ? (form.touros || []).filter(Boolean) : []
-    const touroPrincipal = ehNaturalSalvar ? listaTouros[0] : form.touro
+    const listaTouros    = ehNaturalSalvar ? (form.touros || []).filter(Boolean).map(capitalizarNome) : []
+    const touroPrincipal = ehNaturalSalvar ? listaTouros[0] : capitalizarNome(form.touro)
     if (loteEdit) {
       if (!touroPrincipal) { toast(ehNaturalSalvar ? 'Adicione pelo menos um touro.' : 'Preencha o touro.', 'error'); return }
       if (!dataEhEditavel(form.data)) {
@@ -784,7 +784,7 @@ export default function Reprodutivo() {
       ciclo_id:             cicloDoAborto?.id || null,
       data:                 formAborto.data,
       causa:                formAborto.causa || 'desconhecido',
-      observacoes:          formAborto.observacoes || ''
+      observacoes:          capitalizarPrimeira(formAborto.observacoes) || ''
     })
     if (error) { toast('Erro ao registrar aborto: ' + error.message, 'error'); setSaving(false); return }
     await db.animais.update(abortoAlvo.animal_id, { sit_reprodutiva: 'vazia' })
@@ -830,7 +830,7 @@ export default function Reprodutivo() {
       return
     }
     const { error } = await db.abortos.update(editAborto.id, {
-      data: editAborto.data, causa: editAborto.causa || 'desconhecido', observacoes: editAborto.observacoes || ''
+      data: editAborto.data, causa: editAborto.causa || 'desconhecido', observacoes: capitalizarPrimeira(editAborto.observacoes) || ''
     })
     if (error) { toast('Erro ao atualizar aborto: ' + error.message, 'error'); return }
     toast('Aborto atualizado.')
@@ -951,7 +951,7 @@ export default function Reprodutivo() {
         data_parto: form.data_parto,
         ciclo_id: cicloDoParto.id,
         lote_inseminacao_id: form.lote_inseminacao_id || null,
-        observacoes: form.obs || ''
+        observacoes: capitalizarPrimeira(form.obs) || ''
       })
       if (errParto) {
         console.error('[Reprodutivo] salvarParto: erro ao inserir parto (bezerro', bezData.brinco, 'já foi criado):', errParto)
@@ -1096,7 +1096,7 @@ export default function Reprodutivo() {
     }
     // atualiza o parto
     const { error: e1 } = await db.partos.update(ep.id, {
-      data_parto: ep.data_parto, observacoes: ep.observacoes
+      data_parto: ep.data_parto, observacoes: capitalizarPrimeira(ep.observacoes)
     })
     // atualiza o bezerro
     if (ep.bezerro_id) {
@@ -1458,12 +1458,12 @@ export default function Reprodutivo() {
                 <span style={{ fontSize:'.85rem', color:'#6B7280' }}>{lotes.length} lote{lotes.length!==1?'s':''} · Ciclo {cicloLocal?.nome}</span>
                 <div style={{ display:'flex', flexWrap:'wrap', gap:8 }}>
                   {podeEditarReprodCiclo && (
-                    <button className="btn btn-primary btn-sm" onClick={() => { setLoteEdit(null); setForm({ tipo: 'ia' }); setModal('lote'); setSelBrs([]) }}>
+                    <button className="btn btn-primary btn-sm" onClick={() => { setLoteEdit(null); setForm({ tipo: 'ia', data: hojeISO() }); setModal('lote'); setSelBrs([]) }}>
                       <i className="ti ti-plus" /> Novo lote de inseminação
                     </button>
                   )}
                   {podeEditarReprodCiclo && (
-                    <button className="btn btn-primary btn-sm" onClick={() => { setLoteEdit(null); setForm({ tipo: 'natural', touros: [] }); setModal('lote'); setSelBrs([]) }}>
+                    <button className="btn btn-primary btn-sm" onClick={() => { setLoteEdit(null); setForm({ tipo: 'natural', touros: [], data: hojeISO() }); setModal('lote'); setSelBrs([]) }}>
                       <i className="ti ti-plus" /> Nova monta natural
                     </button>
                   )}
@@ -1475,8 +1475,8 @@ export default function Reprodutivo() {
                 ? <EmptyState icon="💉" title="Nenhum lote registrado" sub="Registre o primeiro lote de inseminação ou monta natural do ciclo."
                     action={podeEditarReprodCiclo ? (
                       <div style={{ display:'flex', gap:8, flexWrap:'wrap', justifyContent:'center' }}>
-                        <button className="btn btn-primary btn-sm" onClick={()=>{setLoteEdit(null);setForm({ tipo: 'ia' });setModal('lote');setSelBrs([])}}><i className="ti ti-plus"/>Inseminação</button>
-                        <button className="btn btn-primary btn-sm" onClick={()=>{setLoteEdit(null);setForm({ tipo: 'natural', touros: [] });setModal('lote');setSelBrs([])}}><i className="ti ti-plus"/>Monta natural</button>
+                        <button className="btn btn-primary btn-sm" onClick={()=>{setLoteEdit(null);setForm({ tipo: 'ia', data: hojeISO() });setModal('lote');setSelBrs([])}}><i className="ti ti-plus"/>Inseminação</button>
+                        <button className="btn btn-primary btn-sm" onClick={()=>{setLoteEdit(null);setForm({ tipo: 'natural', touros: [], data: hojeISO() });setModal('lote');setSelBrs([])}}><i className="ti ti-plus"/>Monta natural</button>
                       </div>
                     ) : undefined} />
                 : (

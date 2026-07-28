@@ -2,7 +2,7 @@
 import { useNavigate } from 'react-router-dom'
 import { usePermissoes } from '../lib/PermissoesContext'
 import { db } from '../lib/supabase'
-import { calcCategoria, calcCategoriaRebanho, idadeFormatada, fmtData, catCor, sitCor, repCor, sortBrinco, dataNaoFutura, algumErro, statusReprodutivoExibicao, statusReprodutivoCiclo, STATUS_CICLO_ANIMAL, paiEhMontaNaturalIndefinida } from '../lib/helpers'
+import { calcCategoria, calcCategoriaRebanho, idadeFormatada, fmtData, catCor, sitCor, repCor, sortBrinco, dataNaoFutura, algumErro, statusReprodutivoExibicao, statusReprodutivoCiclo, STATUS_CICLO_ANIMAL, paiEhMontaNaturalIndefinida, capitalizarPrimeira, capitalizarNome } from '../lib/helpers'
 import { hojeISO } from '../lib/hoje'
 import { Loading, EmptyState, Modal, Field, MicButton, Badge, toast, BotaoPDF, ErroCarregamento } from '../components/UI'
 import { baixarModeloAnimais, lerPlanilhaAnimais, validarLinhas } from '../lib/importacaoAnimais'
@@ -512,11 +512,12 @@ export default function Animais() {
   const salvarNotas = async () => {
     if (!podeEditarAnimais) return
     setSavingNotas(true)
-    const { error } = await db.animais.update(selected.id, { observacoes: notas })
+    const notasCap = capitalizarPrimeira(notas)
+    const { error } = await db.animais.update(selected.id, { observacoes: notasCap })
     setSavingNotas(false)
     if (error) { toast('Erro ao salvar anotação.', 'error'); return }
     toast('Anotação salva!')
-    setSelected(prev => ({ ...prev, observacoes: notas }))
+    setSelected(prev => ({ ...prev, observacoes: notasCap }))
   }
 
   // Motivos que impedem a exclusão definitiva de um animal (histórico vinculado)
@@ -671,6 +672,9 @@ export default function Animais() {
     delete payload.proprietario
     delete payload.lote
     payload = limparVazios(payload)
+    payload.raca    = capitalizarNome(payload.raca)
+    payload.pelagem = capitalizarNome(payload.pelagem)
+    payload.pai     = paiEhMontaNaturalIndefinida(payload.pai) ? payload.pai : capitalizarNome(payload.pai)
     if (!payload.brinco)          { toast('Preencha o brinco.', 'error'); return }
     if (!payload.sexo)            { toast('Selecione o sexo.', 'error'); return }
     if (!payload.proprietario_id) { toast('Selecione o proprietário.', 'error'); return }

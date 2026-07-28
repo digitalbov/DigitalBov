@@ -3,7 +3,7 @@ import { db } from '../lib/supabase'
 import { usePermissoes } from '../lib/PermissoesContext'
 import { useCiclo, statusCiclo } from '../lib/CicloContext'
 import { useCicloLocal } from '../lib/useCicloLocal'
-import { fmtData, calcGMD, fmtPeso, numeroPositivo, dataNaoFutura, calcCategoria, mesesDeVida, algumErro, pesagensDeManejo } from '../lib/helpers'
+import { fmtData, calcGMD, fmtPeso, numeroPositivo, dataNaoFutura, calcCategoria, mesesDeVida, algumErro, pesagensDeManejo, capitalizarPrimeira } from '../lib/helpers'
 import { hoje as hojeAgora, hojeISO } from '../lib/hoje'
 import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, IndexCard, BotaoPDF, Confirm, ErroCarregamento, BannerCicloEncerrado, SeletorCicloLocal } from '../components/UI'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
@@ -159,7 +159,7 @@ export default function Pesagens() {
       data:      form.data,
       tipo:      form.tipo,
       peso_kg:   peso,
-      observacoes: form.obs || ''
+      observacoes: capitalizarPrimeira(form.obs) || ''
     })
     setSaving(false)
     if (error) { toast('Erro: ' + error.message,'error'); return }
@@ -247,7 +247,15 @@ export default function Pesagens() {
   // Filtra a lista de registros (aba Registrar) pelo ciclo local. As demais
   // abas (Por Animal, Desempenho, Projeção) usam o histórico completo, pois
   // o cálculo de GMD/projeção depende de pesagens de qualquer época.
-  const pesagensFiltradas = pesagens.filter(p => cicloLocal && dentroDoCiclo(p.data, cicloLocal))
+  // Ordenada aqui por criado_em desc (lançamento mais recente no topo,
+  // mesmo critério de Financeiro/Estoque/Sanidade) — só na exibição desta
+  // aba, sem tocar em db.pesagens.listAll(): os outros consumidores dessa
+  // query (Por Animal/Lote/Categoria/Desempenho/Projeção aqui, e os GMDs de
+  // Metas.jsx/Rebanho.jsx) reordenam por data internamente antes de calcular
+  // GMD, então dependem da ordem cronológica real, não da ordem da query.
+  const pesagensFiltradas = pesagens
+    .filter(p => cicloLocal && dentroDoCiclo(p.data, cicloLocal))
+    .sort((a, b) => (b.criado_em || '').localeCompare(a.criado_em || '') || (b.id || '').localeCompare(a.id || ''))
 
   // Candidatos ao desmame: bezerros/terneiros ativos (≤12 meses) que ainda não
   // têm data_desmame registrada, com filtro opcional por lote (pasto/manejo).

@@ -229,7 +229,9 @@ export const db = {
   },
 
   sanidade: {
-    list:   ()       => T('procedimentos_sanitarios').select('*').order('data', { ascending: false }),
+    // Ordenado por criado_em desc (mesmo critério de db.lancamentos.list) — o
+    // procedimento mais recente aparece primeiro, mesmo com data retroativa.
+    list:   ()       => T('procedimentos_sanitarios').select('*').order('criado_em', { ascending: false }).order('id', { ascending: false }),
     insert: (data)   => T('procedimentos_sanitarios').insertOne(data).select().single(),
     update: (id, d)  => escopo(T('procedimentos_sanitarios').raw().update(d).eq('id', id)).select().single(),
     delete: (id)     => escopo(T('procedimentos_sanitarios').raw().delete().eq('id', id)),
@@ -256,7 +258,9 @@ export const db = {
   },
 
   movEstoque: {
-    list:   ()       => T('estoque_movimentacoes').select('*, item:estoque_itens(item,unidade)').order('data', { ascending: false }).limit(500),
+    // Ordenado por criado_em desc (mesmo critério de db.lancamentos.list) — a
+    // movimentação mais recente aparece primeiro, mesmo com data retroativa.
+    list:   ()       => T('estoque_movimentacoes').select('*, item:estoque_itens(item,unidade)').order('criado_em', { ascending: false }).order('id', { ascending: false }).limit(500),
     insert: (data)   => T('estoque_movimentacoes').insertOne(data).select().single(),
     // Exclusão/reversão (saída devolve ao estoque, entrada remove) é feita em
     // 2 passos no client (ajustar estoque_itens.quantidade + apagar a linha),
@@ -271,10 +275,23 @@ export const db = {
     // "itens baixados por procedimento" da lista inteira, sem N+1.
     listPorProcedimento: (procId) => T('estoque_movimentacoes').select('*, item:estoque_itens(item,unidade)').eq('procedimento_id', procId),
     listComProcedimento: ()       => T('estoque_movimentacoes').select('id,item_id,quantidade,procedimento_id,item:estoque_itens(item,unidade)').not('procedimento_id', 'is', null),
+    // Bloco D10 — vínculo com lancamento_financeiro (despesa->entrada,
+    // receita->saída). listPorLancamento é leitura fresca, usada por
+    // Financeiro.jsx::excluirLanc pra reverter a movimentação antes de apagar
+    // o lançamento — mesmo padrão de listPorProcedimento/Sanidade.jsx.
+    listPorLancamento: (lancId) => T('estoque_movimentacoes').select('*, item:estoque_itens(item,unidade)').eq('lancamento_id', lancId),
   },
 
   lancamentos: {
-    list:   (cicloId) => T('lancamentos_financeiros').select('*, rateios:lancamento_rateios(proprietario_id, valor, percentual, proprietario:proprietarios(nome))').eq('ciclo_id', cicloId).order('data', { ascending: false }),
+    // Ordenado por CRIADO_EM desc (não pela data do lançamento) — o lançamento
+    // mais recente aparece primeiro, mesmo que tenha sido lançado hoje com
+    // data retroativa. Desempate por id: lançamentos criados na MESMA
+    // transação (ex: registrar_venda_animais gerando venda + comissão/imposto
+    // num só INSERT) recebem o mesmo criado_em (NOW() é fixo dentro de uma
+    // transação no Postgres) — sem um segundo critério a ordem desses empates
+    // mudaria a cada carregamento. id não reflete ordem de criação (é um UUID
+    // aleatório), só garante que o empate sempre resolve pro mesmo lado.
+    list:   (cicloId) => T('lancamentos_financeiros').select('*, rateios:lancamento_rateios(proprietario_id, valor, percentual, proprietario:proprietarios(nome))').eq('ciclo_id', cicloId).order('criado_em', { ascending: false }).order('id', { ascending: false }),
     insert: (data)    => T('lancamentos_financeiros').insertOne(data).select().single(),
     delete: (id)      => escopo(T('lancamentos_financeiros').raw().delete().eq('id', id)),
     // Grupos já usados em qualquer ciclo (não só o selecionado) — usado pra
@@ -298,7 +315,9 @@ export const db = {
   },
 
   transacoes: {
-    list:   (cicloId) => T('transacoes_animais').select('*').eq('ciclo_id', cicloId).order('data', { ascending: false }),
+    // Ordenado por criado_em desc (mesmo critério de db.lancamentos.list) — a
+    // transação mais recente aparece primeiro, mesmo com data retroativa.
+    list:   (cicloId) => T('transacoes_animais').select('*').eq('ciclo_id', cicloId).order('criado_em', { ascending: false }).order('id', { ascending: false }),
     // Só vendas, de qualquer ciclo — usado no gráfico de preço de venda por kg
     // ao longo do tempo (Metas.jsx), que é histórico e não deve ficar preso ao
     // ciclo selecionado. Só os campos usados no gráfico.

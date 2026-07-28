@@ -7,7 +7,7 @@ import { Canvas } from '@react-three/fiber'
 import { Line } from '@react-three/drei/core/Line'
 import { OrbitControls } from '@react-three/drei/core/OrbitControls'
 import { Html } from '@react-three/drei/web/Html'
-import { fmtData } from '../lib/helpers'
+import { fmtData, fmtMoeda } from '../lib/helpers'
 
 // Carregado só quando este componente é importado via React.lazy (ver Metas.jsx)
 // — three.js/@react-three/fiber/drei nunca entram no bundle inicial do app.
@@ -111,7 +111,7 @@ export default function GraficoPrecoVenda3D({ series }) {
 
   const fmtValor = (precoKg) => {
     const v = unidade === 'arroba' ? precoKg * 15 : precoKg
-    return `R$ ${v.toFixed(2)}/${unidade === 'arroba' ? '@' : 'kg'}`
+    return `${fmtMoeda(v)}/${unidade === 'arroba' ? '@' : 'kg'}`
   }
 
   const toggleCategoria = (cat) => setVisiveis(p => ({ ...p, [cat]: p[cat] === false ? true : false }))

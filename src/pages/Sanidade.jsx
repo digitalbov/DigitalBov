@@ -5,8 +5,9 @@ import { useConta } from '../lib/ContaContext'
 import { useFazenda } from '../lib/FazendaContext'
 import { useCiclo, statusCiclo } from '../lib/CicloContext'
 import { useCicloLocal } from '../lib/useCicloLocal'
-import { fmtData, diasDesde, calcCategoriaRebanho, algumErro } from '../lib/helpers'
+import { fmtData, diasDesde, calcCategoriaRebanho, algumErro, capitalizarPrimeira } from '../lib/helpers'
 import { hoje as hojeAgora, hojeISO } from '../lib/hoje'
+import { validarSaldoEstoque, aplicarMovimentacaoEstoque, reverterCascata } from '../lib/estoqueFinanceiro'
 import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, AlertBox, BotaoPDF, Confirm, ErroCarregamento, BannerCicloEncerrado, SeletorCicloLocal } from '../components/UI'
 
 const TABS   = ['Registros','Alertas','Histórico']
@@ -121,23 +122,6 @@ export default function Sanidade() {
     prev.map((l, i) => i === idx ? { ...l, ...patch } : l)
   )
 
-  // Valida ANTES de salvar (bloqueia a criação do procedimento inteiro, não só
-  // a baixa) — soma por item (2 linhas do mesmo item somam) e compara com o
-  // saldo atual. Nunca deixa o estoque ir negativo.
-  const validarSaldoEstoque = () => {
-    const linhas = itensEstoqueUsados.filter(l => l.item_id && parseFloat(l.quantidade) > 0)
-    const totais = {}
-    linhas.forEach(l => { totais[l.item_id] = (totais[l.item_id] || 0) + parseFloat(l.quantidade) })
-    for (const [itemId, total] of Object.entries(totais)) {
-      const item = estoqueItens.find(i => i.id === itemId)
-      if (!item) continue
-      if (total > parseFloat(item.quantidade)) {
-        return `Saldo insuficiente de "${item.item}": disponível ${parseFloat(item.quantidade).toFixed(1)} ${item.unidade}, solicitado ${total.toFixed(1)} ${item.unidade}.`
-      }
-    }
-    return null
-  }
-
   const togLote = (nome) => setSelLotes(prev =>
     prev.includes(nome) ? prev.filter(n => n !== nome) : [...prev, nome]
   )
@@ -214,7 +198,8 @@ export default function Sanidade() {
     // Valida saldo ANTES de criar qualquer coisa — bloqueia o procedimento
     // inteiro, não só a baixa, se algum item não tiver saldo suficiente.
     if (!editandoId) {
-      const erroSaldo = validarSaldoEstoque()
+      const pedidos = itensEstoqueUsados.filter(l => l.item_id && parseFloat(l.quantidade) > 0)
+      const erroSaldo = validarSaldoEstoque(estoqueItens, pedidos)
       if (erroSaldo) { toast(erroSaldo, 'error'); return }
     }
     setSaving(true)
@@ -223,9 +208,9 @@ export default function Sanidade() {
       const { error } = await db.sanidade.update(editandoId, {
         data:         form.data,
         tipo:         form.tipo,
-        procedimento: form.procedimento,
+        procedimento: capitalizarPrimeira(form.procedimento),
         proximo:      form.proximo || null,
-        observacoes:  form.obs || ''
+        observacoes:  capitalizarPrimeira(form.obs) || ''
       })
       setSaving(false)
       if (error) { toast('Erro: ' + error.message, 'error'); return }
@@ -242,11 +227,11 @@ export default function Sanidade() {
     const { data: procData, error } = await db.sanidade.insert({
       data:         form.data,
       tipo:         form.tipo,
-      procedimento: form.procedimento,
+      procedimento: capitalizarPrimeira(form.procedimento),
       lote_descricao,
       quantidade:   autoQtd !== null ? autoQtd : (parseInt(form.quantidade) || 0),
       proximo:      form.proximo || null,
-      observacoes:  form.obs || ''
+      observacoes:  capitalizarPrimeira(form.obs) || ''
     })
     if (error) { setSaving(false); toast('Erro: ' + error.message, 'error'); return }
 
@@ -282,41 +267,34 @@ export default function Sanidade() {
     }
 
     // ── Baixa de estoque (Bloco D6, opcional) — por procedimento, não por
-    // animal (ver diagnóstico). ORDEM É PROPOSITAL: grava a movimentação
-    // ANTES de ajustar estoque_itens.quantidade, uma linha de cada vez (não em
-    // paralelo). Se algo falhar no meio, é preferível ficar com uma
-    // movimentação SEM o saldo ajustado (visível em Estoque → Movimentar,
-    // auditável e corrigível manualmente) do que um saldo ajustado sem
-    // nenhuma movimentação explicando a diferença (invisível, indetectável).
-    // saldosLocais rastreia o saldo indo embora linha a linha (2 linhas do
-    // mesmo item têm que descontar em sequência, não do mesmo saldo "congelado").
+    // animal (ver diagnóstico). Usa aplicarMovimentacaoEstoque (Bloco D10 —
+    // módulo compartilhado), que já grava a movimentação ANTES de ajustar o
+    // saldo (ordem auditável). itensSnapshot é uma cópia local que avança a
+    // cada linha, pra 2 linhas do mesmo item descontarem em sequência (não do
+    // mesmo saldo "congelado" do carregamento da tela).
     if (podeEditarEstoque && procData?.id) {
       const linhas = itensEstoqueUsados.filter(l => l.item_id && parseFloat(l.quantidade) > 0)
       const motivo = `Sanidade: ${form.procedimento} em ${fmtData(form.data)}`
-      const saldosLocais = {}
+      let itensSnapshot = estoqueItens
       for (const linha of linhas) {
-        const item = estoqueItens.find(i => i.id === linha.item_id)
+        const item = itensSnapshot.find(i => i.id === linha.item_id)
         if (!item) continue
-        if (!(linha.item_id in saldosLocais)) saldosLocais[linha.item_id] = parseFloat(item.quantidade)
-        const qt = parseFloat(linha.quantidade)
-
-        const { error: errMov } = await db.movEstoque.insert({
-          item_id: linha.item_id, data: form.data, tipo: 'S', quantidade: qt,
-          motivo, procedimento_id: procData.id,
+        const r = await aplicarMovimentacaoEstoque({
+          itemId: linha.item_id, tipo: 'S', quantidade: linha.quantidade, data: form.data,
+          motivo, vinculo: { procedimento_id: procData.id }, itensEstoque: itensSnapshot,
         })
-        if (errMov) {
-          toast(`Procedimento salvo, mas falhou ao baixar "${item.item}" do estoque: ${errMov.message}. As baixas seguintes foram interrompidas — confira em Estoque.`, 'error')
+        if (r.error && !r.movJaGravada) {
+          toast(`Procedimento salvo, mas falhou ao baixar "${item.item}" do estoque: ${r.error.message}. As baixas seguintes foram interrompidas — confira em Estoque.`, 'error')
           break // não tenta as próximas linhas — evita baixas fora de ordem sem a anterior registrada
         }
-
-        saldosLocais[linha.item_id] -= qt
-        const { error: errSaldo } = await db.estoque.update(linha.item_id, { quantidade: saldosLocais[linha.item_id] })
-        if (errSaldo) {
+        if (r.error && r.movJaGravada) {
           // A movimentação JÁ existe (passo anterior deu certo) — o saldo é
           // que não foi ajustado. Não interrompe as próximas linhas: cada uma
           // é independente, e a inconsistência desta já ficou visível/auditável.
-          toast(`Baixa de "${item.item}" registrada, mas o saldo não foi atualizado automaticamente: ${errSaldo.message}. Confira e ajuste em Estoque.`, 'error')
+          toast(`Baixa de "${item.item}" registrada, mas o saldo não foi atualizado automaticamente: ${r.error.message}. Confira e ajuste em Estoque.`, 'error')
+          continue // não avança o snapshot pra este item — saldo real não mudou
         }
+        itensSnapshot = itensSnapshot.map(i => i.id === linha.item_id ? { ...i, quantidade: r.novaQt } : i)
       }
     }
 
@@ -326,55 +304,28 @@ export default function Sanidade() {
   }
 
   // Reverte a baixa de estoque (se houver) antes de apagar o procedimento —
-  // mesmo princípio da reversão de compra/venda (Financeiro): soma de volta,
-  // depois apaga o registro. Leitura fresca do banco (não confia no cache
-  // local movsPorProcedimento, que pode estar um pouco desatualizado) — é 1
-  // query a mais, mas evita reverter com base em dado velho E é a mesma leitura
-  // que decide o guard de permissão abaixo (nunca libera por engano com o cache
-  // vazio/desatualizado). Pára no primeiro erro (NÃO segue pra apagar o
-  // procedimento) — melhor deixar uma exclusão parcialmente feita e o usuário
-  // tentar de novo do que apagar o procedimento com estoque ainda inconsistente.
+  // via reverterCascata (estoqueFinanceiro.js), usada também pelos caminhos
+  // 2-5 (Financeiro <-> Estoque). Leitura fresca do banco (não confia no
+  // cache local movsPorProcedimento) e pára no primeiro erro (NÃO segue pra
+  // apagar o procedimento) — melhor deixar uma exclusão parcialmente feita e
+  // o usuário tentar de novo do que apagar o procedimento com estoque ainda
+  // inconsistente.
   const excluir = async (id) => {
     if (!podeEditarSanidadeCiclo) return
-    const { data: movsLigadas, error: errMovs } = await db.movEstoque.listPorProcedimento(id)
-    if (errMovs) { toast('Erro ao verificar itens de estoque ligados: ' + errMovs.message, 'error'); return }
-
     // Reversão de baixa de estoque deixou de ser "efeito colateral livre" da
     // exclusão de sanidade — decisão do usuário: se o procedimento baixou
     // estoque, excluí-lo (e devolver o saldo) também exige podeEditar('estoque'),
-    // não só sanidade. Bloqueia ANTES de tocar em qualquer coisa — o guard vem
-    // logo depois da leitura fresca, antes do loop que muda saldo/apaga linhas.
-    if ((movsLigadas?.length) && !podeEditarEstoque) {
-      toast('Este registro baixou itens do estoque. É necessária permissão de edição no módulo Estoque para excluí-lo.', 'error')
-      return
-    }
-
-    const saldosLocais = {}
-    for (const m of (movsLigadas || [])) {
-      const item = estoqueItens.find(i => i.id === m.item_id)
-      const atualConhecido = item ? parseFloat(item.quantidade) : null
-      if (atualConhecido !== null) {
-        if (!(m.item_id in saldosLocais)) saldosLocais[m.item_id] = atualConhecido
-        saldosLocais[m.item_id] += parseFloat(m.quantidade)
-        const { error: errSaldo } = await db.estoque.update(m.item_id, { quantidade: saldosLocais[m.item_id] })
-        if (errSaldo) {
-          toast(`Erro ao devolver "${m.item?.item || 'item'}" ao estoque: ${errSaldo.message}. Exclusão interrompida — nada foi apagado.`, 'error')
-          return
-        }
-      }
-      const { error: errDelMov } = await db.movEstoque.delete(m.id)
-      if (errDelMov) {
-        toast('Erro ao remover movimentação de estoque: ' + errDelMov.message + '. Exclusão interrompida.', 'error')
-        return
-      }
-    }
+    // não só sanidade. reverterCascata (Bloco D10 — módulo compartilhado) já
+    // faz a leitura fresca, o guard de permissão e a reversão em 2 passadas.
+    const rev = await reverterCascata({ procedimentoId: id, itensEstoque: estoqueItens, podeEditarEstoque })
+    if (!rev.ok) { toast(rev.erro, 'error'); return }
 
     const { error: errVinc } = await db.sanidadeAnimais.deletePorProcedimento(id)
     if (errVinc) { toast('Erro ao remover vínculos de animais: ' + errVinc.message, 'error'); return }
 
     const { error } = await db.sanidade.delete(id)
     if (error) { toast('Erro ao excluir: ' + error.message, 'error'); return }
-    toast('Registro removido' + ((movsLigadas?.length) ? ' — estoque devolvido.' : '.'))
+    toast('Registro removido' + (rev.movs.length ? ' — estoque devolvido.' : '.'))
     load()
   }
 
@@ -444,7 +395,7 @@ export default function Sanidade() {
             </div>
             {podeEditarSanidadeCiclo && (
               <div className="sanidade-reg-novo">
-                <button className="btn btn-primary btn-sm" onClick={() => { resetFormSelecao(); setForm({ tipo:'Vacina' }); setModal(true) }}>
+                <button className="btn btn-primary btn-sm" onClick={() => { resetFormSelecao(); setForm({ tipo:'Vacina', data: hojeISO() }); setModal(true) }}>
                   <i className="ti ti-plus" /> Novo procedimento
                 </button>
               </div>

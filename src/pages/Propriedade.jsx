@@ -10,7 +10,7 @@ import { db, supabase } from '../lib/supabase'
 import { useFazenda } from '../lib/FazendaContext'
 import { useConta } from '../lib/ContaContext'
 import { usePermissoes } from '../lib/PermissoesContext'
-import { diasDesde, fmtMoeda, calcCategoriaRebanho, algumErro } from '../lib/helpers'
+import { diasDesde, fmtMoeda, calcCategoriaRebanho, algumErro, capitalizarPrimeira, capitalizarNome } from '../lib/helpers'
 import { hoje as hojeAgora, hojeISO } from '../lib/hoje'
 import { Loading, Modal, Field, Badge, toast, EmptyState, Confirm, ErroCarregamento } from '../components/UI'
 import {
@@ -352,8 +352,8 @@ export default function Propriedade() {
     if (!form.nome) { toast('Informe o nome.','error'); return }
     setSaving(true)
     const { error } = form.id
-      ? await db.proprietarios.update(form.id, { nome:form.nome, inscricao_estadual:form.inscricao_estadual })
-      : await db.proprietarios.insert({ nome:form.nome, inscricao_estadual:form.inscricao_estadual })
+      ? await db.proprietarios.update(form.id, { nome:capitalizarNome(form.nome), inscricao_estadual:form.inscricao_estadual })
+      : await db.proprietarios.insert({ nome:capitalizarNome(form.nome), inscricao_estadual:form.inscricao_estadual })
     setSaving(false)
     if (error) { toast('Erro: '+error.message,'error'); return }
     toast(form.id ? 'Proprietário atualizado!' : 'Proprietário cadastrado!')
@@ -394,12 +394,12 @@ export default function Propriedade() {
     if (!form.nome) { toast('Informe o nome.','error'); return }
     setSaving(true)
     const payload = {
-      nome:           form.nome,
+      nome:           capitalizarNome(form.nome),
       area_ha:        parseFloat(form.area_ha) || 0,
       status:         form.status || 'em_uso',
-      qualidade_past: form.qualidade_past || '',
-      tipo_pastagem:  form.tipo_pastagem  || '',
-      finalidade:     form.finalidade     || '',
+      qualidade_past: capitalizarPrimeira(form.qualidade_past) || '',
+      tipo_pastagem:  capitalizarPrimeira(form.tipo_pastagem)  || '',
+      finalidade:     capitalizarPrimeira(form.finalidade)     || '',
       geojson:        form.geometria      || null,
     }
     const { error } = form.id
@@ -450,11 +450,14 @@ export default function Propriedade() {
     setSaving(true)
     let loteId = form.id
     let error
+    const nomeLote = capitalizarNome(form.nome)
+    const finalidadeLote = capitalizarPrimeira(form.finalidade)
+    const descricaoLote = capitalizarPrimeira(form.descricao)
     if (form.id) {
-      const r = await db.lotes.update(form.id, { nome:form.nome, finalidade:form.finalidade, descricao:form.descricao })
+      const r = await db.lotes.update(form.id, { nome:nomeLote, finalidade:finalidadeLote, descricao:descricaoLote })
       error = r.error
     } else {
-      const r = await db.lotes.insert({ nome:form.nome, finalidade:form.finalidade, descricao:form.descricao })
+      const r = await db.lotes.insert({ nome:nomeLote, finalidade:finalidadeLote, descricao:descricaoLote })
       error = r.error; loteId = r.data?.id
     }
     if (error || !loteId) { setSaving(false); toast('Erro: '+(error?.message||'falha'),'error'); return }
@@ -480,8 +483,8 @@ export default function Propriedade() {
     if (!fazendaForm.nome) { toast('Informe o nome.','error'); return }
     setSaving(true)
     const { data, error } = await db.fazendas.update(fazendaAtual.id, {
-      nome:       fazendaForm.nome,
-      localizacao:fazendaForm.localizacao||'',
+      nome:       capitalizarNome(fazendaForm.nome),
+      localizacao:capitalizarPrimeira(fazendaForm.localizacao)||'',
       area_total: parseFloat(fazendaForm.area_total)||0,
       area_util:  totalHa, // sempre a soma dos piquetes cadastrados, não editável
     })
@@ -501,8 +504,8 @@ export default function Propriedade() {
     setSaving(true)
     const { data, error } = await supabase.rpc('criar_fazenda', {
       p_conta_id:   contaAtual.id,
-      p_nome:       form.nome,
-      p_localizacao: form.localizacao || null,
+      p_nome:       capitalizarNome(form.nome),
+      p_localizacao: capitalizarPrimeira(form.localizacao) || null,
     })
     setSaving(false)
     if (error || !data) { toast('Erro: '+(error?.message||'sem retorno'),'error'); return }
@@ -564,9 +567,10 @@ export default function Propriedade() {
     if (!form.descricao) { toast('Informe a descrição.','error'); return }
     if (!plan) { toast('Crie o planejamento primeiro.','error'); return }
     setSaving(true)
-    const payload = { planejamento_id:plan.id, descricao:form.descricao, ciclo_alvo:form.ciclo_alvo||null, status:'pendente' }
+    const descricaoAcao = capitalizarPrimeira(form.descricao)
+    const payload = { planejamento_id:plan.id, descricao:descricaoAcao, ciclo_alvo:form.ciclo_alvo||null, status:'pendente' }
     const { error } = form.id
-      ? await db.planejamentoAcoes.update(form.id, { descricao:form.descricao, ciclo_alvo:form.ciclo_alvo||null })
+      ? await db.planejamentoAcoes.update(form.id, { descricao:descricaoAcao, ciclo_alvo:form.ciclo_alvo||null })
       : await db.planejamentoAcoes.insert(payload)
     setSaving(false)
     if (error) { toast('Erro: '+error.message,'error'); return }

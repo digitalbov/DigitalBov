@@ -32,6 +32,43 @@ export const fmtMoeda = (v) => {
 
 export const fmtPeso = (v) => v ? `${parseFloat(v).toFixed(1)} kg` : '—'
 
+// Capitaliza só o primeiro caractere de um texto livre, mantendo o resto
+// exatamente como foi digitado (não mexe em siglas nem em maiúsculas no meio
+// da frase) — aplicado ao SALVAR campos de texto livre (nome, descrição,
+// motivo, observações etc.), pra padronizar sem reformatar o conteúdo.
+export const capitalizarPrimeira = (s) => {
+  if (!s) return s
+  return s.charAt(0).toUpperCase() + s.slice(1)
+}
+
+// Capitaliza CADA PALAVRA de um nome próprio (proprietário, fazenda, touro,
+// estação de monta, lote, piquete, item de estoque, contraparte, raça,
+// pelagem) — aplicado ao SALVAR, diferente de capitalizarPrimeira (que só
+// maiúscula a 1ª letra e serve pros textos livres: descrição, observações,
+// motivo, grupo financeiro etc.).
+// Preposições (de/da/do/das/dos/e) ficam minúsculas quando não são a 1ª
+// palavra, ex: "Fazenda Santa Rita do Sul".
+// Palavra com dígito é tratada como código, não nome (ex: brinco "SN-01") —
+// preservada exatamente como digitada, sem mexer em maiúscula/minúscula.
+// Sigla curta já em maiúscula (até 3 letras, ex: "JR", "II", "MG") é
+// preservada como digitada — só palavras mais longas em CAPS (ex: alguém
+// digitou com Caps Lock ligado) são normalizadas para Cada Palavra Maiúscula.
+const PREPOSICOES_NOME_MINUSCULAS = new Set(['de', 'da', 'do', 'das', 'dos', 'e'])
+export const capitalizarNome = (s) => {
+  if (!s) return s
+  return s
+    .split(' ')
+    .map((palavra, i) => {
+      if (!palavra) return palavra
+      if (/\d/.test(palavra)) return palavra
+      if (palavra.length <= 3 && palavra === palavra.toUpperCase() && palavra !== palavra.toLowerCase()) return palavra
+      const minuscula = palavra.toLowerCase()
+      if (i > 0 && PREPOSICOES_NOME_MINUSCULAS.has(minuscula)) return minuscula
+      return palavra.charAt(0).toUpperCase() + minuscula.slice(1)
+    })
+    .join(' ')
+}
+
 // ── Datas ────────────────────────────────────────────────────────────────────
 export const mesesDeVida = (dataNasc, dataRef = hojeAgora()) => {
   if (!dataNasc) return 0
@@ -477,11 +514,49 @@ export const GRUPOS_REC = [
   'Empréstimos', 'Juros', 'Outras Receitas'
 ]
 export const GRUPOS_DES = [
-  'Compra de Animais', 'Remédios', 'Suplementos', 'Mão de Obra', 'Combustível',
+  'Compra de Animais', 'Medicamentos', 'Suplementos', 'Mão de Obra', 'Combustível',
   'Ferramentas', 'Manutenção', 'Estrutura',
   'Máquinas e Equipamentos', 'Investimentos',
   'Realização de Lucro', 'Inseminação', 'Monta Natural', 'Frete'
 ]
+
+// ── Categorias de estoque e sugestão de grupo financeiro (Bloco D10) ────────
+// Compartilhado entre Financeiro.jsx (caminhos 2/3) e Estoque.jsx (caminhos
+// 4/5) — antes cada tela tinha sua própria cópia da lista de categorias;
+// agora uma só, pra nunca divergir. O grupo é só SUGESTÃO (sempre editável
+// depois); 'Outro' fica sem entrada de propósito, o usuário escolhe.
+export const CATS_ESTOQUE = ['Medicamento', 'Vacina', 'Sêmen', 'Suplemento', 'Ração', 'Outro']
+export const GRUPO_SUGERIDO_POR_CATEGORIA = {
+  Medicamento: 'Medicamentos', Vacina: 'Medicamentos',
+  Suplemento: 'Suplementos', Ração: 'Suplementos',
+  Sêmen: 'Inseminação',
+}
+
+// ── Rateio igual em centavos exatos ──────────────────────────────────────────
+// Divisão inteira de centavos primeiro, e a sobra (sempre < N centavos, por
+// causa do arredondamento) é distribuída 1 centavo por vez para os primeiros
+// da lista. Garante soma(valor) === valorTotal sempre, mesmo que valorTotal/n
+// não seja exato (ex: R$100 ÷ 3 = R$33,33+33,33+33,34, nunca R$99,99). Numa
+// divisão IGUAL não existe um "proprietário de maior valor" pra levar toda a
+// sobra (como no rateio proporcional das RPCs de venda/compra) — por isso
+// aqui a sobra é espalhada 1 centavo por proprietário em vez de concentrada.
+// Movida de Financeiro.jsx (Bloco D10) para ser reutilizável por
+// criarLancamentoRateado (estoqueFinanceiro.js), usada pelos caminhos 4/5.
+export const rateioIgualCentavos = (valorTotal, proprietarios) => {
+  const n = proprietarios.length
+  if (n === 0) return []
+  const totalCentavos = Math.round(valorTotal * 100)
+  const base = Math.floor(totalCentavos / n)
+  const resto = totalCentavos - base * n
+  return proprietarios.map((p, i) => {
+    const centavos = base + (i < resto ? 1 : 0)
+    return {
+      proprietario_id: p.id,
+      valor: (centavos / 100).toFixed(2),
+      percentual: totalCentavos > 0 ? ((centavos / totalCentavos) * 100).toFixed(2) : '0.00',
+    }
+  })
+}
 
 // ── Soma financeira segura ──────────────────────────────────────────────────
 // lancamentos_financeiros usa a coluna `valor`; transacoes_animais usa

@@ -524,7 +524,7 @@ export function Rebanho() {
                       {row.precoRec ? `${row.precoRec.peso_medio} kg` : '—'}
                     </td>
                     <td style={{ fontSize:'.78rem', color:'#6B7280' }}>
-                      {row.precoRec ? `R$ ${Number(row.precoRec.preco_kg||0).toFixed(2).replace('.',',')}` : '—'}
+                      {row.precoRec ? fmtMoeda(row.precoRec.preco_kg||0) : '—'}
                     </td>
                     <td style={{ fontWeight:600, color:'#2B6CD9' }}>
                       {row.valor > 0 ? fmtMoeda(row.valor) : '—'}

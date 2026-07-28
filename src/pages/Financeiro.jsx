@@ -1,7 +1,10 @@
 import { useState, useEffect, useRef, Fragment } from 'react'
 import { useLocation } from 'react-router-dom'
 import { db } from '../lib/supabase'
-import { fmtMoeda, fmtData, GRUPOS_REC, GRUPOS_DES, valorPropLanc, numeroPositivo, algumErro, calcCategoriaRebanho, CATEGORIAS_VALOR, sexoDaCategoria, estimarDataNascimentoPorCategoria } from '../lib/helpers'
+import { fmtMoeda, fmtData, GRUPOS_REC, GRUPOS_DES, valorPropLanc, numeroPositivo, algumErro, calcCategoriaRebanho, CATEGORIAS_VALOR, sexoDaCategoria, estimarDataNascimentoPorCategoria, CATS_ESTOQUE, GRUPO_SUGERIDO_POR_CATEGORIA, capitalizarPrimeira, capitalizarNome } from '../lib/helpers'
+import { validarSaldoEstoque, aplicarMovimentacaoEstoque, reverterCascata, buscarMovsVinculadas, criarLancamentoRateado, carregarGruposExtras, gruposDisponiveis as gruposDisponiveisShared, comGrupoExtra } from '../lib/estoqueFinanceiro'
+import RateioProprietarios from '../components/RateioProprietarios'
+import GrupoSelect from '../components/GrupoSelect'
 import { hoje as hojeAgora, hojeISO } from '../lib/hoje'
 import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, AlertBox, BotaoPDF, ErroCarregamento, BannerCicloEncerrado, SeletorCicloLocal, Confirm } from '../components/UI'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
@@ -12,10 +15,6 @@ import { useCiclo, statusCiclo, STATUS_CICLO_LABEL } from '../lib/CicloContext'
 import { useCicloLocal } from '../lib/useCicloLocal'
 
 const TABS = ['Resumo','Lançamentos','Compra & Venda','Resultados','Parâmetros','Ciclos','Simulações']
-// Categorias de item de estoque — mesma lista usada em Estoque.jsx (CATS),
-// repetida aqui pra não criar uma dependência de import entre as duas telas
-// por uma constante tão pequena.
-const CATS_ESTOQUE = ['Medicamento','Vacina','Sêmen','Suplemento','Ração','Outro']
 
 export default function Financeiro() {
   const location = useLocation()
@@ -50,11 +49,15 @@ export default function Financeiro() {
   const [itensPorTransacao,  setItensPorTransacao]  = useState({})
   const [carregandoItens,   setCarregandoItens]     = useState(false)
   const [confirmDelLanc,    setConfirmDelLanc]      = useState(null)
+  const [estoqueDoLancDel,  setEstoqueDoLancDel]     = useState([]) // movs de estoque vinculadas ao lanc em confirmDelLanc (Bloco D10)
   const [simulacoes,        setSimulacoes]          = useState([])
   const [confirmDelSim,     setConfirmDelSim]       = useState(null)
 
   const { podeEditar } = usePermissoes()
   const podeEditarFinanceiro = podeEditar('financeiro')
+  // Bloco D10 — integração Estoque <-> Financeiro (caminhos 2/3) exige as
+  // DUAS permissões: sem uma delas, nem o checkbox aparece no formulário.
+  const podeEditarEstoque = podeEditar('estoque')
   const { contaAtual } = useConta()
   const { fazendaAtual } = useFazenda()
   const { cicloDaData, dataEhEditavel } = useCiclo()
@@ -84,26 +87,20 @@ export default function Financeiro() {
     try {
       const results = await Promise.all([
         db.categoriasPreco.list(), db.proprietarios.list(),
-        db.lancamentos.listGrupos(), db.estoque.list(),
-        db.animais.list({ situacao:'ativo' }), db.lotes.list(),
+        db.estoque.list(), db.animais.list({ situacao:'ativo' }), db.lotes.list(),
+        // Grupos "personalizados" (fora da lista fixa GRUPOS_REC/GRUPOS_DES) já
+        // usados em algum lançamento — a mesma função (estoqueFinanceiro.js) que
+        // o Estoque usa, pra garantir que os dois lugares mostram a MESMA lista.
+        carregarGruposExtras(),
       ])
       if (algumErro('[Financeiro]', results)) { setLoadError(true); return }
-      const [rcp, rp, rGrupos, rItensEstoque, rAnimais, rLotes] = results
+      const [rcp, rp, rItensEstoque, rAnimais, rLotes, rGrupos] = results
       setCatPrecos(rcp.data || [])
       setProps(rp.data || [])
       setItensEstoque(rItensEstoque.data || [])
       setAnimaisAtivos(rAnimais.data || [])
       setLotes(rLotes.data || [])
-
-      // Grupos "personalizados" (fora da lista fixa GRUPOS_REC/GRUPOS_DES) que já
-      // foram usados em algum lançamento — assim que um grupo novo é digitado e
-      // salvo, ele aparece na lista pros próximos lançamentos do mesmo tipo,
-      // sem precisar de uma tabela própria pra grupos.
-      const todosGrupos = rGrupos.data || []
-      const extrasDe = (tipo, fixos) => [...new Set(
-        todosGrupos.filter(g => g.tipo === tipo && g.grupo).map(g => g.grupo)
-      )].filter(g => !fixos.includes(g))
-      setGruposExtras({ R: extrasDe('R', GRUPOS_REC), D: extrasDe('D', GRUPOS_DES) })
+      setGruposExtras(rGrupos.extras)
     } catch (e) {
       console.error('[Financeiro] erro ao carregar:', e)
       setLoadError(true)
@@ -112,12 +109,32 @@ export default function Financeiro() {
     }
   }
 
-  const gruposDisponiveis = (tipo) => tipo === 'R'
-    ? [...GRUPOS_REC, ...gruposExtras.R]
-    : [...GRUPOS_DES, ...gruposExtras.D]
+  const gruposDisponiveis = (tipo) => gruposDisponiveisShared(tipo, gruposExtras)
 
+  // ── Bloco D10 — coerência quantidade × unitário ↔ total (caminho 2, entrada
+  // de estoque via despesa). O "Total" É o próprio campo Valor (R$) do
+  // lançamento — não existe um campo Total separado. Editar quantidade ou
+  // unitário recalcula o total; editar o total (ex: veio de nota fiscal)
+  // recalcula o unitário — nas duas direções, sempre os três coerentes.
+  const setEstoqueQuantidade = (v) => setForm(p => {
+    const qtd = parseFloat(v) || 0, unit = parseFloat(p.estoqueUnitario) || 0
+    return { ...p, estoqueQuantidade: v, valor: (qtd > 0 && unit > 0) ? (qtd * unit).toFixed(2) : p.valor }
+  })
+  const setEstoqueUnitario = (v) => setForm(p => {
+    const qtd = parseFloat(p.estoqueQuantidade) || 0, unit = parseFloat(v) || 0
+    return { ...p, estoqueUnitario: v, valor: (qtd > 0 && unit > 0) ? (qtd * unit).toFixed(2) : p.valor }
+  })
+  const setValorLanc = (v) => setForm(p => {
+    if (!p.criarEntradaEstoque) return { ...p, valor: v }
+    const qtd = parseFloat(p.estoqueQuantidade) || 0
+    return { ...p, valor: v, estoqueUnitario: qtd > 0 ? (parseFloat(v || 0) / qtd).toFixed(2) : p.estoqueUnitario }
+  })
+
+  // Não existe "editar lançamento" nesta tela (só criar/excluir), então este
+  // form sempre é de um lançamento NOVO: pode preencher a data com hoje() sem
+  // risco de sobrescrever uma data já gravada.
   const abrirModalLanc = () => {
-    setForm({ rateios: props.map(p => ({ proprietario_id: p.id, percentual: '', valor: '' })) })
+    setForm({ data: hojeISO(), rateios: props.map(p => ({ proprietario_id: p.id, percentual: '', valor: '' })) })
     setModal('lanc')
   }
 
@@ -127,64 +144,9 @@ export default function Financeiro() {
   // fallback visual (value={form.tipo||'V'}). Isso fazia o painel de venda
   // nunca renderizar (ver histórico do Bloco D2 pra mais detalhes do bug).
   const abrirModalTransac = () => {
-    setForm({ tipo: 'V' })
+    setForm({ tipo: 'V', data: hojeISO() })
     setModal('transac')
   }
-
-  const setRateioPercentual = (propId, perc) => {
-    const valorTotal = parseFloat(form.valor || 0)
-    const novoValor = perc === '' ? '' : (parseFloat(perc) / 100) * valorTotal
-    setForm(p => ({
-      ...p,
-      rateios: p.rateios.map(r => r.proprietario_id === propId
-        ? { ...r, percentual: perc, valor: novoValor === '' ? '' : novoValor.toFixed(2) }
-        : r)
-    }))
-  }
-
-  const setRateioValor = (propId, val) => {
-    const valorTotal = parseFloat(form.valor || 1) || 1
-    const novoPerc = val === '' ? '' : (parseFloat(val) / valorTotal) * 100
-    setForm(p => ({
-      ...p,
-      rateios: p.rateios.map(r => r.proprietario_id === propId
-        ? { ...r, valor: val, percentual: novoPerc === '' ? '' : novoPerc.toFixed(2) }
-        : r)
-    }))
-  }
-
-  // Divide um valor em centavos EXATOS entre N proprietários — divisão inteira
-  // de centavos primeiro, e a sobra (sempre < N centavos, por causa do
-  // arredondamento) é distribuída 1 centavo por vez para os primeiros da
-  // lista. Garante soma(valor) === valorTotal sempre, mesmo que valorTotal/n
-  // não seja exato (ex: R$100 ÷ 3 = R$33,33+33,33+33,34, nunca R$99,99). Numa
-  // divisão IGUAL não existe um "proprietário de maior valor" pra levar toda
-  // a sobra (como no rateio proporcional das RPCs de venda/compra) — por isso
-  // aqui a sobra é espalhada 1 centavo por proprietário em vez de concentrada.
-  const rateioIgualCentavos = (valorTotal, proprietarios) => {
-    const n = proprietarios.length
-    if (n === 0) return []
-    const totalCentavos = Math.round(valorTotal * 100)
-    const base = Math.floor(totalCentavos / n)
-    const resto = totalCentavos - base * n
-    return proprietarios.map((p, i) => {
-      const centavos = base + (i < resto ? 1 : 0)
-      return {
-        proprietario_id: p.id,
-        valor: (centavos / 100).toFixed(2),
-        percentual: totalCentavos > 0 ? ((centavos / totalCentavos) * 100).toFixed(2) : '0.00',
-      }
-    })
-  }
-
-  const dividirIgualmente = () => {
-    const valorTotal = parseFloat(form.valor || 0)
-    if (!valorTotal || props.length === 0) { toast('Preencha o valor do lançamento antes.', 'error'); return }
-    setForm(p => ({ ...p, rateios: rateioIgualCentavos(valorTotal, props) }))
-  }
-
-  const totalRateioPerc  = (form.rateios || []).reduce((s, r) => s + (parseFloat(r.percentual) || 0), 0)
-  const totalRateioValor = (form.rateios || []).reduce((s, r) => s + (parseFloat(r.valor) || 0), 0)
 
   // Efeito colateral de excluir um lançamento — venda reativa animais, compra
   // apaga os cadastrados por ela. Usado só pra avisar no texto de confirmação;
@@ -197,19 +159,42 @@ export default function Financeiro() {
     }
   }
 
+  // Busca fresca (não confia em cache local) só pra mostrar o efeito exato
+  // ANTES do usuário confirmar — a checagem que de fato vale (e bloqueia) é
+  // feita de novo dentro de reverterCascata, na hora de excluir.
+  const abrirConfirmExcluirLanc = async (l) => {
+    const { data } = await buscarMovsVinculadas({ lancamentoId: l.id })
+    setEstoqueDoLancDel(data || [])
+    setConfirmDelLanc(l)
+  }
+
   const excluirLanc = async (id) => {
     if (!podeEditarFinCiclo) return
+    // Caminhos 2/3 (Bloco D10) — reverte o estoque vinculado ANTES de excluir
+    // o lançamento, via reverterCascata (módulo compartilhado, mesma função
+    // usada por Sanidade.jsx e por Estoque.jsx do outro lado). checarCicloEditavel
+    // confere o ciclo do lado do Estoque também, não só o lado que está excluindo.
+    const rev = await reverterCascata({
+      lancamentoId: id, itensEstoque, podeEditarEstoque,
+      checarCicloEditavel: (data) => dataEhEditavel(data),
+    })
+    if (!rev.ok) { toast(rev.erro, 'error'); return }
+
     const { error } = await db.lancamentos.delete(id)
     // O trigger de reversão (ver reverter_venda_ao_excluir_lancamento) pode
     // abortar a exclusão com uma mensagem específica (ex: animal com pesagem
     // registrada depois da compra) — mostra ela em vez de um erro genérico.
     if (error) { toast('Erro ao excluir: ' + error.message, 'error'); return }
-    toast('Removido.')
+    toast('Removido.' + (rev.movs.length ? ' Estoque revertido.' : ''))
     loadCiclo()
     // A exclusão pode ter reativado (venda) ou apagado (compra) animais via
     // trigger no banco — recarrega a lista de ativos pra refletir isso na tela de Venda.
     const { data: rAnimais } = await db.animais.list({ situacao:'ativo' })
     setAnimaisAtivos(rAnimais || [])
+    if (rev.movs.length) {
+      const { data: rItens } = await db.estoque.list()
+      setItensEstoque(rItens || [])
+    }
   }
 
   const loadCiclo = async () => {
@@ -395,116 +380,91 @@ export default function Financeiro() {
       return
     }
 
-    // Entrada de estoque atrelada à despesa (opcional) — validada ANTES de
-    // salvar o lançamento: se os campos do estoque estiverem incompletos, nada
-    // é salvo (nem o lançamento), evitando um lançamento "órfão" sem a entrada
-    // que o usuário pediu explicitamente.
+    // Caminhos 2/3 (Bloco D10) — vinculação opcional com Estoque, só se as DUAS
+    // permissões existem. Tudo validado ANTES de criar o lançamento: se algo
+    // estiver incompleto ou o saldo for insuficiente, nada é salvo (nem o
+    // lançamento), evitando um lançamento "órfão" sem o vínculo pedido.
     const tipo = form.tipo || 'D'
-    const criarEstoque = tipo === 'D' && form.criarEntradaEstoque
-    let estoqueQtd = null
+    const criarEstoque = tipo === 'D' && podeEditarEstoque && form.criarEntradaEstoque
+    const baixarEstoque = tipo === 'R' && podeEditarEstoque && form.baixarEstoque
+
+    let estoqueQtd = null, estoqueUnit = null
     if (criarEstoque) {
       estoqueQtd = numeroPositivo(form.estoqueQuantidade)
       if (estoqueQtd === null) { toast('Informe a quantidade da entrada no estoque.', 'error'); return }
+      estoqueUnit = numeroPositivo(form.estoqueUnitario)
+      if (estoqueUnit === null) { toast('Informe o valor unitário da entrada no estoque.', 'error'); return }
       if (!form.estoqueItemId) { toast('Selecione ou crie um item de estoque.', 'error'); return }
       if (form.estoqueItemId === '__novo__' && (!form.estoqueItemNome || !form.estoqueUnidade)) {
         toast('Informe o nome e a unidade do novo item de estoque.', 'error'); return
       }
     }
-
-    // Despesa SEMPRE sai com rateio (receita continua opcional — já é sempre
-    // rateada quando vem de venda de animais via registrar_venda_animais, e
-    // lançamentos manuais de receita não exigem). Nada preenchido → aplica
-    // rateio igual entre os proprietários ativos automaticamente. Preenchido
-    // parcialmente → precisa bater exatamente com o valor total, senão bloqueia
-    // (evita salvar um rateio incompleto por engano).
-    let rateiosParaSalvar = (form.rateios || []).filter(r => parseFloat(r.valor) > 0)
-    if (tipo === 'D') {
-      if (rateiosParaSalvar.length === 0) {
-        if (props.length === 0) {
-          toast('Cadastre ao menos um proprietário para lançar despesas (o rateio é obrigatório).', 'error')
-          return
-        }
-        rateiosParaSalvar = rateioIgualCentavos(valor, props)
-        toast(`Rateio automático aplicado: dividido igualmente entre ${props.length} proprietário${props.length > 1 ? 's' : ''}.`)
-      } else {
-        const somaRateio = rateiosParaSalvar.reduce((s, r) => s + (parseFloat(r.valor) || 0), 0)
-        if (Math.abs(somaRateio - valor) > 0.01) {
-          toast(`A soma do rateio (${fmtMoeda(somaRateio)}) precisa bater com o valor total do lançamento (${fmtMoeda(valor)}).`, 'error')
-          return
-        }
-      }
+    let baixaQtd = null
+    if (baixarEstoque) {
+      baixaQtd = numeroPositivo(form.estoqueBaixaQuantidade)
+      if (baixaQtd === null) { toast('Informe a quantidade a dar baixa no estoque.', 'error'); return }
+      if (!form.estoqueBaixaItemId) { toast('Selecione o item de estoque.', 'error'); return }
+      const erroSaldo = validarSaldoEstoque(itensEstoque, [{ item_id: form.estoqueBaixaItemId, quantidade: baixaQtd }])
+      if (erroSaldo) { toast(erroSaldo, 'error'); return }
     }
 
     setSaving(true)
     const ciclo = cicloDaData(form.data)
-    const { data: lancData, error } = await db.lancamentos.insert({
-      ciclo_id: ciclo.id, data:form.data,
-      tipo, grupo:form.grupo,
-      descricao:form.descricao, valor
-    })
-    if (error) { setSaving(false); toast('Erro: '+error.message,'error'); return }
 
-    if (rateiosParaSalvar.length > 0 && lancData?.id) {
-      const payload = rateiosParaSalvar.map(r => ({
-        conta_id: contaAtual.id,
-        fazenda_id: fazendaAtual.id,
-        lancamento_id: lancData.id,
-        proprietario_id: r.proprietario_id,
-        valor: parseFloat(r.valor) || 0,
-        percentual: parseFloat(r.percentual) || 0,
-      }))
-      const { error: errRateio } = await db.lancamentoRateios.inserirVarios(payload)
-      if (errRateio) toast('Lançamento salvo, mas houve erro ao salvar o rateio: ' + errRateio.message, 'error')
+    // Item novo de estoque (Decisão 2 — campos completos, item idêntico ao
+    // criado por "Novo item"): criado ANTES do lançamento, com saldo 0 — a
+    // quantidade de verdade entra depois via aplicarMovimentacaoEstoque,
+    // junto do vínculo lancamento_id, único lugar que ajusta saldo.
+    let itemIdParaEntrada = criarEstoque ? form.estoqueItemId : null
+    let itensParaEntrada = itensEstoque
+    if (criarEstoque && itemIdParaEntrada === '__novo__') {
+      const { data: novoItem, error: errItem } = await db.estoque.insert({
+        item: capitalizarNome(form.estoqueItemNome), categoria: form.estoqueCategoria || 'Outro',
+        unidade: form.estoqueUnidade, quantidade: 0, minimo: numeroPositivo(form.estoqueMinimo) || 0, preco_unit: estoqueUnit,
+      })
+      if (errItem || !novoItem) {
+        setSaving(false); toast('Erro ao criar item de estoque: ' + (errItem?.message || ''), 'error'); return
+      }
+      itemIdParaEntrada = novoItem.id
+      itensParaEntrada = [...itensEstoque, novoItem]
+    }
+
+    const { data: lancData, error, avisoRateio } = await criarLancamentoRateado({
+      contaId: contaAtual.id, fazendaId: fazendaAtual.id, cicloId: ciclo.id,
+      tipo, grupo: form.grupo, descricao: form.descricao, valor, data: form.data,
+      rateios: form.rateios, props,
+    })
+    if (error) { setSaving(false); toast('Erro: ' + error.message, 'error'); return }
+    if (avisoRateio) {
+      toast('Lançamento salvo, mas houve erro ao salvar o rateio: ' + avisoRateio, 'error')
+    } else if (tipo === 'D' && (form.rateios || []).filter(r => parseFloat(r.valor) > 0).length === 0 && props.length > 0) {
+      toast(`Rateio automático aplicado: dividido igualmente entre ${props.length} proprietário${props.length > 1 ? 's' : ''}.`)
     }
 
     // Grupo personalizado (fora da lista fixa): fica disponível pros próximos
-    // lançamentos do mesmo tipo a partir de agora, sem esperar um reload da página.
-    const fixos = tipo === 'R' ? GRUPOS_REC : GRUPOS_DES
-    if (!fixos.includes(form.grupo)) {
-      setGruposExtras(prev => prev[tipo].includes(form.grupo) ? prev : { ...prev, [tipo]: [...prev[tipo], form.grupo] })
-    }
+    // lançamentos do mesmo tipo a partir de agora, sem esperar um reload da
+    // página — mesma função que o Estoque usa depois de salvar por lá.
+    setGruposExtras(prev => comGrupoExtra(prev, tipo, capitalizarPrimeira(form.grupo)))
 
-    if (criarEstoque) {
-      const valorUnit = estoqueQtd > 0 ? valor / estoqueQtd : 0
-      const motivo = `Despesa: ${form.descricao}`
-      let itemId = form.estoqueItemId
-      let errEstoque = null
-
-      if (itemId === '__novo__') {
-        const { data: novoItem, error: errItem } = await db.estoque.insert({
-          item: form.estoqueItemNome, categoria: form.estoqueCategoria || 'Outro',
-          unidade: form.estoqueUnidade, quantidade: estoqueQtd, minimo: 0, preco_unit: valorUnit,
-        })
-        if (errItem || !novoItem) {
-          errEstoque = errItem?.message || 'erro ao criar o item.'
-        } else {
-          itemId = novoItem.id
-          const { error: errMov } = await db.movEstoque.insert({
-            item_id: itemId, data: form.data, tipo: 'E',
-            quantidade: estoqueQtd, motivo, validade: form.estoqueValidade || null,
-          })
-          if (errMov) errEstoque = errMov.message
-        }
-      } else {
-        const itemAtual = itensEstoque.find(i => i.id === itemId)
-        const novaQt = (parseFloat(itemAtual?.quantidade) || 0) + estoqueQtd
-        const { error: errUpd } = await db.estoque.update(itemId, { quantidade: novaQt, preco_unit: valorUnit })
-        if (errUpd) {
-          errEstoque = errUpd.message
-        } else {
-          const { error: errMov } = await db.movEstoque.insert({
-            item_id: itemId, data: form.data, tipo: 'E',
-            quantidade: estoqueQtd, motivo, validade: form.estoqueValidade || null,
-          })
-          if (errMov) errEstoque = errMov.message
-        }
-      }
-
-      if (errEstoque) {
-        toast('Lançamento salvo, mas a entrada no estoque NÃO foi registrada: ' + errEstoque + ' — registre manualmente em Estoque.', 'error')
-      } else {
-        toast('Lançamento salvo e entrada no estoque registrada!')
-      }
+    if (criarEstoque && lancData?.id) {
+      const r = await aplicarMovimentacaoEstoque({
+        itemId: itemIdParaEntrada, tipo: 'E', quantidade: estoqueQtd, data: form.data,
+        motivo: `Despesa: ${form.descricao}`, validade: form.estoqueValidade,
+        vinculo: { lancamento_id: lancData.id }, precoUnitNovo: estoqueUnit, itensEstoque: itensParaEntrada,
+      })
+      toast(r.error
+        ? 'Lançamento salvo, mas a entrada no estoque NÃO foi registrada: ' + r.error.message + ' — registre manualmente em Estoque.'
+        : 'Lançamento salvo e entrada no estoque registrada!', r.error ? 'error' : undefined)
+      const { data: rItens } = await db.estoque.list()
+      setItensEstoque(rItens || [])
+    } else if (baixarEstoque && lancData?.id) {
+      const r = await aplicarMovimentacaoEstoque({
+        itemId: form.estoqueBaixaItemId, tipo: 'S', quantidade: baixaQtd, data: form.data,
+        motivo: `Receita: ${form.descricao}`, vinculo: { lancamento_id: lancData.id }, itensEstoque,
+      })
+      toast(r.error
+        ? 'Lançamento salvo, mas a baixa no estoque NÃO foi registrada: ' + r.error.message + ' — registre manualmente em Estoque.'
+        : 'Lançamento salvo e baixa no estoque registrada!', r.error ? 'error' : undefined)
       const { data: rItens } = await db.estoque.list()
       setItensEstoque(rItens || [])
     } else {
@@ -554,7 +514,7 @@ export default function Financeiro() {
     const { error } = await db.transacoes.registrarCompra({
       conta_id: contaAtual.id, fazenda_id: fazendaAtual.id, ciclo_id: ciclo.id, data: form.data,
       valor_total: totalCompra, descricao,
-      contraparte: form.contraparte || '', comissao: parseFloat(form.comissao)||0, imposto: parseFloat(form.imposto)||0,
+      contraparte: capitalizarNome(form.contraparte) || '', comissao: parseFloat(form.comissao)||0, imposto: parseFloat(form.imposto)||0,
       frete: parseFloat(form.frete)||0,
       detalhes,
     })
@@ -598,7 +558,7 @@ export default function Financeiro() {
     const { error } = await db.transacoes.registrarVenda({
       conta_id: contaAtual.id, fazenda_id: fazendaAtual.id, ciclo_id: ciclo.id, data: form.data,
       valor_total: totalVenda, descricao,
-      contraparte: form.contraparte || '', comissao: parseFloat(form.comissao)||0, imposto: parseFloat(form.imposto)||0,
+      contraparte: capitalizarNome(form.contraparte) || '', comissao: parseFloat(form.comissao)||0, imposto: parseFloat(form.imposto)||0,
       frete: parseFloat(form.frete)||0,
       detalhes, animal_ids: vendaSelecionados,
     })
@@ -905,7 +865,7 @@ export default function Financeiro() {
                         </td>
                         <td>
                           {podeEditarFinCiclo && (
-                            <button className="btn-icon" onClick={() => setConfirmDelLanc(l)}>
+                            <button className="btn-icon" onClick={() => abrirConfirmExcluirLanc(l)}>
                               <i className="ti ti-trash" style={{fontSize:13}}/>
                             </button>
                           )}
@@ -977,7 +937,7 @@ export default function Financeiro() {
                         <td>{t.categoria}</td>
                         <td>{t.quantidade}</td>
                         <td>{t.peso_medio}</td>
-                        <td>R$ {parseFloat(t.preco_kg).toFixed(2)}</td>
+                        <td>{fmtMoeda(t.preco_kg)}</td>
                         <td style={{fontSize:'.78rem',color:'#9CA3AF'}}>{t.contraparte||'—'}</td>
                         <td style={{color:'#9CA3AF'}}>{fmtMoeda(t.comissao)}</td>
                         <td style={{color:'#9CA3AF'}}>{fmtMoeda(t.imposto)}</td>
@@ -1011,7 +971,7 @@ export default function Financeiro() {
                                           <td>{item.categoria_venda}</td>
                                           <td>{item.proprietario?.nome || '—'}</td>
                                           <td>{item.peso_medio}</td>
-                                          <td>R$ {parseFloat(item.preco_kg||0).toFixed(2)}</td>
+                                          <td>{fmtMoeda(item.preco_kg||0)}</td>
                                           <td style={{textAlign:'right',fontWeight:500}}>{fmtMoeda(item.valor)}</td>
                                         </tr>
                                       ))}
@@ -1226,32 +1186,19 @@ export default function Financeiro() {
           <MicButton hint='ex: "dezoito do sete despesa remédios trinta reais vacina aftosa"' onResult={vozLanc}/>
         </div>
         <div className="grid-form">
-          <Field label="Tipo"><select value={form.tipo||'D'} onChange={e=>setForm(p=>({...p,tipo:e.target.value,grupo:'',_novoGrupo:false,criarEntradaEstoque:false}))}><option value="D">Despesa</option><option value="R">Receita</option></select></Field>
+          <Field label="Tipo"><select value={form.tipo||'D'} onChange={e=>setForm(p=>({...p,tipo:e.target.value,grupo:'',criarEntradaEstoque:false,baixarEstoque:false}))}><option value="D">Despesa</option><option value="R">Receita</option></select></Field>
           <Field label="Data" required><input type="date" value={form.data||''} onChange={e=>setForm(p=>({...p,data:e.target.value}))}/></Field>
           <Field label="Grupo" required>
-            {form._novoGrupo ? (
-              <div style={{ display:'flex', gap:6 }}>
-                <input autoFocus value={form.grupo||''} onChange={e=>setForm(p=>({...p,grupo:e.target.value}))} placeholder="Nome do novo grupo" />
-                <button type="button" className="btn btn-secondary btn-xs" title="Voltar para a lista" onClick={()=>setForm(p=>({...p,_novoGrupo:false,grupo:''}))}>
-                  <i className="ti ti-x"/>
-                </button>
-              </div>
-            ) : (
-              <select value={form.grupo||''} onChange={e=>{
-                if (e.target.value === '__novo__') { setForm(p=>({...p,_novoGrupo:true,grupo:''})); return }
-                setForm(p=>({...p,grupo:e.target.value}))
-              }}>
-                <option value="">— selecione —</option>
-                {gruposDisponiveis(form.tipo||'D').map(g=><option key={g}>{g}</option>)}
-                <option value="__novo__">+ Novo grupo...</option>
-              </select>
-            )}
+            <GrupoSelect key={form.tipo||'D'} value={form.grupo} opcoes={gruposDisponiveis(form.tipo||'D')}
+              onChange={g=>setForm(p=>({...p,grupo:g}))} />
           </Field>
-          <Field label="Valor (R$)" required><input type="number" step="0.01" value={form.valor||''} onChange={e=>setForm(p=>({...p,valor:e.target.value}))} placeholder="0,00"/></Field>
+          <Field label={form.criarEntradaEstoque ? 'Valor total (R$)' : 'Valor (R$)'} required>
+            <input type="number" step="0.01" value={form.valor||''} onChange={e=>setValorLanc(e.target.value)} placeholder="0,00"/>
+          </Field>
         </div>
         <Field label="Descrição" required><input value={form.descricao||''} onChange={e=>setForm(p=>({...p,descricao:e.target.value}))} placeholder="Descreva o lançamento..."/></Field>
 
-        {(form.tipo||'D')==='D' && (
+        {(form.tipo||'D')==='D' && podeEditarEstoque && (
           <div style={{ marginTop:14, paddingTop:14, borderTop:'.5px solid #E5E7EB' }}>
             <label style={{ display:'flex', alignItems:'center', gap:8, fontSize:'.85rem', fontWeight:600, color:'#374151', cursor:'pointer' }}>
               <input type="checkbox" checked={!!form.criarEntradaEstoque}
@@ -1261,7 +1208,20 @@ export default function Financeiro() {
             {form.criarEntradaEstoque && (
               <div className="grid-form" style={{ marginTop:10 }}>
                 <Field label="Item de estoque" required>
-                  <select value={form.estoqueItemId||''} onChange={e=>setForm(p=>({...p,estoqueItemId:e.target.value}))}>
+                  <select value={form.estoqueItemId||''} onChange={e=>{
+                    const id = e.target.value
+                    const item = itensEstoque.find(i=>i.id===id)
+                    setForm(p=>{
+                      const novoUnit = item ? String(item.preco_unit ?? '') : p.estoqueUnitario
+                      const qtd = parseFloat(p.estoqueQuantidade)||0, unit = parseFloat(novoUnit)||0
+                      const grupoSugerido = item ? GRUPO_SUGERIDO_POR_CATEGORIA[item.categoria] : null
+                      return {
+                        ...p, estoqueItemId:id, estoqueUnitario: novoUnit,
+                        valor: (item && qtd>0 && unit>0) ? (qtd*unit).toFixed(2) : p.valor,
+                        grupo: grupoSugerido || p.grupo,
+                      }
+                    })
+                  }}>
                     <option value="">— selecione —</option>
                     {itensEstoque.map(i=><option key={i.id} value={i.id}>{i.item} ({parseFloat(i.quantidade).toFixed(1)} {i.unidade})</option>)}
                     <option value="__novo__">+ Novo item...</option>
@@ -1273,17 +1233,26 @@ export default function Financeiro() {
                       <input value={form.estoqueItemNome||''} onChange={e=>setForm(p=>({...p,estoqueItemNome:e.target.value}))} placeholder="ex: Ivermectina 1%"/>
                     </Field>
                     <Field label="Categoria" required>
-                      <select value={form.estoqueCategoria||'Medicamento'} onChange={e=>setForm(p=>({...p,estoqueCategoria:e.target.value}))}>
+                      <select value={form.estoqueCategoria||'Medicamento'} onChange={e=>{
+                        const cat = e.target.value
+                        setForm(p=>({...p, estoqueCategoria:cat, grupo: GRUPO_SUGERIDO_POR_CATEGORIA[cat] || p.grupo}))
+                      }}>
                         {CATS_ESTOQUE.map(c=><option key={c}>{c}</option>)}
                       </select>
                     </Field>
                     <Field label="Unidade" required>
                       <input value={form.estoqueUnidade||''} onChange={e=>setForm(p=>({...p,estoqueUnidade:e.target.value}))} placeholder="ml, kg, dose, L..."/>
                     </Field>
+                    <Field label="Estoque mínimo" hint="Opcional — dispara o alerta de 'estoque baixo'.">
+                      <input type="number" step="0.1" value={form.estoqueMinimo||''} onChange={e=>setForm(p=>({...p,estoqueMinimo:e.target.value}))} placeholder="0"/>
+                    </Field>
                   </>
                 ) : null}
                 <Field label="Quantidade" required>
-                  <input type="number" step="0.1" value={form.estoqueQuantidade||''} onChange={e=>setForm(p=>({...p,estoqueQuantidade:e.target.value}))} placeholder="0"/>
+                  <input type="number" step="0.1" value={form.estoqueQuantidade||''} onChange={e=>setEstoqueQuantidade(e.target.value)} placeholder="0"/>
+                </Field>
+                <Field label="Valor unitário (R$)" required hint="Preço de UMA unidade — o Valor total acima é recalculado sozinho (quantidade × unitário), e vice-versa.">
+                  <input type="number" step="0.01" value={form.estoqueUnitario||''} onChange={e=>setEstoqueUnitario(e.target.value)} placeholder="0,00"/>
                 </Field>
                 <Field label="Validade" hint="Opcional — nem todo item tem.">
                   <input type="date" value={form.estoqueValidade||''} onChange={e=>setForm(p=>({...p,estoqueValidade:e.target.value}))}/>
@@ -1293,43 +1262,38 @@ export default function Financeiro() {
           </div>
         )}
 
-        {props.length > 0 && (
-          <div style={{ marginTop:16, paddingTop:14, borderTop:'.5px solid #E5E7EB' }}>
-            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
-              <span style={{ fontSize:'.85rem', fontWeight:600, color:'#374151' }}>
-                Rateio por proprietário {(form.tipo || 'D') === 'D' ? '(obrigatório)' : '(opcional)'}
-              </span>
-              <button type="button" className="btn btn-secondary btn-sm" onClick={dividirIgualmente}>
-                Dividir igualmente
-              </button>
-            </div>
-            <p style={{ fontSize:'.75rem', color:'#9CA3AF', marginBottom:10 }}>
-              {(form.tipo || 'D') === 'D'
-                ? 'Despesa exige rateio: se deixar em branco, é dividido automaticamente em partes iguais entre os proprietários ao salvar.'
-                : 'Deixe em branco se não quiser definir rateio agora.'}
-            </p>
-            {(form.rateios || []).map(r => {
-              const prop = props.find(p => p.id === r.proprietario_id)
-              return (
-                <div key={r.proprietario_id} style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8 }}>
-                  <span style={{ flex:1, fontSize:'.83rem', color:'#374151' }}>{prop?.nome || '—'}</span>
-                  <input type="number" step="0.01" placeholder="%" value={r.percentual}
-                    onChange={e => setRateioPercentual(r.proprietario_id, e.target.value)}
-                    style={{ width:70, textAlign:'right' }} />
-                  <span style={{ fontSize:'.78rem', color:'#9CA3AF' }}>%</span>
-                  <input type="number" step="0.01" placeholder="0,00" value={r.valor}
-                    onChange={e => setRateioValor(r.proprietario_id, e.target.value)}
-                    style={{ width:90, textAlign:'right' }} />
-                  <span style={{ fontSize:'.78rem', color:'#9CA3AF' }}>R$</span>
+        {(form.tipo||'D')==='R' && podeEditarEstoque && (
+          <div style={{ marginTop:14, paddingTop:14, borderTop:'.5px solid #E5E7EB' }}>
+            <label style={{ display:'flex', alignItems:'center', gap:8, fontSize:'.85rem', fontWeight:600, color:'#374151', cursor:'pointer' }}>
+              <input type="checkbox" checked={!!form.baixarEstoque}
+                onChange={e=>setForm(p=>({...p,baixarEstoque:e.target.checked}))} />
+              Dar baixa no estoque
+            </label>
+            {form.baixarEstoque && (
+              <>
+                <div className="grid-form" style={{ marginTop:10 }}>
+                  <Field label="Item de estoque" required>
+                    <select value={form.estoqueBaixaItemId||''} onChange={e=>setForm(p=>({...p,estoqueBaixaItemId:e.target.value}))}>
+                      <option value="">— selecione —</option>
+                      {itensEstoque.filter(i=>parseFloat(i.quantidade)>0).map(i=>
+                        <option key={i.id} value={i.id}>{i.item} ({parseFloat(i.quantidade).toFixed(1)} {i.unidade} em estoque)</option>
+                      )}
+                    </select>
+                  </Field>
+                  <Field label="Quantidade vendida" required>
+                    <input type="number" step="0.1" value={form.estoqueBaixaQuantidade||''} onChange={e=>setForm(p=>({...p,estoqueBaixaQuantidade:e.target.value}))} placeholder="0"/>
+                  </Field>
                 </div>
-              )
-            })}
-            <div style={{ display:'flex', justifyContent:'flex-end', gap:16, fontSize:'.78rem', color:'#6B7280', marginTop:6 }}>
-              <span>Total: <strong style={{ color:'#374151' }}>{totalRateioPerc.toFixed(2)}%</strong></span>
-              <span>{fmtMoeda(totalRateioValor)}</span>
-            </div>
+                <p style={{ fontSize:'.75rem', color:'#9CA3AF', marginTop:6 }}>
+                  O valor da receita acima é o valor da venda, informado por você — não tem relação com o preço cadastrado do item no estoque.
+                </p>
+              </>
+            )}
           </div>
         )}
+
+        <RateioProprietarios tipo={form.tipo || 'D'} valorTotal={parseFloat(form.valor || 0)} props={props}
+          rateios={form.rateios} onChange={r => setForm(p => ({ ...p, rateios: r }))} />
 
         <div style={{display:'flex',gap:8,marginTop:14}}>
           <button className="btn btn-primary" onClick={salvarLanc} disabled={saving || !podeEditarFinCiclo}>{saving?'Salvando...':<><i className="ti ti-check"/>Salvar</>}</button>
@@ -1565,6 +1529,13 @@ export default function Financeiro() {
           }
           if (compraQtd > 0) {
             return `Isto vai apagar ${compraQtd} animal${compraQtd>1?'is':''} cadastrados por esta compra (e o registro da compra), desde que nenhum deles tenha pesagem, sanidade, evento reprodutivo ou outra transação depois. Se algum tiver, a exclusão será bloqueada. Esta ação não pode ser desfeita.`
+          }
+          if (estoqueDoLancDel.length > 0) {
+            const partes = estoqueDoLancDel.map(m => m.tipo === 'E'
+              ? `remover ${parseFloat(m.quantidade).toFixed(1)} ${m.item?.unidade||''} de "${m.item?.item||'item'}"`
+              : `devolver ${parseFloat(m.quantidade).toFixed(1)} ${m.item?.unidade||''} a "${m.item?.item||'item'}"`
+            ).join('; ')
+            return `Isto vai reverter a movimentação de estoque vinculada (${partes}) e apagar este lançamento. Esta ação não pode ser desfeita.`
           }
           return 'Excluir este lançamento? Esta ação não pode ser desfeita.'
         })()}
