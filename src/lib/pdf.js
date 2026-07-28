@@ -71,7 +71,7 @@ export async function gerarPDFComMolduras(elemento, filename, titulo = '', fazen
   }
   const canvas = await html2canvas(elemento, { scale: 2, useCORS: true, logging: false, backgroundColor: '#ffffff' })
 
-  const pdf  = new jsPDF('p', 'mm', 'a4')
+  const pdf  = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4', compress: true })
   registrarGreatVibes(pdf)
   const pgW  = pdf.internal.pageSize.getWidth()   // 210
   const pgH  = pdf.internal.pageSize.getHeight()  // 297

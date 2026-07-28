@@ -8,7 +8,7 @@ function DemoNovaFazenda() {
   const [demo, setDemo] = useState({ nome: '', localizacao: '', area_total: '' })
 
   return (
-    <div style={{
+    <div data-pdf-shot="true" style={{
       border: '1.5px dashed #C7D2E8', borderRadius: 12, padding: 18,
       background: '#F8FAFD', marginTop: 10, marginBottom: 18,
     }}>

@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { AlertBox } from '../../../components/UI'
+import { fmtMoeda } from '../../../lib/helpers'
 
 const H4 = { fontSize: '.88rem', fontWeight: 700, color: '#1a1a1a', marginBottom: 8 }
 const P  = { color: '#374151', fontSize: '.85rem', lineHeight: 1.8, marginBottom: 18 }
@@ -32,7 +33,7 @@ function DemoRateio() {
   }
 
   return (
-    <div style={{
+    <div data-pdf-shot="true" style={{
       border: '1.5px dashed #C7D2E8', borderRadius: 12, padding: 18,
       background: '#F8FAFD', marginTop: 10, marginBottom: 18,
     }}>
@@ -41,7 +42,7 @@ function DemoRateio() {
         background: '#EEEDFE', color: '#3C3489', borderRadius: 8,
         padding: '3px 10px', fontSize: '.72rem', fontWeight: 700,
       }}>
-        <i className="ti ti-flask" /> MODO DEMONSTRAÇÃO — não salva dados reais (lançamento de R$ {total.toFixed(2)})
+        <i className="ti ti-flask" /> MODO DEMONSTRAÇÃO — não salva dados reais (lançamento de {fmtMoeda(total)})
       </div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
         <span style={{ fontSize: '.82rem', fontWeight: 600 }}>Rateio por proprietário</span>
@@ -77,13 +78,30 @@ export default function SecaoFinanceiro({ item }) {
         <h4 style={H4}>Lançamentos</h4>
         <p style={P}>
           Clique em <strong>"Novo lançamento"</strong>. Escolha <strong>Tipo</strong> (Despesa ou Receita),
-          <strong> Data</strong>, um <strong>Grupo</strong> (uma lista pronta — em Despesa: Remédios,
+          <strong> Data</strong>, um <strong>Grupo</strong> (uma lista pronta — em Despesa: Medicamentos,
           Suplementos, Mão de Obra, Combustível, Ferramentas, Manutenção, Estrutura, Máquinas e
           Equipamentos, Investimentos, Inseminação, Monta Natural, Frete, entre outros; em Receita: Venda de
           Animais, Valores a Receber, Aporte, Empréstimos, Juros, Outras Receitas — ou crie um grupo novo
           digitando o nome em <strong>"+ Novo grupo..."</strong>), o <strong>Valor</strong> e uma
-          <strong> Descrição</strong>. Em despesas, dá pra marcar <strong>"Lançar também como entrada no
-          estoque"</strong>, ligando o lançamento a um item existente ou criando um novo ali mesmo.
+          <strong> Descrição</strong>. Um grupo digitado à mão aparece nas opções assim que você salva —
+          inclusive nas telas de lançamento feito a partir do <strong>Estoque</strong> (e vice-versa): a
+          lista de grupos é sempre a lista pronta somada aos grupos já usados em qualquer lançamento da
+          fazenda, dos dois módulos.
+        </p>
+        <h4 style={{ ...H4, fontSize: '.85rem' }}>Vínculo opcional com o Estoque</h4>
+        <p style={P}>
+          Se você também tem permissão em Estoque, em uma <strong>despesa</strong> aparece o checkbox
+          <strong> "Lançar também como entrada no estoque"</strong>: escolha um item existente ou crie um novo
+          ali mesmo (com categoria, unidade e <strong>estoque mínimo</strong> — o item fica idêntico a um
+          criado pela tela Estoque), informe <strong>quantidade</strong> e <strong>valor unitário</strong> — o
+          campo <strong>"Valor total"</strong> no topo do formulário é recalculado sozinho (quantidade ×
+          unitário), e vice-versa: se você editar o total direto (por exemplo, copiando de uma nota fiscal), o
+          unitário é que se ajusta. O grupo já vem sugerido pela categoria do item (Medicamento/Vacina →
+          Medicamentos, Suplemento/Ração → Suplementos, Sêmen → Inseminação), mas continua editável. Numa
+          <strong> receita</strong>, o checkbox equivalente é <strong>"Dar baixa no estoque"</strong>: escolha
+          o item (só aparecem os com saldo) e a quantidade vendida — o valor da receita continua sendo o valor
+          da venda que você digitou, sem relação com o preço cadastrado do item. Os dois são opcionais:
+          lançar sem tocar no estoque continua funcionando normalmente.
         </p>
         <h4 style={{ ...H4, fontSize: '.85rem' }}>Rateio por proprietário</h4>
         <p style={P}>
@@ -99,7 +117,7 @@ export default function SecaoFinanceiro({ item }) {
         <DemoRateio />
         <p style={P}>
           Voz: <em>"Fale nesta ordem: [dia] do [mês] [despesa/receita] [grupo] [valor em reais]
-          [descrição]"</em> — ex: "dezoito do sete despesa remédios trinta reais vacina aftosa".
+          [descrição]"</em> — ex: "dezoito do sete despesa medicamentos trinta reais vacina aftosa".
         </p>
       </div>
 
@@ -188,6 +206,9 @@ export default function SecaoFinanceiro({ item }) {
         <AlertBox type="green" icon="ti-info-circle"
           title="Despesa exige rateio, receita não"
           body='Se você não preencher o rateio numa despesa, o sistema divide igualmente entre os proprietários sozinho ao salvar. Numa receita, pode deixar em branco sem problema.' />
+        <AlertBox type="amber" icon="ti-arrow-back-up"
+          title="Excluir um lançamento ligado ao estoque também reverte o estoque"
+          body='Se o lançamento tem uma entrada ou saída de estoque vinculada (veja Estoque → Movimentar), excluí-lo também reverte essa movimentação — devolvendo ou removendo a quantidade, conforme o caso — antes de apagar o lançamento. Se reverter deixaria o estoque negativo, a exclusão inteira é bloqueada. Exige permissão de edição em Estoque além de Financeiro.' />
       </div>
     </div>
   )

@@ -10,7 +10,7 @@ function DemoSelecaoProcedimento() {
   const [tipo, setTipo] = useState('Vacina')
 
   return (
-    <div style={{
+    <div data-pdf-shot="true" style={{
       border: '1.5px dashed #C7D2E8', borderRadius: 12, padding: 18,
       background: '#F8FAFD', marginTop: 10, marginBottom: 18,
     }}>
@@ -109,6 +109,9 @@ export default function SecaoSanidade({ item }) {
         <AlertBox type="amber" icon="ti-shield-lock"
           title="Excluir um procedimento com baixa exige permissão também de Estoque"
           body='Se o procedimento baixou itens do estoque, excluí-lo devolve essas quantidades — por isso o sistema também exige que você tenha permissão de edição no módulo Estoque, além de Sanidade. Sem ela, a exclusão é recusada com o aviso: "Este registro baixou itens do estoque. É necessária permissão de edição no módulo Estoque para excluí-lo."' />
+        <AlertBox type="green" icon="ti-swords"
+          title="Uma baixa de Sanidade só se desfaz por aqui, nunca pela tela Estoque"
+          body='É proposital: se você for até Estoque → Movimentar tentar reverter uma linha marcada com o selo "Sanidade", o sistema recusa e te manda voltar pra cá. Isso é diferente de uma entrada/saída ligada a uma despesa ou receita do Financeiro, que pode ser desfeita dos dois lados — a diferença é que um procedimento de Sanidade pode baixar vários itens de uma vez, então só ele tem o contexto completo pra reverter direito.' />
       </div>
     </div>
   )

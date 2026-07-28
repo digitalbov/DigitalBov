@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState } from 'react'
-import { BotaoPDF } from '../../components/UI'
+import { toast } from '../../components/UI'
+import { useFazenda } from '../../lib/FazendaContext'
 import { MANUAL_INDICE } from './indice'
 import { CONTEUDOS } from './conteudos'
 
@@ -35,6 +36,22 @@ function SecaoPlaceholder({ item }) {
 export default function Manual() {
   const contentRef = useRef(null)
   const [busca, setBusca] = useState('')
+  const [gerando, setGerando] = useState(false)
+  const { fazendaAtual } = useFazenda()
+
+  // PDF com texto real (não captura de tela) — ver pdfManual.js. Import
+  // dinâmico só pra não engordar o bundle inicial com jsPDF/html2canvas.
+  const gerarPDF = async () => {
+    setGerando(true)
+    try {
+      const { gerarPDFManualTexto } = await import('../../lib/pdfManual')
+      await gerarPDFManualTexto(contentRef, 'manual-digitalbov', fazendaAtual?.nome || '')
+    } catch (e) {
+      console.error(e)
+      toast('Erro ao gerar PDF: ' + e.message, 'error')
+    }
+    setGerando(false)
+  }
 
   // Filtra só o ÍNDICE (navegação/busca lateral) — o conteúdo continua
   // renderizando todas as seções sempre, pra exportação em PDF nunca ficar
@@ -79,7 +96,11 @@ export default function Manual() {
           Guia completo de uso do DigitalBov: como registrar cada lançamento e como cada card/índice do
           sistema é calculado. Use o índice ao lado (ou a busca) para navegar direto até um módulo.
         </p>
-        <BotaoPDF contentRef={contentRef} filename="manual-digitalbov" titulo="Manual do Sistema" label="Exportar PDF" />
+        <button className="btn btn-secondary btn-sm" onClick={gerarPDF} disabled={gerando}
+          style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+          <i className={`ti ti-${gerando ? 'loader' : 'file-type-pdf'}`} style={{ color: '#C0392B' }} />
+          {gerando ? 'Gerando...' : 'Exportar PDF'}
+        </button>
       </div>
 
       <div className="manual-layout" style={{ display: 'flex', gap: 20, alignItems: 'flex-start' }}>

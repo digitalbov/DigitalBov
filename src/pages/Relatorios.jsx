@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useRef } from 'react'
+﻿import { useState, useEffect } from 'react'
 import { db } from '../lib/supabase'
 import { calcCategoria, calcCategoriaRebanho, calcTaxaPrenhez, contarExpostas, contarPrenhas, fmtData, fmtMoeda, pct, ehMatriz, algumErro, somaFinita, valorPropLanc, CATEGORIAS_VALOR } from '../lib/helpers'
 import { Loading, Badge, AlertBox, toast, SeletorCicloLocal, ErroCarregamento } from '../components/UI'
@@ -8,7 +8,6 @@ import { hoje as hojeAgora } from '../lib/hoje'
 
 const TABS = ['Resumo Geral','Reprodução','Financeiro']
 const NOMES_PDF = ['relatorio-geral','relatorio-reprodutivo','relatorio-financeiro']
-const TITULOS_PDF = ['Relatório Geral', 'Painel Reprodutivo', 'Gestão Financeira']
 
 export default function Relatorios() {
   const [tab,       setTab]      = useState(0)
@@ -27,10 +26,6 @@ export default function Relatorios() {
   const { fazendaAtual } = useFazenda()
   const { cicloLocal, setCicloLocal, ciclos } = useCicloLocal()
 
-  const resumoRef      = useRef(null)
-  const reproducaoRef  = useRef(null)
-  const financeiroRef  = useRef(null)
-  const tabRefs        = [resumoRef, reproducaoRef, financeiroRef]
   const hoje = new Date().toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric'})
 
   useEffect(() => { loadAll() }, [cicloLocal?.id])
@@ -72,28 +67,6 @@ export default function Relatorios() {
       setLoading(false)
     }
   }
-
-  const gerarPDF = async (ref, filename, titulo = '') => {
-    if (!ref.current) return
-    setGenerating(true)
-    try {
-      const { gerarPDFComMolduras } = await import('../lib/pdf')
-      await gerarPDFComMolduras(ref.current, filename, titulo, fazendaAtual?.nome || '', fazendaAtual?.foto_url || '')
-    } catch (e) {
-      toast('Erro ao gerar PDF: ' + e.message, 'error')
-    }
-    setGenerating(false)
-  }
-
-  const PDFButton = ({ tabIdx }) => (
-    <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:12 }}>
-      <button className="btn btn-primary btn-sm"
-        onClick={() => gerarPDF(tabRefs[tabIdx], NOMES_PDF[tabIdx], TITULOS_PDF[tabIdx])}
-        disabled={generating}>
-        <i className="ti ti-file-type-pdf" /> {generating ? 'Gerando...' : 'Gerar PDF'}
-      </button>
-    </div>
-  )
 
   // Cálculos — filtroProp (pills) recalcula todos os indicadores abaixo para o
   // proprietário selecionado, mesmo padrão de Rebanho/Reprodutivo/Metas.
@@ -179,10 +152,110 @@ export default function Relatorios() {
   }).filter(row => row.total > 0)
   const valorTotalRel = valorRowsRel.reduce((s,r) => s + r.valor, 0)
 
+  // Índices/KPIs reaproveitados tanto na tela quanto no PDF (evita duas
+  // fórmulas divergentes) — ver uso abaixo nos cards da tela e em gerarPDF.
+  const indicesGerais = [
+    { l:'Taxa de prenhez',    v: txPrenhez!=null?`${txPrenhez}%`:'—',    ok: (txPrenhez??0)>=85 },
+    { l:'Taxa de parição',    v: kpiPrn>0?pct(partosFiltrados.length,kpiPrn):'—', ok: kpiPrn>0 && partosFiltrados.length/kpiPrn>=0.80 },
+    { l:'Receita bruta',      v:fmtMoeda(rec),                           ok: true },
+    { l:'Resultado do ciclo', v:fmtMoeda(resu),                          ok: resu>=0 },
+    { l:'Proc. sanidade',     v:`${sanidade.length} (${vencSan} venc.)`, ok: vencSan===0 },
+  ]
+  const indicesReprodutivos = [
+    { l:'Taxa de prenhez',     v:txPrenhez!=null?`${txPrenhez}%`:'—',           meta:'≥85%', ok:(txPrenhez??0)>=85 },
+    { l:'Taxa de parição',     v:kpiPrn>0?pct(partosFiltrados.length,kpiPrn):'—', meta:'≥80%', ok:kpiPrn>0 && partosFiltrados.length/kpiPrn>=0.80 },
+    { l:'Abortos registrados', v:'—',                             meta:'<5%',  ok:true },
+    { l:'Intervalo de partos', v:'12,4 meses (est.)',             meta:'<13m', ok:true },
+  ]
+  const indicadoresRentabilidade = [
+    { l:'Retorno sobre despesas (ROI)',  v:desp>0?Math.round(resu/desp*100)+'%':'—',               meta:'≥30%', ok:desp>0&&resu/desp>=0.3 },
+    { l:'Margem bruta',                 v:rec>0?Math.round(resu/rec*100)+'%':'—',                  meta:'≥25%', ok:rec>0&&resu/rec>=0.25 },
+    { l:'Custo por matriz (est.)',       v:matrizes.length>0?fmtMoeda(Math.round(desp/matrizes.length)):'—', meta:'≤R$500', ok:matrizes.length>0&&desp/matrizes.length<=500 },
+    { l:'Eficiência por hectare (est.)', v:'—', meta:'≥180 kg/ha', ok:false },
+  ]
+
+  // PDF com texto real, montado direto dos dados já calculados acima (nunca
+  // captura de tela) — ver pdfRelatorios.js. Nenhum dos 3 relatórios tem
+  // gráfico/imagem de verdade, só números e tabelas, por isso não precisa de
+  // rasterização nenhuma (arquivo final fica pequeno e com texto pesquisável).
+  const gerarPDF = async () => {
+    setGenerating(true)
+    try {
+      const fazenda = fazendaAtual?.nome || ''
+      const cicloNome = cicloLocal?.nome
+      if (tab === 0) {
+        const { gerarPDFRelatorioGeral } = await import('../lib/pdfRelatorios')
+        gerarPDFRelatorioGeral({
+          fazenda, cicloNome,
+          kpisTopo: [
+            { v: ativos.length,        l:'Animais ativos' },
+            { v: matrizes.length,      l:'Matrizes' },
+            { v: partosFiltrados.length,l:'Nascimentos' },
+            { v: areaUtilTxt,          l:'Área útil' },
+          ],
+          catMap, totalAtivos: ativos.length, indices: indicesGerais,
+          valorRows: valorRowsRel, propsSelecionadas, valorTotal: valorTotalRel,
+          vencSan, ativos: ativos.length, inativos: inativos.length,
+          filename: NOMES_PDF[0],
+        })
+      } else if (tab === 1) {
+        const { gerarPDFRelatorioReprodutivo } = await import('../lib/pdfRelatorios')
+        gerarPDFRelatorioReprodutivo({
+          fazenda, cicloNome,
+          lotesRows: lotes.map(l => {
+            const ins = (l.inseminacoes||[]).filter(i => !filtroProp || i.animal?.proprietario_id === filtroProp)
+            const prn = ins.filter(i=>i.diagnostico==='P').length
+            return {
+              numero: l.numero, touro: l.touro, dataFmt: fmtData(l.data),
+              insCount: ins.length, prn, txPct: pct(prn, ins.length),
+              partoPrevFmt: l.data ? new Date(new Date(l.data+'T12:00:00').setMonth(new Date(l.data+'T12:00:00').getMonth()+9)).toLocaleDateString('pt-BR') : '—',
+            }
+          }),
+          kpiIns, kpiPrn, txPrenhez,
+          nascKpis: [
+            { v: partosFiltrados.length,                                   l:'Total nascimentos' },
+            { v: partosFiltrados.filter(p=>p.bezerro?.sexo==='M').length, l:'Machos ♂' },
+            { v: partosFiltrados.filter(p=>p.bezerro?.sexo==='F').length, l:'Fêmeas ♀' },
+          ],
+          partosRows: partosFiltrados.map(p => ({
+            dataFmt: fmtData(p.data_parto), maeBrinco: p.mae?.brinco||'—',
+            sexoTxt: p.bezerro?.sexo==='F'?'♀ Fêmea':'♂ Macho', bezerroBrinco: p.bezerro?.brinco||'—',
+          })),
+          indicesReprod: indicesReprodutivos,
+          filename: NOMES_PDF[1],
+        })
+      } else {
+        const { gerarPDFRelatorioFinanceiro } = await import('../lib/pdfRelatorios')
+        gerarPDFRelatorioFinanceiro({
+          fazenda, cicloNome,
+          kpisTopo: [
+            { v:fmtMoeda(rec),  l:'Receitas',  cor:[30,85,176],  bg:[232,240,252] },
+            { v:fmtMoeda(desp), l:'Despesas',  cor:[121,31,31],  bg:[252,235,235] },
+            { v:fmtMoeda(Math.abs(resu)), l:resu>=0?'Resultado positivo':'Resultado negativo', cor:resu>=0?[43,108,217]:[121,31,31], bg:resu>=0?[232,240,252]:[252,235,235] },
+          ],
+          receitasGrupo: gruposPorValor('R'), despesasGrupo: gruposPorValor('D'),
+          indicadores: indicadoresRentabilidade,
+          filename: NOMES_PDF[2],
+        })
+      }
+    } catch (e) {
+      toast('Erro ao gerar PDF: ' + e.message, 'error')
+    }
+    setGenerating(false)
+  }
+
+  const PDFButton = () => (
+    <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:12 }}>
+      <button className="btn btn-primary btn-sm" onClick={gerarPDF} disabled={generating}>
+        <i className="ti ti-file-type-pdf" /> {generating ? 'Gerando...' : 'Gerar PDF'}
+      </button>
+    </div>
+  )
+
   const PrintHeader = ({ titulo }) => (
     <div style={{ textAlign:'center', padding:'16px 0 12px', borderBottom:'.5px solid #E5E7EB', marginBottom:16 }}>
-      {/* Logo da fazenda aparece só no PDF gerado (src/lib/pdf.js), nunca aqui na
-          tela — a tela sempre mostra a marca padrão do DigitalBov. */}
+      {/* Cabeçalho só da TELA — o PDF gerado (src/lib/pdfRelatorios.js) desenha
+          seu próprio cabeçalho/capa em texto real, independente deste aqui. */}
       <div style={{ fontSize:'1.1rem', fontWeight:700, color:'#111' }}>DigitalBov</div>
       <div style={{ fontSize:'.85rem', color:'#6B7280', marginTop:2 }}>{titulo} · Ciclo {cicloLocal?.nome||'—'} · Gerado em {hoje}</div>
     </div>
@@ -215,8 +288,8 @@ export default function Relatorios() {
       {/* ── Resumo Geral ── */}
       {tab === 0 && (
         <div>
-          <PDFButton tabIdx={0} />
-          <div ref={resumoRef}>
+          <PDFButton />
+          <div>
             <div style={{ background:'var(--gray-100)', border:'.5px solid var(--gray-200)', borderRadius:12, padding:'16px 20px', color:'var(--gray-900)', marginBottom:16 }}>
               <PrintHeader titulo="Relatório Geral" />
               <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(120px, 1fr))', gap:10, marginTop:8 }}>
@@ -253,13 +326,7 @@ export default function Relatorios() {
               </div>
               <div className="card">
                 <div className="card-title"><i className="ti ti-chart-bar"/> Índices principais</div>
-                {[
-                  { l:'Taxa de prenhez',    v: txPrenhez!=null?`${txPrenhez}%`:'—',    ok: (txPrenhez??0)>=85 },
-                  { l:'Taxa de parição',    v: kpiPrn>0?pct(partosFiltrados.length,kpiPrn):'—', ok: kpiPrn>0 && partosFiltrados.length/kpiPrn>=0.80 },
-                  { l:'Receita bruta',      v:fmtMoeda(rec),                           ok: true },
-                  { l:'Resultado do ciclo', v:fmtMoeda(resu),                          ok: resu>=0 },
-                  { l:'Proc. sanidade',     v:`${sanidade.length} (${vencSan} venc.)`, ok: vencSan===0 },
-                ].map(k => (
+                {indicesGerais.map(k => (
                   <div key={k.l} className="row">
                     <span className="row-label">{k.l}</span>
                     <span className="row-value" style={{ color: k.ok?'#1E55B0':'#791F1F' }}>{k.v}</span>
@@ -327,8 +394,8 @@ export default function Relatorios() {
       {/* ── Reprodução ── */}
       {tab === 1 && (
         <div>
-          <PDFButton tabIdx={1} />
-          <div ref={reproducaoRef}>
+          <PDFButton />
+          <div>
             <div className="card" style={{ marginBottom:14 }}>
               <PrintHeader titulo="Relatório Reprodutivo" />
               <div className="sl">Lotes de inseminação</div>
@@ -413,12 +480,7 @@ export default function Relatorios() {
 
             <div className="card">
               <div className="sl" style={{ marginBottom:12 }}>Índices reprodutivos — ciclo {cicloLocal?.nome}</div>
-              {[
-                { l:'Taxa de prenhez',     v:txPrenhez!=null?`${txPrenhez}%`:'—',           meta:'≥85%', ok:(txPrenhez??0)>=85 },
-                { l:'Taxa de parição',     v:kpiPrn>0?pct(partosFiltrados.length,kpiPrn):'—', meta:'≥80%', ok:kpiPrn>0 && partosFiltrados.length/kpiPrn>=0.80 },
-                { l:'Abortos registrados', v:'—',                             meta:'<5%',  ok:true },
-                { l:'Intervalo de partos', v:'12,4 meses (est.)',             meta:'<13m', ok:true },
-              ].map(k => (
+              {indicesReprodutivos.map(k => (
                 <div key={k.l} className="row">
                   <span className="row-label">{k.l}</span>
                   <span style={{ display:'flex', alignItems:'center', gap:8 }}>
@@ -435,8 +497,8 @@ export default function Relatorios() {
       {/* ── Financeiro ── */}
       {tab === 2 && (
         <div>
-          <PDFButton tabIdx={2} />
-          <div ref={financeiroRef}>
+          <PDFButton />
+          <div>
             <div className="card" style={{ marginBottom:14 }}>
               <PrintHeader titulo="Relatório Financeiro" />
               <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(140px, 1fr))', gap:10, marginBottom:14 }}>
@@ -468,12 +530,7 @@ export default function Relatorios() {
             </div>
             <div className="card">
               <div className="sl" style={{ marginBottom:10 }}>Indicadores de rentabilidade</div>
-              {[
-                { l:'Retorno sobre despesas (ROI)',  v:desp>0?Math.round(resu/desp*100)+'%':'—',               meta:'≥30%', ok:desp>0&&resu/desp>=0.3 },
-                { l:'Margem bruta',                 v:rec>0?Math.round(resu/rec*100)+'%':'—',                  meta:'≥25%', ok:rec>0&&resu/rec>=0.25 },
-                { l:'Custo por matriz (est.)',       v:matrizes.length>0?fmtMoeda(Math.round(desp/matrizes.length)):'—', meta:'≤R$500', ok:matrizes.length>0&&desp/matrizes.length<=500 },
-                { l:'Eficiência por hectare (est.)', v:'—', meta:'≥180 kg/ha', ok:false },
-              ].map(k => (
+              {indicadoresRentabilidade.map(k => (
                 <div key={k.l} className="row">
                   <span className="row-label">{k.l}</span>
                   <span style={{ display:'flex', alignItems:'center', gap:8 }}>

@@ -64,7 +64,7 @@ export default function SecaoFAQ({ item }) {
       <div>
         {FAQ.map((f, i) => (
           <div key={i} style={ITEM}>
-            <div style={Q}><span>❓</span><span>{f.q}</span></div>
+            <p style={Q}>❓ {f.q}</p>
             <p style={A}>{f.a}</p>
           </div>
         ))}
