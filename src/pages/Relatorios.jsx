@@ -1,6 +1,6 @@
 ﻿import { useState, useEffect } from 'react'
 import { db } from '../lib/supabase'
-import { calcCategoria, calcCategoriaRebanho, calcTaxaPrenhez, contarExpostas, contarPrenhas, fmtData, fmtMoeda, pct, ehMatriz, algumErro, somaFinita, valorPropLanc, CATEGORIAS_VALOR } from '../lib/helpers'
+import { calcCategoria, calcCategoriaRebanho, calcTaxaPrenhez, contarExpostas, contarPrenhas, fmtData, fmtMoeda, pct, ehMatriz, algumErro, somaFinita, valorPropLanc, CATEGORIAS_VALOR, gruposPorValor } from '../lib/helpers'
 import { Loading, Badge, AlertBox, toast, SeletorCicloLocal, ErroCarregamento } from '../components/UI'
 import { useFazenda } from '../lib/FazendaContext'
 import { useCicloLocal } from '../lib/useCicloLocal'
@@ -79,31 +79,6 @@ export default function Relatorios() {
   const rec      = filtroProp ? valorPropLanc(lancs, 'R', filtroProp) : somaFinita(lancs.filter(l=>l.tipo==='R'), 'valor')
   const desp     = filtroProp ? valorPropLanc(lancs, 'D', filtroProp) : somaFinita(lancs.filter(l=>l.tipo==='D'), 'valor')
   const resu     = rec - desp
-  // Grupos "por valor" (receita/despesa) DERIVADOS dos lançamentos reais, não
-  // de lista fixa — uma lista fixa deixa de fora qualquer grupo criado depois
-  // (ex: 'Comissão'/'Impostos'/'Frete'/'Monta Natural', criados automático
-  // pelas RPCs de compra/venda e custo de monta natural) ou digitado à mão
-  // pelo usuário (grupo é texto livre em Financeiro), e a soma dos grupos
-  // exibidos fica menor que o total sem nenhuma explicação. Mesmo critério de
-  // valor por lançamento que valorPropLanc (helpers.js) usa pra `rec`/`desp`
-  // acima — sem grupo (nulo/vazio) cai em "Sem grupo" em vez de sumir, e a
-  // soma dos grupos retornados bate exatamente com rec/desp por construção
-  // (mesmo filtro, mesma extração de valor, só agrupada).
-  const gruposPorValor = (tipo) => {
-    const porGrupo = {}
-    lancs.filter(l=>l.tipo===tipo).forEach(l => {
-      const grupo = l.grupo || 'Sem grupo'
-      let v = filtroProp
-        ? Number(l.rateios?.find(r=>r.proprietario_id===filtroProp)?.valor)
-        : Number(l.valor)
-      if (!Number.isFinite(v)) v = 0
-      porGrupo[grupo] = (porGrupo[grupo] || 0) + v
-    })
-    return Object.entries(porGrupo)
-      .map(([grupo, valor]) => ({ grupo, valor }))
-      .filter(g => g.valor > 0)
-      .sort((a,b) => b.valor - a.valor)
-  }
 
   // Taxa de prenhez — fórmula oficial única (helpers.calcTaxaPrenhez), a mesma
   // usada em Reprodutivo/Rebanho/Metas: matrizes DISTINTAS prenhas / expostas no
@@ -233,7 +208,7 @@ export default function Relatorios() {
             { v:fmtMoeda(desp), l:'Despesas',  cor:[121,31,31],  bg:[252,235,235] },
             { v:fmtMoeda(Math.abs(resu)), l:resu>=0?'Resultado positivo':'Resultado negativo', cor:resu>=0?[43,108,217]:[121,31,31], bg:resu>=0?[232,240,252]:[252,235,235] },
           ],
-          receitasGrupo: gruposPorValor('R'), despesasGrupo: gruposPorValor('D'),
+          receitasGrupo: gruposPorValor(lancs, 'R', filtroProp), despesasGrupo: gruposPorValor(lancs, 'D', filtroProp),
           indicadores: indicadoresRentabilidade,
           filename: NOMES_PDF[2],
         })
@@ -514,14 +489,14 @@ export default function Relatorios() {
                 ))}
               </div>
               <div className="sl">Receitas por grupo</div>
-              {gruposPorValor('R').map(({ grupo, valor }) => (
+              {gruposPorValor(lancs, 'R', filtroProp).map(({ grupo, valor }) => (
                 <div key={grupo} className="row">
                   <span className="row-label">{grupo}</span>
                   <span className="row-value" style={{ color:'#1E55B0' }}>{fmtMoeda(valor)}</span>
                 </div>
               ))}
               <div className="sl" style={{ marginTop:12 }}>Despesas por grupo</div>
-              {gruposPorValor('D').map(({ grupo, valor }) => (
+              {gruposPorValor(lancs, 'D', filtroProp).map(({ grupo, valor }) => (
                 <div key={grupo} className="row">
                   <span className="row-label">{grupo}</span>
                   <span className="row-value" style={{ color:'#791F1F' }}>{fmtMoeda(valor)}</span>

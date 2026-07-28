@@ -98,7 +98,7 @@ export default function SecaoReprodutivo({ item }) {
           <li>Na inseminação: informe o <strong>touro/sêmen</strong> (texto livre) e, se usar, o <strong>protocolo</strong> (ex: "IATF P4").</li>
           <li>Na monta natural: adicione um ou mais <strong>touros</strong> (veja a demonstração abaixo).</li>
           <li>Escolha a <strong>estação de monta</strong>, se for o caso.</li>
-          <li>Selecione as <strong>fêmeas</strong> — use os filtros de lote de origem, proprietário e categoria para achar mais rápido, ou "Selecionar todos do filtro".</li>
+          <li>Selecione as <strong>fêmeas</strong> — use os filtros de lote de origem, proprietário e categoria para achar mais rápido, ou "Selecionar todos do filtro". O botão <strong>"Limpar seleção"</strong>, ao lado do contador, desmarca todas de uma vez sem fechar o formulário nem apagar touro/data/protocolo já preenchidos — vale também no "Adicionar animais ao lote".</li>
           <li>Clique em <strong>Salvar</strong>.</li>
         </ol>
         <p style={{ color: '#9CA3AF', fontSize: '.78rem', marginBottom: 4 }}>
@@ -112,6 +112,14 @@ export default function SecaoReprodutivo({ item }) {
         <AlertBox type="amber" icon="ti-swords"
           title='"Lote" de novo tem dois sentidos diferentes'
           body='Este é o lote de inseminação/monta (aqui em Reprodutivo) — reúne animais expostos numa mesma monta e alimenta os índices de safra. É diferente do lote de manejo (tela Propriedade), que é só um agrupamento livre de animais para organizar o dia a dia. Um mesmo animal pode estar num lote de manejo e, ao mesmo tempo, num lote de monta — não têm relação um com o outro.' />
+        <p style={P}>
+          Ao abrir um lote, o card <strong>"Resumo do lote"</strong> mostra Matrizes expostas, Prenhas, Vazias
+          e Pendentes, e logo abaixo <strong>Machos nascidos</strong> e <strong>Fêmeas nascidas</strong>,
+          contados pelos partos já vinculados a este lote (vale para IA e monta natural). Um bezerro sem sexo
+          registrado — não deveria acontecer, o formulário de nascimento exige o sexo, mas pode ocorrer com
+          dado antigo/importado — não entra em nenhuma das duas contagens; se isso acontecer, um aviso aparece
+          abaixo dos cards avisando quantos bezerros da safra estão sem sexo, em vez de sumir sem explicação.
+        </p>
       </div>
 
       <div id="reprodutivo-diagnostico" style={{ scrollMarginTop: 90, marginTop: 18 }}>
@@ -160,6 +168,9 @@ export default function SecaoReprodutivo({ item }) {
           data). Mas os <strong>índices de parição e perdas</strong> contam sempre para a safra da <strong>monta</strong> —
           veja "Índices e funil da safra" abaixo.
         </div>
+        <AlertBox type="amber" icon="ti-calendar-repeat"
+          title='Registrar um nascimento atrasado troca o ciclo exibido na tela'
+          body='O parto sempre grava certo, no ciclo da SUA data real — mas se você está revisando um lote de uma safra antiga (seletor de ciclo no topo apontando pra ela) e registra um nascimento com a data de hoje, esse parto pertence ao ciclo de hoje, não ao ciclo que você estava vendo. Nesse caso o sistema troca sozinho o ciclo selecionado para o do parto (com aviso no toast), pra você já ver o registro novo direto na aba Nascimentos — sem isso, o parto ficaria certo no banco mas pareceria "sumido" da tela.' />
       </div>
 
       <div id="reprodutivo-abortos" style={{ scrollMarginTop: 90 }}>

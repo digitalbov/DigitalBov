@@ -979,10 +979,26 @@ export default function Reprodutivo() {
       const { error: errMae } = await db.animais.update(mae.id, { sit_reprodutiva: 'vazia' })
       if (errMae) console.error('[Reprodutivo] salvarParto: erro ao atualizar sit_reprodutiva da mãe:', errMae)
 
-      toast(`Nascimento registrado! Brinco provisório: ${bezData.brinco}`)
+      // Causa raiz de "nascimento registrado não aparece na aba Nascimentos":
+      // o registro é gravado certinho, no ciclo da DATA REAL do parto
+      // (cicloDoParto, calculado no início da função) — mas se a tela está
+      // com um cicloLocal DIFERENTE selecionado (comum ao registrar um
+      // nascimento atrasado enquanto se revisa uma safra antiga pelo atalho
+      // do detalhe do lote), a aba Nascimentos continua mostrando a lista do
+      // ciclo antigo, que não inclui o registro novo. Não é bug de gravação —
+      // é a tela não acompanhar o ciclo do registro recém-criado. Mesmo
+      // mecanismo já usado no deep-link de "Monta natural — Lote X" (troca
+      // cicloLocal, que por sua vez zera partosNasc via efeito abaixo e
+      // recarrega quando a aba Nascimentos for aberta).
+      if (cicloDoParto?.id && cicloDoParto.id !== cicloLocal?.id) {
+        setCicloLocal(cicloDoParto)
+        toast(`Nascimento registrado! Brinco provisório: ${bezData.brinco} — este parto é do ciclo ${cicloDoParto.nome}, mudando a visualização para esse ciclo.`)
+      } else {
+        toast(`Nascimento registrado! Brinco provisório: ${bezData.brinco}`)
+        if (cicloLocal) loadPartosNasc(cicloLocal.id)
+      }
       setModal(null); setForm({})
       await loadAll()
-      if (cicloLocal) loadPartosNasc(cicloLocal.id)
     } catch (e) {
       console.error('[Reprodutivo] salvarParto: erro inesperado:', e)
       toast('Erro inesperado ao registrar nascimento: ' + (e?.message || String(e)), 'error')
@@ -1162,6 +1178,13 @@ export default function Reprodutivo() {
     const { gestando, perdasNaoIdentificadas, perdaGestacional } = calcGestacaoLote(lote.data, prenhas, nascimentos, nAbortos)
     const mortosBezerros    = partosLote.filter(p => p.bezerro?.situacao === 'morto').length
     const mortalidadeBezerros = nascimentos > 0 ? Math.round(mortosBezerros / nascimentos * 100) : null
+    // Machos/fêmeas nascidos — cards do resumo do lote. semSexo conta bezerros
+    // com sexo ausente/inválido no cadastro (não deveria existir na prática —
+    // salvarParto exige sexo pra criar o bezerro — mas dado legado/importado
+    // pode não ter; contado à parte pra nunca sumir do total sem explicação).
+    const machosNascidos = partosLote.filter(p => p.bezerro?.sexo === 'M').length
+    const femeasNascidas = partosLote.filter(p => p.bezerro?.sexo === 'F').length
+    const semSexoNascidos = nascimentos - machosNascidos - femeasNascidas
     // HISTÓRICO: usa todosAnimaisHistorico (qualquer situação), não `animais`
     // (só ativos) — uma vaca vendida depois de lote.data continua contando
     // como matriz apta aqui (ehMatriz já resolve isso via data_baixa).
@@ -1186,7 +1209,7 @@ export default function Reprodutivo() {
       total, totalInseminacoes, prenhas, vazias, pendentes, txPrenhez, nascimentos, txParicao,
       txNatalidade, pesoMedioNascimento, gestando, nAbortos, perdasNaoIdentificadas, perdaGestacional,
       mortalidadeBezerros, matrizesAptas, txAproveitamento, ...desm,
-      partoPrev,
+      partoPrev, machosNascidos, femeasNascidas, semSexoNascidos,
     }
   }
 
@@ -1596,6 +1619,22 @@ export default function Reprodutivo() {
                     </div>
                   ))}
                 </div>
+                <div className="grid-2" style={{ marginBottom:8 }}>
+                  {[
+                    ['Machos nascidos ♂',  sm.machosNascidos, '#3B82F6'],
+                    ['Fêmeas nascidas ♀',  sm.femeasNascidas, '#27A838'],
+                  ].map(([l,v,c]) => (
+                    <div key={l} style={{ background:'white',border:'.5px solid #E5E7EB',borderRadius:10,padding:'10px 12px',textAlign:'center' }}>
+                      <div style={{ fontSize:'1.4rem',fontWeight:600,color:c }}>{v}</div>
+                      <div style={{ fontSize:'.75rem',color:'#6B7280',marginTop:2 }}>{l}</div>
+                    </div>
+                  ))}
+                </div>
+                {sm.semSexoNascidos > 0 && (
+                  <div style={{ fontSize:'.72rem', color:'#BA7517', marginBottom:8 }}>
+                    {sm.semSexoNascidos} bezerro(s) desta safra sem sexo registrado — não entram nas contagens de machos/fêmeas acima.
+                  </div>
+                )}
                 <div style={{ display:'flex', alignItems:'center', gap:14, flexWrap:'wrap', marginBottom:14 }}>
                   <div style={{ background:'#E8F0FC', border:'.5px solid #1BA89C', borderRadius:10, padding:'8px 16px' }}>
                     <span style={{ fontSize:'.78rem', color:'#6B7280' }}>Taxa de prenhez do lote: </span>
@@ -2450,12 +2489,18 @@ export default function Reprodutivo() {
         )}
         {!loteEdit && (
         <div style={{ marginBottom:10 }}>
-          <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6 }}>
             <label>Animais do lote ({selBrs.length} selecionados)</label>
-            <MicButton hint='Voz: "brinco zero três"' onResult={t => {
-              const n = t.match(/\d+/g)
-              if (n) { const br = n[0].padStart(2,'0'); if (!selBrs.includes(br) && animais.find(a=>a.brinco===br)) togSel(br) }
-            }} />
+            <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+              <button type="button" className="btn btn-secondary btn-xs" disabled={selBrs.length === 0}
+                onClick={() => setSelBrs([])}>
+                Limpar seleção
+              </button>
+              <MicButton hint='Voz: "brinco zero três"' onResult={t => {
+                const n = t.match(/\d+/g)
+                if (n) { const br = n[0].padStart(2,'0'); if (!selBrs.includes(br) && animais.find(a=>a.brinco===br)) togSel(br) }
+              }} />
+            </div>
           </div>
           {selBrs.length > 0 && (
             <div style={{ display:'flex', flexWrap:'wrap', gap:5, marginBottom:8 }}>
@@ -2552,7 +2597,13 @@ export default function Reprodutivo() {
       {/* ── Modal adicionar animais a um lote existente ── */}
       <Modal open={modal==='addAnimaisLote'} onClose={()=>setModal(null)} title="Adicionar animais ao lote" width={600}>
         <div style={{ marginBottom:10 }}>
-          <label>Animais a adicionar ({selBrsAdd.length} selecionados)</label>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+            <label>Animais a adicionar ({selBrsAdd.length} selecionados)</label>
+            <button type="button" className="btn btn-secondary btn-xs" disabled={selBrsAdd.length === 0}
+              onClick={() => setSelBrsAdd([])}>
+              Limpar seleção
+            </button>
+          </div>
           {selBrsAdd.length > 0 && (
             <div style={{ display:'flex', flexWrap:'wrap', gap:5, margin:'8px 0' }}>
               {selBrsAdd.map(br => (

@@ -74,6 +74,21 @@ export default function SecaoFinanceiro({ item }) {
         <strong> Parâmetros</strong>, <strong>Ciclos</strong> e <strong>Simulações</strong>.
       </p>
 
+      <div id="financeiro-resumo" style={{ scrollMarginTop: 90 }}>
+        <h4 style={H4}>Resumo</h4>
+        <p style={P}>
+          No topo, os cards de <strong>Receitas</strong>, <strong>Despesas</strong>, <strong>Resultado</strong>{' '}
+          e <strong>Vendas de animais</strong> do ciclo. Logo abaixo, uma faixa compacta com o{' '}
+          <strong>ciclo selecionado</strong> (início, encerramento e status). Depois, lado a lado,{' '}
+          <strong>Despesas por grupo</strong> e <strong>Receitas por grupo</strong> — barras derivadas direto
+          dos lançamentos reais (nunca uma lista fixa: um grupo criado pela venda/compra de animais, como
+          "Comissão" ou "Frete", ou digitado à mão em "+ Novo grupo...", aparece igual), com o nome do grupo
+          por inteiro, quebrando linha se for longo — nunca cortado com reticências, mesmo em nomes que você
+          mesmo digitou. Em tela estreita os dois gráficos empilham em vez de espremer. Por fim, o card{' '}
+          <strong>Vendas no ciclo</strong>, com a lista de cada venda de animais do período.
+        </p>
+      </div>
+
       <div id="financeiro-lancamentos" style={{ scrollMarginTop: 90 }}>
         <h4 style={H4}>Lançamentos</h4>
         <p style={P}>

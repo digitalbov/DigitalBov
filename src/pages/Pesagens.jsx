@@ -3,7 +3,7 @@ import { db } from '../lib/supabase'
 import { usePermissoes } from '../lib/PermissoesContext'
 import { useCiclo, statusCiclo } from '../lib/CicloContext'
 import { useCicloLocal } from '../lib/useCicloLocal'
-import { fmtData, calcGMD, fmtPeso, numeroPositivo, dataNaoFutura, calcCategoria, mesesDeVida, algumErro, pesagensDeManejo, capitalizarPrimeira } from '../lib/helpers'
+import { fmtData, calcGMD, fmtPeso, numeroPositivo, dataNaoFutura, calcCategoria, calcCategoriaRebanho, mesesDeVida, algumErro, pesagensDeManejo, capitalizarPrimeira } from '../lib/helpers'
 import { hoje as hojeAgora, hojeISO } from '../lib/hoje'
 import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, IndexCard, BotaoPDF, Confirm, ErroCarregamento, BannerCicloEncerrado, SeletorCicloLocal } from '../components/UI'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
@@ -15,9 +15,6 @@ const TIPOS = ['nascimento','desmama','sobreano','intermediaria','compra','venda
 const TIPOS_MANUAIS = TIPOS.filter(t => t !== 'compra' && t !== 'venda')
 const TIPO_LABEL = { nascimento:'Nascimento', desmama:'Desmama', sobreano:'Sobreano', intermediaria:'Intermediária', compra:'Compra', venda:'Venda' }
 const TIPO_COR   = { compra:'blue', venda:'green' }
-// Categorias possíveis (mesma lista que calcCategoria pode retornar) — usada
-// como opções fixas na busca "Por Categoria".
-const CATEGORIAS_REBANHO = ['Terneiro','Terneira','Novilho','Novilha','Boi','Vaca','Vaca Madura']
 
 // ── Gráfico de evolução de peso — reaproveitado por Por Animal/Por Lote/Por
 // Categoria (só muda o array `data` recebido: individual ou média do grupo).
@@ -221,10 +218,18 @@ export default function Pesagens() {
   const gmdMedioLote   = gmdMedioGrupo(pesagens, idsLote)
   const ultimoPesoLote = chartDataLote[chartDataLote.length - 1]?.peso
 
-  // Por Categoria — categoria calculada "hoje" (mesmo critério já usado em
-  // candidatosDesmame acima), sobre os animais ativos.
+  // Por Categoria — usa calcCategoriaRebanho (14 categorias oficiais, mesmo
+  // padrão de Animais.jsx/Financeiro.jsx/Rebanho.jsx), não calcCategoria (7
+  // genéricas, usada só pro corte etário de desmame acima). Categoria sempre
+  // "hoje" — calcCategoriaRebanho não aceita outra data, então fica coerente
+  // por construção com Metas/Rebanho/Dashboard, que usam a mesma função.
+  // categoriasComAnimais deriva DIRETO de `animais` (só ativos, ver loadAll) —
+  // categoria sem nenhum animal simplesmente não aparece no <select>.
+  const categoriasComAnimais = [...new Set(
+    animais.map(a => calcCategoriaRebanho(a.data_nascimento, a.sexo, a.sit_reprodutiva, a.is_touro))
+  )].sort()
   const animaisDaCategoria = selCategoria
-    ? animais.filter(a => calcCategoria(a.data_nascimento, a.sexo) === selCategoria)
+    ? animais.filter(a => calcCategoriaRebanho(a.data_nascimento, a.sexo, a.sit_reprodutiva, a.is_touro) === selCategoria)
     : []
   const idsCategoria       = animaisDaCategoria.map(a => a.id)
   const pesagensCategoria  = pesagens.filter(p => idsCategoria.includes(p.animal_id))
@@ -488,7 +493,7 @@ export default function Pesagens() {
             <label style={{ marginBottom:6 }}>Selecione a categoria</label>
             <select value={selCategoria} onChange={e => setSelCategoria(e.target.value)} style={{ maxWidth:260 }}>
               <option value="">— escolha uma categoria —</option>
-              {CATEGORIAS_REBANHO.map(c => <option key={c} value={c}>{c}</option>)}
+              {categoriasComAnimais.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
           </div>
 

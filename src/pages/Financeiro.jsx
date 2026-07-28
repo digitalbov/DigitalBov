@@ -1,13 +1,12 @@
 import { useState, useEffect, useRef, Fragment } from 'react'
 import { useLocation } from 'react-router-dom'
 import { db } from '../lib/supabase'
-import { fmtMoeda, fmtData, GRUPOS_REC, GRUPOS_DES, valorPropLanc, numeroPositivo, algumErro, calcCategoriaRebanho, CATEGORIAS_VALOR, sexoDaCategoria, estimarDataNascimentoPorCategoria, CATS_ESTOQUE, GRUPO_SUGERIDO_POR_CATEGORIA, capitalizarPrimeira, capitalizarNome } from '../lib/helpers'
+import { fmtMoeda, fmtData, GRUPOS_REC, GRUPOS_DES, valorPropLanc, numeroPositivo, algumErro, calcCategoriaRebanho, CATEGORIAS_VALOR, sexoDaCategoria, estimarDataNascimentoPorCategoria, CATS_ESTOQUE, GRUPO_SUGERIDO_POR_CATEGORIA, capitalizarPrimeira, capitalizarNome, gruposPorValor } from '../lib/helpers'
 import { validarSaldoEstoque, aplicarMovimentacaoEstoque, reverterCascata, buscarMovsVinculadas, criarLancamentoRateado, carregarGruposExtras, gruposDisponiveis as gruposDisponiveisShared, comGrupoExtra } from '../lib/estoqueFinanceiro'
 import RateioProprietarios from '../components/RateioProprietarios'
 import GrupoSelect from '../components/GrupoSelect'
 import { hoje as hojeAgora, hojeISO } from '../lib/hoje'
 import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, AlertBox, BotaoPDF, ErroCarregamento, BannerCicloEncerrado, SeletorCicloLocal, Confirm } from '../components/UI'
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import { usePermissoes } from '../lib/PermissoesContext'
 import { useConta } from '../lib/ContaContext'
 import { useFazenda } from '../lib/FazendaContext'
@@ -15,6 +14,25 @@ import { useCiclo, statusCiclo, STATUS_CICLO_LABEL } from '../lib/CicloContext'
 import { useCicloLocal } from '../lib/useCicloLocal'
 
 const TABS = ['Resumo','Lançamentos','Compra & Venda','Resultados','Parâmetros','Ciclos','Simulações']
+
+// Barra horizontal em HTML/CSS puro (não recharts/SVG) — o nome do grupo é
+// texto normal, que quebra linha sozinho em vez de ser cortado pelo eixo de
+// um gráfico. Precisa suportar grupo digitado à mão pelo usuário (texto
+// livre em Financeiro, pode ser longo) sem nunca truncar com reticências.
+function BarraGrupo({ grupo, valor, maxValor, cor }) {
+  const pct = maxValor > 0 ? Math.max(2, Math.round(valor / maxValor * 100)) : 0
+  return (
+    <div style={{ marginBottom:10 }}>
+      <div style={{ display:'flex', justifyContent:'space-between', gap:10, fontSize:'.78rem', marginBottom:3 }}>
+        <span style={{ color:'#374151', wordBreak:'break-word' }}>{grupo}</span>
+        <span style={{ color:cor, fontWeight:600, whiteSpace:'nowrap' }}>{fmtMoeda(valor)}</span>
+      </div>
+      <div style={{ background:'#F3F4F6', borderRadius:4, height:8, overflow:'hidden' }}>
+        <div style={{ width:`${pct}%`, height:'100%', background:cor, borderRadius:4 }} />
+      </div>
+    </div>
+  )
+}
 
 export default function Financeiro() {
   const location = useLocation()
@@ -704,11 +722,16 @@ export default function Financeiro() {
     }))
   }
 
-  // Gráfico fluxo
-  const grpDesp = {}
-  lancs.filter(l=>l.tipo==='D').forEach(l => { grpDesp[l.grupo]=(grpDesp[l.grupo]||0)+Number(l.valor) })
-  const grpData = Object.entries(grpDesp).sort((a,b)=>b[1]-a[1]).slice(0,7)
-    .map(([name,value])=>({ name:name.split(' ')[0], value }))
+  // Despesas/Receitas por grupo — mesma função compartilhada com Relatorios.jsx
+  // (helpers.gruposPorValor), nunca lista fixa: um grupo criado pela RPC de
+  // venda/compra (Comissão/Impostos/Frete) ou digitado à mão em "+ Novo
+  // grupo..." aparece igual. Mostra TODOS os grupos (antes travava nos 7
+  // maiores) — a lista agora é HTML/CSS puro (BarraGrupo), então cresce sem
+  // cortar nome nenhum; se ficar muito longa, o próprio card rola.
+  const despesasGrupo = gruposPorValor(lancs, 'D', filtProp || null)
+  const receitasGrupo = gruposPorValor(lancs, 'R', filtProp || null)
+  const maxDespGrupo = despesasGrupo[0]?.valor || 0
+  const maxRecGrupo  = receitasGrupo[0]?.valor || 0
 
   if (loading) return <Loading />
   if (loadError) return <ErroCarregamento onRetry={loadBase} />
@@ -766,43 +789,61 @@ export default function Financeiro() {
               </div>
             ))}
           </div>
-          <div className="grid-2">
+
+          {/* Faixa compacta do ciclo — era um card inteiro (grid-2, ocupava
+              metade da largura) só pra 3 linhas de informação; virou uma
+              faixa horizontal, acima dos gráficos. */}
+          <div style={{
+            display:'flex', alignItems:'center', flexWrap:'wrap', gap:'6px 20px',
+            background:'#F9FAFB', border:'.5px solid #E5E7EB', borderRadius:10,
+            padding:'10px 16px', marginBottom:14, fontSize:'.82rem',
+          }}>
+            <strong style={{ color:'#111', display:'flex', alignItems:'center', gap:6 }}>
+              <i className="ti ti-calendar" /> Ciclo {cicloLocal?.nome}
+            </strong>
+            <span style={{ color:'#6B7280' }}>Início: <strong style={{ color:'#374151' }}>{fmtData(cicloLocal?.inicio)}</strong></span>
+            <span style={{ color:'#6B7280' }}>Encerramento: <strong style={{ color:'#374151' }}>{fmtData(cicloLocal?.fim)}</strong></span>
+            <Badge color={statusCicloLocal==='atual'?'green':statusCicloLocal==='carencia'?'amber':'gray'}>{STATUS_CICLO_LABEL[statusCicloLocal]||'—'}</Badge>
+          </div>
+
+          {/* Despesas/Receitas por grupo lado a lado — .grid-2 já empilha em 1
+              coluna na tela estreita (ver global.css), sem precisar de CSS novo. */}
+          <div className="grid-2" style={{ marginBottom:14 }}>
             <div className="card">
               <div className="card-title"><i className="ti ti-chart-donut"/> Despesas por grupo</div>
-              {grpData.length===0
-                ? <div style={{color:'#9CA3AF',fontSize:'.82rem',textAlign:'center',padding:'16px 0'}}>Sem despesas lançadas</div>
-                : (
-                  <ResponsiveContainer width="100%" height={180}>
-                    <BarChart data={grpData} layout="vertical" margin={{top:0,right:10,left:0,bottom:0}}>
-                      <XAxis type="number" tick={{fontSize:9}} tickFormatter={v=>`R$${(v/1000).toFixed(0)}k`}/>
-                      <YAxis type="category" dataKey="name" tick={{fontSize:10}} width={70}/>
-                      <Tooltip formatter={v=>fmtMoeda(v)}/>
-                      <Bar dataKey="value" name="Valor" fill="#2B6CD9" radius={[0,4,4,0]}/>
-                    </BarChart>
-                  </ResponsiveContainer>
-                )
-              }
-            </div>
-            <div>
-              <div className="card" style={{marginBottom:10}}>
-                <div className="card-title"><i className="ti ti-arrows-exchange"/> Vendas no ciclo</div>
-                {transacs.filter(t=>t.tipo==='V').length===0
-                  ? <div style={{color:'#9CA3AF',fontSize:'.82rem'}}>Nenhuma venda registrada.</div>
-                  : transacs.filter(t=>t.tipo==='V').map(t=>(
-                    <div key={t.id} className="row">
-                      <span className="row-label">{fmtData(t.data)} · {t.quantidade}x {t.categoria}</span>
-                      <span className="row-value" style={{color:'#1E55B0'}}>{fmtMoeda(t.valor_total)}</span>
-                    </div>
+              <div style={{ maxHeight:280, overflowY:'auto', paddingRight:4 }}>
+                {despesasGrupo.length===0
+                  ? <div style={{color:'#9CA3AF',fontSize:'.82rem',textAlign:'center',padding:'16px 0'}}>Sem despesas lançadas</div>
+                  : despesasGrupo.map(g => (
+                    <BarraGrupo key={g.grupo} grupo={g.grupo} valor={g.valor} maxValor={maxDespGrupo} cor="#791F1F" />
                   ))
                 }
               </div>
-              <div className="card">
-                <div className="card-title"><i className="ti ti-calendar"/> Ciclo {cicloLocal?.nome}</div>
-                <div className="row"><span className="row-label">Início</span><span className="row-value">{fmtData(cicloLocal?.inicio)}</span></div>
-                <div className="row"><span className="row-label">Encerramento</span><span className="row-value">{fmtData(cicloLocal?.fim)}</span></div>
-                <div className="row"><span className="row-label">Status</span><span><Badge color={statusCicloLocal==='atual'?'green':statusCicloLocal==='carencia'?'amber':'gray'}>{STATUS_CICLO_LABEL[statusCicloLocal]||'—'}</Badge></span></div>
+            </div>
+            <div className="card">
+              <div className="card-title"><i className="ti ti-chart-donut"/> Receitas por grupo</div>
+              <div style={{ maxHeight:280, overflowY:'auto', paddingRight:4 }}>
+                {receitasGrupo.length===0
+                  ? <div style={{color:'#9CA3AF',fontSize:'.82rem',textAlign:'center',padding:'16px 0'}}>Sem receitas lançadas</div>
+                  : receitasGrupo.map(g => (
+                    <BarraGrupo key={g.grupo} grupo={g.grupo} valor={g.valor} maxValor={maxRecGrupo} cor="#1E55B0" />
+                  ))
+                }
               </div>
             </div>
+          </div>
+
+          <div className="card">
+            <div className="card-title"><i className="ti ti-arrows-exchange"/> Vendas no ciclo</div>
+            {transacs.filter(t=>t.tipo==='V').length===0
+              ? <div style={{color:'#9CA3AF',fontSize:'.82rem'}}>Nenhuma venda registrada.</div>
+              : transacs.filter(t=>t.tipo==='V').map(t=>(
+                <div key={t.id} className="row">
+                  <span className="row-label">{fmtData(t.data)} · {t.quantidade}x {t.categoria}</span>
+                  <span className="row-value" style={{color:'#1E55B0'}}>{fmtMoeda(t.valor_total)}</span>
+                </div>
+              ))
+            }
           </div>
           </div>{/* end refResumo */}
         </div>

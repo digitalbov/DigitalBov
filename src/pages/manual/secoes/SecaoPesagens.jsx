@@ -84,7 +84,7 @@ export default function SecaoPesagens({ item }) {
         <li><strong>Registrar</strong> — formulário de lançamento manual de uma pesagem, um animal por vez (ver demonstração abaixo).</li>
         <li><strong>Por Animal</strong> — histórico de pesagens de um animal específico, com gráfico de evolução do peso e o GMD calculado.</li>
         <li><strong>Por Lote</strong> — peso médio e GMD médio de um lote inteiro, com gráfico da curva média.</li>
-        <li><strong>Por Categoria</strong> — mesma ideia, mas agrupando por categoria (Terneiro, Novilha, Vaca...) em vez de lote.</li>
+        <li><strong>Por Categoria</strong> — mesma ideia, mas agrupando por categoria (Terneira, Novilha 13-24m, Vaca Prenha...) em vez de lote. O seletor mostra as 14 categorias oficiais do rebanho (mesmas de Animais/Rebanho/Metas — não a lista antiga de 7 categorias genéricas) e só lista as que têm pelo menos um animal ativo hoje; categoria sem animal não aparece.</li>
         <li><strong>Desempenho</strong> — ranking de GMD de todos os animais com pesagem, do maior para o menor.</li>
         <li><strong>Projeção</strong> — estima em quantos dias cada animal atinge um peso-alvo configurável (padrão 480 kg), com base no GMD atual.</li>
         <li><strong>Desmame</strong> — registra o desmame de vários terneiros de uma vez, selecionando por lote e informando o peso de cada um.</li>

@@ -577,3 +577,29 @@ export const valorPropLanc = (lancamentos, tipo, propId) => {
     return s + (Number.isFinite(v) ? v : 0)
   }, 0)
 }
+
+// ── Grupos "por valor" (receita/despesa), DERIVADOS dos lançamentos reais ────
+// Nunca usa lista fixa (GRUPOS_REC/GRUPOS_DES) — uma lista fixa deixa de fora
+// qualquer grupo criado depois (ex: 'Comissão'/'Impostos'/'Frete'/'Monta
+// Natural', criados automático pelas RPCs de compra/venda) ou digitado à mão
+// pelo usuário (grupo é texto livre em Financeiro), e a soma dos grupos
+// exibidos ficaria menor que o total sem nenhuma explicação. Mesmo critério de
+// valor por lançamento que valorPropLanc usa — sem grupo (nulo/vazio) cai em
+// "Sem grupo" em vez de sumir, e a soma dos grupos bate exatamente com o total
+// (mesmo filtro, mesma extração de valor, só agrupada). Compartilhada entre
+// Relatorios.jsx e Financeiro.jsx (Resumo) pra nunca divergir.
+export function gruposPorValor(lancamentos, tipo, propId = null) {
+  const porGrupo = {}
+  ;(lancamentos || []).filter(l => l.tipo === tipo).forEach(l => {
+    const grupo = l.grupo || 'Sem grupo'
+    let v = propId
+      ? Number(l.rateios?.find(r => r.proprietario_id === propId)?.valor)
+      : Number(l.valor)
+    if (!Number.isFinite(v)) v = 0
+    porGrupo[grupo] = (porGrupo[grupo] || 0) + v
+  })
+  return Object.entries(porGrupo)
+    .map(([grupo, valor]) => ({ grupo, valor }))
+    .filter(g => g.valor > 0)
+    .sort((a, b) => b.valor - a.valor)
+}
