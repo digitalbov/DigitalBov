@@ -2,7 +2,7 @@
 import { db } from '../lib/supabase'
 import {
   calcCategoria, calcGMD, calcTaxaPrenhez, contarPrenhas, contarExpostas, contarMatrizes,
-  calcGestacaoLote, calcDesmameMetrics, calcIntervaloPartos, algumErro, fmtMoeda, pesagensDeManejo,
+  calcGestacaoLote, calcDesmameMetrics, calcIntervaloPartos, algumErro, fmtMoeda,
 } from '../lib/helpers'
 import { Loading, Modal, toast, BotaoPDF, EmptyState, ErroCarregamento, SeletorCicloLocal, AlertBox } from '../components/UI'
 import { usePermissoes } from '../lib/PermissoesContext'
@@ -752,11 +752,12 @@ export default function Metas() {
 
       const hectareUtil = (rPiquetes.data || []).reduce((s, p) => s + (parseFloat(p.area_ha) || 0), 0)
 
+      // Peso mais recente do bezerro — TODA pesagem conta, inclusive
+      // compra/venda (peso real do lote pesado no negócio).
       const pesoTerneiroSafra = (bezerroId) => {
         const todas = todasPesagens.filter(p => p.animal_id === bezerroId)
         if (todas.length === 0) return null
-        const ps = pesagensDeManejo(todas)
-        const maisRecente = [...ps].sort((a, b) => b.data.localeCompare(a.data))[0]
+        const maisRecente = [...todas].sort((a, b) => b.data.localeCompare(a.data))[0]
         return parseFloat(maisRecente.peso_kg) || null
       }
 
@@ -849,13 +850,13 @@ export default function Metas() {
         // (mesmo anchor de nPartos/produção acima), EXATAMENTE partosSafra
         // deste modo — GMD, nPartos e produção sempre falam do mesmo conjunto
         // de terneiros, agora também dentro de cada modo. Só exclui morto.
-        // Categoria avaliada na data da ÚLTIMA pesagem, não em "hoje".
+        // TODA pesagem do animal entra (inclusive compra/venda). Categoria
+        // avaliada na data da ÚLTIMA pesagem, não em "hoje".
         const bezerroIdsSafra = new Set(partosSafra.map(p => p.bezerro_id).filter(Boolean))
         const candidatosGmd = animaisFiltrados.filter(a => a.situacao !== 'morto' && bezerroIdsSafra.has(a.id))
         const gmdsT = [], gmdsF = [], gmdsM = []
         for (const t of candidatosGmd) {
-          const todasDoAnimal = todasPesagens.filter(p => p.animal_id === t.id)
-          const ps = pesagensDeManejo(todasDoAnimal).sort((a, b) => a.data.localeCompare(b.data))
+          const ps = todasPesagens.filter(p => p.animal_id === t.id).sort((a, b) => a.data.localeCompare(b.data))
           if (ps.length < 2) continue
           const dataUltimaPesagem = ps[ps.length - 1].data
           if (!['Terneiro', 'Terneira'].includes(calcCategoria(t.data_nascimento, t.sexo, dataUltimaPesagem))) continue

@@ -82,7 +82,7 @@ export default function SecaoPesagens({ item }) {
       <h4 style={{ fontSize: '.88rem', fontWeight: 700, color: '#1a1a1a', marginBottom: 8 }}>Abas do módulo</h4>
       <ul style={{ color: '#374151', fontSize: '.85rem', lineHeight: 1.8, marginBottom: 18, paddingLeft: 20 }}>
         <li><strong>Registrar</strong> — formulário de lançamento manual de uma pesagem, um animal por vez (ver demonstração abaixo).</li>
-        <li><strong>Por Animal</strong> — histórico de pesagens de um animal específico, com gráfico de evolução do peso e o GMD calculado.</li>
+        <li><strong>Por Animal</strong> — histórico de pesagens de um animal específico, com gráfico de evolução do peso e o GMD calculado. Escolha o animal digitando o brinco (com autocompletar) ou pelo seletor abaixo dele. Os cards mostram último peso, GMD, dias entre a 1ª e a última pesagem (o denominador do GMD) e o total de pesagens.</li>
         <li><strong>Por Lote</strong> — peso médio e GMD médio de um lote inteiro, com gráfico da curva média.</li>
         <li><strong>Por Categoria</strong> — mesma ideia, mas agrupando por categoria (Terneira, Novilha 13-24m, Vaca Prenha...) em vez de lote. O seletor mostra as 14 categorias oficiais do rebanho (mesmas de Animais/Rebanho/Metas — não a lista antiga de 7 categorias genéricas) e só lista as que têm pelo menos um animal ativo hoje; categoria sem animal não aparece.</li>
         <li><strong>Desempenho</strong> — ranking de GMD de todos os animais com pesagem, do maior para o menor.</li>
@@ -127,14 +127,18 @@ export default function SecaoPesagens({ item }) {
       <p style={{ color: '#374151', fontSize: '.85rem', lineHeight: 1.8, marginBottom: 18 }}>
         <strong>Compra</strong> (azul) e <strong>Venda</strong> (verde) são geradas automaticamente pelo
         sistema quando você registra a compra ou venda do animal em Financeiro — você nunca lança esse tipo
-        manualmente aqui. Todas as pesagens feitas por você mesmo (manejo) aparecem com o mesmo selo cinza,
-        só mudando o texto do tipo.
+        manualmente aqui. Se na hora da transação você digitou o peso individual daquele animal (em vez de
+        usar o peso médio da categoria), a pesagem fica marcada como peso individual — isso não muda se ela
+        entra no GMD (toda pesagem entra, veja o aviso abaixo), é só uma informação de origem do dado. Todas
+        as pesagens feitas por você mesmo (manejo) aparecem com o mesmo selo cinza, só mudando o texto do tipo.
       </p>
 
       <h4 style={{ fontSize: '.88rem', fontWeight: 700, color: '#1a1a1a', marginBottom: 8 }}>Como o GMD é calculado</h4>
       <p style={{ color: '#374151', fontSize: '.85rem', lineHeight: 1.6, marginBottom: 10 }}>
-        O GMD usa sempre a <strong>primeira e a última pesagem de manejo</strong> do animal (por data), com no
-        mínimo 2 pesagens de manejo registradas — pesagens de compra/venda não contam (veja o aviso abaixo):
+        O GMD usa sempre a <strong>primeira e a última pesagem</strong> do animal (por data), com no mínimo 2
+        pesagens registradas — <strong>toda pesagem conta</strong>, inclusive compra e venda (veja o aviso
+        abaixo). Se a última pesagem for menor que a primeira, o GMD dá negativo — é um resultado real (o
+        animal perdeu peso no período), não um erro do sistema:
       </p>
       <div style={{
         background: '#F3F4F6', borderRadius: 8, padding: '10px 14px',
@@ -160,8 +164,8 @@ export default function SecaoPesagens({ item }) {
       <h4 style={{ fontSize: '.88rem', fontWeight: 700, color: '#1a1a1a', marginBottom: 10, marginTop: 18 }}>Avisos importantes</h4>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         <AlertBox type="green" icon="ti-scale"
-          title="Peso de compra/venda não entra na conta do GMD"
-          body='A pesagem "Compra"/"Venda" registra o valor médio informado na transação para toda a categoria comprada/vendida — não é o peso individual daquele animal. Por isso ela nunca entra no cálculo de GMD, em nenhuma aba (Por Animal, Por Lote, Por Categoria, Desempenho ou Projeção) — só as pesagens de manejo (nascimento, desmama, sobreano, intermediária) contam. A pesagem de compra/venda continua aparecendo normalmente na lista e no histórico, com seu badge — só não entra na matemática do GMD. Exceção: se o animal nunca foi pesado por manejo, o sistema usa a de compra/venda como último recurso, para não deixar o GMD em branco.' />
+          title="Toda pesagem conta no GMD, inclusive compra e venda"
+          body='O peso registrado numa compra ou venda é o peso REAL do lote — ele foi pesado de verdade, na balança do negócio. Quando você não digita o peso individual de um animal, ele recebe o peso médio da categoria: isso erra pra mais ou pra menos por indivíduo, mas acerta a média do lote, e esses desvios se compensam no GMD do grupo. Por isso a pesagem "Compra"/"Venda" entra no cálculo de GMD em qualquer aba (Por Animal, Por Lote, Por Categoria, Desempenho ou Projeção), tenha peso individual ou não — excluí-la descartaria a única medição real que existe no fim da vida do animal na fazenda. O selo de peso individual (quando você digitou) segue aparecendo só como informação de origem do dado, sem afetar se ele entra no GMD.' />
         <AlertBox type="amber" icon="ti-calendar-x"
           title="Não é possível pesar um animal antes dele nascer"
           body="Se a data da pesagem for anterior à data de nascimento do animal, o sistema recusa salvar." />

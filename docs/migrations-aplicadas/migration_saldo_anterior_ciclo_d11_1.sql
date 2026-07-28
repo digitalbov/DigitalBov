@@ -1,0 +1,57 @@
+-- ================================================================
+-- BLOCO D11 -- Saldo anterior / caixa acumulado do ciclo (Financeiro).
+--
+-- Cria a funcao public.saldo_anterior_ciclo(p_ciclo_id, p_proprietario_id),
+-- que soma o resultado (receitas - despesas) de TODOS os lancamentos da
+-- MESMA FAZENDA anteriores ao ciclo informado. E' um valor CALCULADO NA
+-- LEITURA, nunca gravado em nenhuma tabela -- nao existe coluna de saldo em
+-- ciclos_financeiros nem em nenhum outro lugar. Isso evita qualquer risco de
+-- dessincronia: se um lancamento retroativo de um ciclo anterior (ainda
+-- dentro da carencia de 180 dias) for editado ou excluido, o saldo mostrado
+-- para os ciclos seguintes ja sai correto na proxima leitura, sem job de
+-- recalculo nem migracao de dados historicos.
+--
+-- Duas decisoes importantes, discutidas e confirmadas antes desta migration:
+--
+-- 1) Filtra por DATA (lf.data < c.inicio), NAO por ciclo_id. A coluna
+--    lancamentos_financeiros.ciclo_id e' NULLABLE -- um lancamento orfao (sem
+--    ciclo_id) ficaria de fora se a soma fosse feita via JOIN com
+--    ciclos_financeiros, e o caixa daria errado silenciosamente. Filtrando
+--    por data, um lancamento orfao ainda e' contado (contanto que a data dele
+--    seja anterior ao inicio do ciclo consultado) -- mais robusto.
+--
+-- 2) So considera lancamento_rateios para o calculo por proprietario, nunca
+--    a coluna lancamentos_financeiros.proprietario_id. Essa coluna existe no
+--    schema mas NUNCA e' escrita por nenhum caminho de insert do app (o unico
+--    ponto de escrita de lancamentos, criarLancamentoRateado em
+--    estoqueFinanceiro.js, nunca preenche proprietario_id na tabela principal
+--    -- so grava o rateio na tabela lancamento_rateios) e NUNCA e' lida por
+--    helpers.valorPropLanc (que so olha l.rateios). E' coluna legada, sem
+--    uso -- esta funcao segue exatamente o mesmo criterio que valorPropLanc
+--    ja usa hoje, para o resultado "Todos" e "por proprietario" continuarem
+--    batendo entre Resultado (calculo existente, intocado) e Saldo anterior
+--    (esta funcao).
+--
+-- Nenhum dos 6 calculos de resultado ja existentes no app (Dashboard,
+-- Financeiro Resumo/Resultados, Relatorios, Rebanho, Comparativo) e' alterado
+-- por esta migration -- ela so ADICIONA uma funcao nova, somada a parte,
+-- exibida so nos 3 lugares novos (card "Caixa disponivel", coluna "Saldo
+-- anterior"/"Caixa acumulado" na aba Resultados, faixa do ciclo).
+--
+-- STABLE, sem SECURITY DEFINER: roda com os privilegios de quem chama, entao
+-- a RLS de lancamentos_financeiros/lancamento_rateios continua valendo
+-- normalmente dentro da funcao -- ninguem enxerga dado fora do que ja
+-- enxergaria numa query direta.
+--
+-- Execute no SQL Editor do Supabase.
+-- ================================================================
+
+CREATE OR REPLACE FUNCTION public.saldo_anterior_ciclo(p_ciclo_id uuid, p_proprietario_id uuid DEFAULT NULL) RETURNS numeric LANGUAGE sql STABLE AS $fn$ SELECT COALESCE(SUM(CASE WHEN lf.tipo = 'R' THEN COALESCE(r.valor, CASE WHEN p_proprietario_id IS NULL THEN lf.valor ELSE 0 END) ELSE -COALESCE(r.valor, CASE WHEN p_proprietario_id IS NULL THEN lf.valor ELSE 0 END) END), 0) FROM public.ciclos_financeiros c JOIN public.lancamentos_financeiros lf ON lf.fazenda_id = c.fazenda_id AND lf.data < c.inicio LEFT JOIN public.lancamento_rateios r ON r.lancamento_id = lf.id AND r.proprietario_id = p_proprietario_id WHERE c.id = p_ciclo_id; $fn$;
+
+GRANT EXECUTE ON FUNCTION public.saldo_anterior_ciclo(uuid, uuid) TO authenticated;
+
+-- QUERY DE CONFERENCIA -- rode depois de aplicar a funcao acima, trocando o
+-- uuid pelo id de um ciclo que ja tenha ciclo(s) anterior(es) com lancamento.
+-- Compare "Todos" (p_proprietario_id nulo) com a soma manual de
+-- receitas-despesas de todos os ciclos anteriores dessa fazenda.
+-- SELECT public.saldo_anterior_ciclo('00000000-0000-0000-0000-000000000000', NULL) AS saldo_todos;

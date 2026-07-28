@@ -160,14 +160,17 @@ export default function SecaoFinanceiro({ item }) {
         <ol style={OL}>
           <li>Informe a <strong>data</strong> — animais nascidos depois dela nem aparecem para seleção.</li>
           <li>Filtre por categoria, proprietário e/ou lote, e marque os animais (ou "Selecionar todos do filtro").</li>
-          <li>Para cada categoria selecionada, informe <strong>peso médio</strong> e <strong>preço/kg</strong> — pré-preenchidos a partir de Parâmetros na primeira vez.</li>
+          <li>Para cada categoria selecionada, informe <strong>peso médio</strong> e <strong>preço/kg</strong> — os campos nascem vazios (não são pré-preenchidos a partir de Parâmetros, porque esse valor vai para o histórico de pesagem e o GMD dos animais).</li>
+          <li>Opcional: em cada animal marcado, digite o <strong>peso individual</strong> dele no campo estreito que aparece na própria linha (placeholder "Dig. peso kg"; em branco = usa o peso médio da categoria). Logo abaixo, o card azul de <strong>Total</strong> mostra o valor total em destaque e, abaixo dele, uma linha menor para cada origem de peso realmente usada — ex: "2x Terneiro · peso individual (média 120 kg) × R$ 15,60 = R$ 3.744,00" e "3x Terneiro · peso médio 160 kg × R$ 15,60 = R$ 7.488,00" — mostrando só as que existirem. Se todos os animais da categoria tiverem peso individual, o peso médio deixa de ser obrigatório.</li>
           <li>Preencha contraparte, comissão, imposto e frete, se houver.</li>
           <li>Clique em <strong>Registrar</strong>.</li>
         </ol>
         <h4 style={{ ...H4, fontSize: '.85rem' }}>Compra</h4>
         <ol style={OL}>
           <li>Informe a <strong>data</strong>.</li>
-          <li>Para cada categoria comprada, clique em <strong>"+ Adicionar categoria"</strong> e preencha quantidade, peso médio, preço/kg, proprietário e a data de nascimento estimada (pré-preenchida pela categoria, ajustável).</li>
+          <li>Para cada categoria comprada, clique em <strong>"+ Adicionar categoria"</strong> e preencha quantidade, proprietário e a data de nascimento estimada (essa sim pré-preenchida pela categoria, ajustável). <strong>Peso médio</strong> e <strong>preço/kg</strong> nascem vazios, pelo mesmo motivo da Venda.</li>
+          <li>Opcional: clique em <strong>"+ pesos individuais"</strong> para abrir um campo de peso por cabeça (numerados #1, #2..., placeholder "Dig. peso kg") — os animais ainda não existem nesse momento, então o peso é amarrado à posição em que cada um vai ser criado. Em branco = usa o peso médio da categoria. Dentro do próprio card da categoria, o <strong>Subtotal</strong> vem em destaque com a mesma demonstração por origem de peso da Venda logo abaixo, em texto menor (uma linha para os animais com peso individual, outra para os que usam o peso médio — só as que existirem). Se todos os animais da categoria tiverem peso individual, o peso médio deixa de ser obrigatório.</li>
+          <li>Depois de adicionar todas as categorias, o card vermelho de <strong>Total</strong> (soma de todas elas) aparece logo abaixo do botão "+ Adicionar categoria", antes dos campos de contraparte/comissão/imposto/frete.</li>
           <li>Preencha contraparte, comissão, imposto e frete, se houver.</li>
           <li>Clique em <strong>Registrar</strong>.</li>
         </ol>
@@ -175,10 +178,10 @@ export default function SecaoFinanceiro({ item }) {
           Ao salvar, o sistema cria sozinho: o lançamento financeiro (grupo "Venda de Animais" ou "Compra de
           Animais"), uma despesa separada para cada um de <strong>Comissão</strong>, <strong>Impostos</strong> e
           <strong> Frete</strong> informados (cada uma já rateada entre os proprietários), e uma
-          <strong> pesagem automática</strong> de entrada ou saída por animal (com o peso médio da
-          categoria — veja o aviso na seção Pesagens sobre isso não contar no GMD). Na compra, os animais
-          novos entram com um brinco provisório (PROV-0001, PROV-0002...) até você editar com o brinco
-          definitivo.
+          <strong> pesagem automática</strong> de entrada ou saída por animal — com o peso individual que você
+          digitou para ele, ou com o peso médio da categoria para quem ficou em branco. As duas contam
+          normalmente no <strong>GMD</strong> do animal (veja o aviso na seção Pesagens). Na compra, os animais
+          novos entram com um brinco provisório (PROV-0001, PROV-0002...) até você editar com o brinco definitivo.
         </p>
       </div>
 
@@ -199,9 +202,9 @@ export default function SecaoFinanceiro({ item }) {
         <p style={P}>
           Uma tabela com o <strong>peso médio</strong> e o <strong>preço por kg</strong> de cada categoria do
           rebanho — esses valores alimentam o "Total estimado" desta tela e o valor de mercado estimado
-          mostrado em outras partes do sistema (Dashboard, Relatórios), além de pré-preencher peso/preço na
-          primeira vez que uma categoria entra numa venda. Edite direto na tabela — salva sozinho ao sair do
-          campo.
+          mostrado em outras partes do sistema (Dashboard, Relatórios). Não preenchem automaticamente os
+          campos de peso médio/preço por kg do modal de Compra & Venda — lá você sempre digita o valor real do
+          negócio. Edite direto na tabela — salva sozinho ao sair do campo.
         </p>
       </div>
 

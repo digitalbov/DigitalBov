@@ -3,7 +3,7 @@ import { db } from '../lib/supabase'
 import { usePermissoes } from '../lib/PermissoesContext'
 import { useCiclo, statusCiclo } from '../lib/CicloContext'
 import { useCicloLocal } from '../lib/useCicloLocal'
-import { fmtData, calcGMD, fmtPeso, numeroPositivo, dataNaoFutura, calcCategoria, calcCategoriaRebanho, mesesDeVida, algumErro, pesagensDeManejo, capitalizarPrimeira } from '../lib/helpers'
+import { fmtData, calcGMD, fmtPeso, numeroPositivo, dataNaoFutura, calcCategoria, calcCategoriaRebanho, mesesDeVida, algumErro, capitalizarPrimeira } from '../lib/helpers'
 import { hoje as hojeAgora, hojeISO } from '../lib/hoje'
 import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, IndexCard, BotaoPDF, Confirm, ErroCarregamento, BannerCicloEncerrado, SeletorCicloLocal } from '../components/UI'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
@@ -53,13 +53,13 @@ function agruparPesoPorData(pesagensGrupo) {
 }
 
 // GMD médio de um grupo de animais — média dos GMDs individuais (não o GMD da
-// curva média), consistente com a aba Desempenho. pesagensDeManejo exclui
-// compra/venda do cálculo (peso MÉDIO da categoria na transação, não o peso
-// real do animal — ver aviso na seção Pesagens do manual).
+// curva média), consistente com a aba Desempenho. TODA pesagem do animal
+// conta (inclusive compra/venda, com peso individual ou herdado da média da
+// categoria — ver aviso na seção Pesagens do manual).
 function gmdMedioGrupo(pesagensArr, animalIds) {
   const gmds = animalIds.map(id => {
     const ps = pesagensArr.filter(p => p.animal_id === id).sort((a,b)=>a.data.localeCompare(b.data))
-    const g = calcGMD(pesagensDeManejo(ps))
+    const g = calcGMD(ps)
     return g ? parseFloat(g) : null
   }).filter(g => g !== null)
   return gmds.length ? gmds.reduce((s,v)=>s+v,0)/gmds.length : null
@@ -198,15 +198,21 @@ export default function Pesagens() {
   // cada pesagem (p.animal?.brinco), não pela lista `animais` (só ativos).
   // Um animal vendido não está em `animais`, mas seu histórico de pesagens
   // (entrada/saída inclusas) continua existindo e precisa aparecer aqui.
+  const brincosDisponiveis = [...new Set(pesagens.map(p => p.animal?.brinco).filter(Boolean))].sort()
   const animalIdSelecionado = pesagens.find(p => p.animal?.brinco === selBr)?.animal_id
   const pesAnimal  = animalIdSelecionado
     ? pesagens.filter(p => p.animal_id === animalIdSelecionado).sort((a,b)=>a.data.localeCompare(b.data))
     : []
-  // GMD exclui compra/venda (peso médio da categoria, não o peso real do
-  // animal) — pesagensDeManejo() faz isso; gráfico/histórico continuam
-  // mostrando TODAS as pesagens, só o número do GMD muda.
-  const gmd        = calcGMD(pesagensDeManejo(pesAnimal))
+  // GMD usa TODAS as pesagens do animal, inclusive compra/venda (o peso
+  // médio de uma transação é o peso real do lote pesado — só não é o peso
+  // individual exato de cada cabeça, mas os desvios se compensam no GMD).
+  const gmd        = calcGMD(pesAnimal)
   const ultimoPeso = pesAnimal[pesAnimal.length-1]
+  // Dias entre a 1ª e a última pesagem — é o denominador do GMD (ver fórmula
+  // em calcGMD), mostrado à parte pra ajudar a entender o número do GMD.
+  const diasEntrePesagens = pesAnimal.length >= 2
+    ? Math.round((new Date(pesAnimal[pesAnimal.length-1].data) - new Date(pesAnimal[0].data)) / 86400000)
+    : null
   const chartData  = pesAnimal.map(p => ({ data: fmtData(p.data), peso: parseFloat(p.peso_kg) }))
 
   // Por Lote — mesmo padrão de Por Animal, só que o "animal" é substituído
@@ -243,7 +249,7 @@ export default function Pesagens() {
   const gmds = animaisComPeso.map(aid => {
     const ps = pesagens.filter(p => p.animal_id === aid).sort((a,b)=>a.data.localeCompare(b.data))
     const brinco = ps.find(p => p.animal?.brinco)?.animal?.brinco
-    const g  = calcGMD(pesagensDeManejo(ps))
+    const g  = calcGMD(ps)
     return { brinco: brinco || '?', gmd: g ? parseFloat(g) : null, ultPeso: ps[ps.length-1]?.peso_kg }
   }).filter(x => x.gmd !== null).sort((a,b) => b.gmd - a.gmd)
 
@@ -394,21 +400,32 @@ export default function Pesagens() {
             <BotaoPDF contentRef={refAnimal} filename="pesagens-animal" titulo="Pesagens: Por Animal" />
           </div>
           <div ref={refAnimal}>
-          <div style={{ marginBottom:14 }}>
-            <label style={{ marginBottom:6 }}>Selecione o animal</label>
-            <select value={selBr} onChange={e => setSelBr(e.target.value)} style={{ maxWidth:260 }}>
-              <option value="">— escolha um brinco —</option>
-              {[...new Set(pesagens.map(p => p.animal?.brinco).filter(Boolean))].sort().map(br => (
-                <option key={br} value={br}>{br}</option>
-              ))}
-            </select>
+          <div style={{ marginBottom:14, display:'flex', gap:14, flexWrap:'wrap', alignItems:'flex-end' }}>
+            <div>
+              <label style={{ marginBottom:6 }}>Buscar por brinco</label>
+              <input list="pesagens-lista-brincos" value={selBr} onChange={e => setSelBr(e.target.value)}
+                placeholder="Digite o brinco..." style={{ maxWidth:200 }} />
+              <datalist id="pesagens-lista-brincos">
+                {brincosDisponiveis.map(br => <option key={br} value={br} />)}
+              </datalist>
+            </div>
+            <div>
+              <label style={{ marginBottom:6 }}>ou selecione</label>
+              <select value={selBr} onChange={e => setSelBr(e.target.value)} style={{ maxWidth:260 }}>
+                <option value="">— escolha um brinco —</option>
+                {brincosDisponiveis.map(br => (
+                  <option key={br} value={br}>{br}</option>
+                ))}
+              </select>
+            </div>
           </div>
 
           {selBr && pesAnimal.length > 0 && (
             <div>
-              <div className="grid-3" style={{ marginBottom:14 }}>
+              <div className="grid-4" style={{ marginBottom:14 }}>
                 <IndexCard value={fmtPeso(ultimoPeso?.peso_kg)} label="Último peso" color="#2B6CD9"/>
                 <IndexCard value={gmd ? `${gmd} kg/dia` : '—'} label="GMD" meta="≥0,80 kg/dia" ok={parseFloat(gmd)>=0.8}/>
+                <IndexCard value={diasEntrePesagens !== null ? `${diasEntrePesagens} dias` : '—'} label="Dias entre pesagens" color="#7B2FBE"/>
                 <IndexCard value={pesAnimal.length} label="Pesagens" color="#0C447C"/>
               </div>
               <GraficoEvolucaoPeso data={chartData} titulo={`Evolução de peso — Brinco ${selBr}`} />
@@ -560,12 +577,9 @@ export default function Pesagens() {
         const hoje = hojeAgora(); hoje.setHours(0, 0, 0, 0)
 
         const projecao = animaisComPeso.map(aid => {
-          const psRaw = pesagens.filter(p => p.animal_id === aid).sort((a, b) => a.data.localeCompare(b.data))
-          // GMD e último peso excluem compra/venda (peso médio da categoria,
-          // não o peso real do animal) — pesagensDeManejo() faz isso, com
-          // fallback pras pesagens de compra/venda só se não houver nenhuma
-          // pesagem de manejo registrada.
-          const ps = pesagensDeManejo(psRaw)
+          // GMD e último peso usam TODAS as pesagens do animal, inclusive
+          // compra/venda (peso real do lote pesado no negócio).
+          const ps = pesagens.filter(p => p.animal_id === aid).sort((a, b) => a.data.localeCompare(b.data))
           if (ps.length < 2) return null
           // Projeção é prospectiva (quando o animal atinge o peso-alvo) — só
           // faz sentido pra quem ainda está no plantel. `animais` (só ativos)

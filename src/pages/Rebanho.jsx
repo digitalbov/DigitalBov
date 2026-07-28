@@ -4,7 +4,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { db } from '../lib/supabase'
-import { calcCategoria, calcCategoriaRebanho, calcTaxaPrenhez, contarExpostas, contarPrenhas, calcGMD, pct, fmtMoeda, ehMatriz, somaFinita, algumErro, valorPropLanc, CATEGORIAS_VALOR, pesagensDeManejo } from '../lib/helpers'
+import { calcCategoria, calcCategoriaRebanho, calcTaxaPrenhez, contarExpostas, contarPrenhas, calcGMD, pct, fmtMoeda, ehMatriz, somaFinita, algumErro, valorPropLanc, CATEGORIAS_VALOR } from '../lib/helpers'
 import { Loading, IndexCard, BotaoPDF, ErroCarregamento, SeletorCicloLocal, Badge, EmptyState } from '../components/UI'
 import { useCicloLocal } from '../lib/useCicloLocal'
 import {
@@ -130,13 +130,11 @@ export function Rebanho() {
   // gerado pela monta deste ciclo ainda é desta safra. Igual a Metas.jsx, não
   // inclui monta natural (lote_inseminacao_id nulo) — não há "ciclo da monta"
   // pra ancorar uma cobertura não lançada. Exclui mortos (perda real,
-  // categoria diferente de venda). Só pesagens de MANEJO entram no cálculo
-  // (pesagensDeManejo) — a de venda/compra registra o peso médio do LOTE
-  // inteiro, não o peso real do animal, e distorceria o GMD pra baixo sempre
-  // que o animal estivesse acima da média do lote na venda; só cai pra
-  // venda/compra se o animal nunca teve pesagem de manejo nenhuma. A categoria
-  // (Terneiro/Terneira) é avaliada na data da última pesagem considerada, não
-  // em "hoje".
+  // categoria diferente de venda). TODA pesagem do animal entra no cálculo,
+  // inclusive compra/venda (o peso médio de uma transação é o peso real do
+  // lote pesado — não é o peso individual exato de cada cabeça, mas os
+  // desvios se compensam no GMD do grupo). A categoria (Terneiro/Terneira) é
+  // avaliada na data da última pesagem considerada, não em "hoje".
   const bezerroIdsSafra = new Set(
     lotesInsem.flatMap(l => (l.partos || []).map(p => p.bezerro_id)).filter(Boolean)
   )
@@ -147,8 +145,7 @@ export function Rebanho() {
   )
   const gmdTerneiros = candidatosGmd
     .map(t => {
-      const todasDoAnimal = pesagens.filter(p => p.animal_id === t.id)
-      const ps = pesagensDeManejo(todasDoAnimal).sort((a, b) => a.data.localeCompare(b.data))
+      const ps = pesagens.filter(p => p.animal_id === t.id).sort((a, b) => a.data.localeCompare(b.data))
       if (ps.length < 2) return null
       const dataUltimaPesagem = ps[ps.length - 1].data
       if (!['Terneiro','Terneira'].includes(calcCategoria(t.data_nascimento, t.sexo, dataUltimaPesagem))) return null

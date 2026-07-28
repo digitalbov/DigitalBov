@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, Fragment } from 'react'
 import { useLocation } from 'react-router-dom'
 import { db } from '../lib/supabase'
-import { fmtMoeda, fmtData, GRUPOS_REC, GRUPOS_DES, valorPropLanc, numeroPositivo, algumErro, calcCategoriaRebanho, CATEGORIAS_VALOR, sexoDaCategoria, estimarDataNascimentoPorCategoria, CATS_ESTOQUE, GRUPO_SUGERIDO_POR_CATEGORIA, capitalizarPrimeira, capitalizarNome, gruposPorValor } from '../lib/helpers'
+import { fmtMoeda, fmtData, GRUPOS_REC, GRUPOS_DES, valorPropLanc, numeroPositivo, algumErro, calcCategoriaRebanho, CATEGORIAS_VALOR, estimarDataNascimentoPorCategoria, CATS_ESTOQUE, GRUPO_SUGERIDO_POR_CATEGORIA, capitalizarPrimeira, capitalizarNome, gruposPorValor, parsePesoIndividual, pesoIndividualInvalido, PESO_INDIVIDUAL_MAX_KG } from '../lib/helpers'
 import { validarSaldoEstoque, aplicarMovimentacaoEstoque, reverterCascata, buscarMovsVinculadas, criarLancamentoRateado, carregarGruposExtras, gruposDisponiveis as gruposDisponiveisShared, comGrupoExtra } from '../lib/estoqueFinanceiro'
 import RateioProprietarios from '../components/RateioProprietarios'
 import GrupoSelect from '../components/GrupoSelect'
@@ -14,6 +14,15 @@ import { useCiclo, statusCiclo, STATUS_CICLO_LABEL } from '../lib/CicloContext'
 import { useCicloLocal } from '../lib/useCicloLocal'
 
 const TABS = ['Resumo','Lançamentos','Compra & Venda','Resultados','Parâmetros','Ciclos','Simulações']
+
+// Peso em kg pra exibição na demonstração de cálculo (Bloco D12) — inteiro
+// sem casas decimais soltas (ex: "160"), só cai pra 1 casa quando o valor
+// realmente tem fração (ex: média de pesos individuais "399.9").
+const fmtKg = (v) => {
+  const n = Number(v)
+  if (!Number.isFinite(n)) return '—'
+  return Number.isInteger(n) ? String(n) : n.toFixed(1)
+}
 
 // Barra horizontal em HTML/CSS puro (não recharts/SVG) — o nome do grupo é
 // texto normal, que quebra linha sozinho em vez de ser cortado pelo eixo de
@@ -311,13 +320,38 @@ export default function Financeiro() {
     animaisSelecionadosObjs.map(categoriaReal)
   )].sort()
   const vendaPrecos = form.vendaPrecos || {}
+  // Bloco D12 — peso individual por animal (opcional): quem tem peso digitado
+  // usa esse peso; quem não tem usa o peso médio da categoria (vendaPrecos,
+  // igual a antes). peso_medio_resultante é só exibição (total ÷ qtd) — o
+  // valor de verdade (peso_medio da categoria) é gravado como fallback pela
+  // própria RPC, que recalcula o resultante no servidor.
+  const vendaPesosIndividuais = form.vendaPesosIndividuais || {}
   const resumoPorCategoriaVenda = categoriasNaSelecaoVenda.map(cat => {
     const animaisDaCategoria = animaisSelecionadosObjs.filter(a => categoriaReal(a) === cat)
     const qtd   = animaisDaCategoria.length
     const peso  = numeroPositivo(vendaPrecos[cat]?.peso_medio)
     const preco = numeroPositivo(vendaPrecos[cat]?.preco_kg)
-    const subtotal = (peso && preco) ? qtd*peso*preco : 0
-    return { categoria: cat, quantidade: qtd, peso, preco, subtotal, animalIds: animaisDaCategoria.map(a => a.id) }
+    const pesosIndividuais = animaisDaCategoria.map(a => parsePesoIndividual(vendaPesosIndividuais[a.id]))
+    const qtdComPesoIndividual = pesosIndividuais.filter(p => p !== null).length
+    const qtdComPesoMedio = qtd - qtdComPesoIndividual
+    const somaIndividuais = pesosIndividuais.reduce((s, p) => s + (p || 0), 0)
+    // Bloco D12.2 — com 100% peso individual (qtdComPesoMedio===0), o peso
+    // médio da categoria não é usado nem exigido: pesoTotal vem só dos
+    // individuais, mesmo com o campo vazio (não pré-preenchido).
+    const pesoTotal = qtdComPesoMedio === 0 ? somaIndividuais : (peso !== null ? somaIndividuais + qtdComPesoMedio * peso : null)
+    const pesoResultante = (pesoTotal !== null && qtd > 0) ? pesoTotal / qtd : null
+    const subtotal = (pesoTotal !== null && preco) ? pesoTotal * preco : 0
+    // Demonstração do cálculo (D12.1) — só mostra as origens de peso que
+    // realmente existem na seleção: com 100% peso individual, a linha de
+    // peso médio da categoria some (mesmo que o campo esteja preenchido).
+    const mediaPesoIndividual = qtdComPesoIndividual > 0 ? somaIndividuais / qtdComPesoIndividual : null
+    const valorIndividual = preco !== null ? somaIndividuais * preco : null
+    const valorMedio = (preco !== null && peso !== null) ? qtdComPesoMedio * peso * preco : null
+    return {
+      categoria: cat, quantidade: qtd, peso, preco, subtotal, pesoResultante, qtdComPesoIndividual, qtdComPesoMedio,
+      mediaPesoIndividual, valorIndividual, valorMedio,
+      animalIdsComPeso: animaisDaCategoria.map((a, i) => ({ id: a.id, peso: pesosIndividuais[i] })),
+    }
   })
   const totalVenda = resumoPorCategoriaVenda.reduce((s,r) => s+r.subtotal, 0)
 
@@ -350,24 +384,13 @@ export default function Financeiro() {
     setForm(p => ({ ...p, data: novaData }))
   }
 
-  // Pré-preenche peso/preço de uma categoria só na primeira vez que ela entra
-  // na seleção (a partir de categorias_preco, se existir) — sem sobrescrever o
-  // que o usuário já tiver digitado/alterado.
-  useEffect(() => {
-    if (!ehVendaShape || categoriasNaSelecaoVenda.length === 0) return
-    setForm(prev => {
-      const precos = { ...(prev.vendaPrecos || {}) }
-      let mudou = false
-      categoriasNaSelecaoVenda.forEach(cat => {
-        if (!precos[cat]) {
-          const cp = catPrecos.find(c => c.categoria === cat)
-          precos[cat] = { peso_medio: cp?.peso_medio || '', preco_kg: cp?.preco_kg || '' }
-          mudou = true
-        }
-      })
-      return mudou ? { ...prev, vendaPrecos: precos } : prev
-    })
-  }, [categoriasNaSelecaoVenda.join(','), ehVendaShape])
+  // Bloco D12.2 — peso médio e preço/kg NÃO são mais pré-preenchidos a partir
+  // de categorias_preco: esses valores agora entram no histórico de pesagem e
+  // no GMD dos animais (ver pesagens.peso_individual/regra de GMD), e um
+  // valor de referência que o usuário não conferiu virava dado inventado no
+  // histórico. Os campos nascem vazios — o usuário informa o peso/preço real
+  // do negócio. categorias_preco continua alimentando só Parâmetros e o Valor
+  // de Mercado do Rebanho; aqui vira só uma DICA visual (hint no Field).
 
   // ── Compra real/simulada: N categorias, cada uma com quantidade + peso
   // médio + preço/kg + proprietário + data de nascimento estimada. Ao
@@ -379,13 +402,38 @@ export default function Financeiro() {
       compraCategorias: [...(p.compraCategorias || []), {
         categoria: '', quantidade: 1, peso_medio: '', preco_kg: '',
         proprietario_id: '', data_nascimento_estimada: '',
+        pesos_individuais: [''], mostrarPesosIndividuais: false,
       }]
     }))
   }
+  // Bloco D12 — mudar a quantidade realinha pesos_individuais pra ter
+  // exatamente N posições (mantém o que já tinha digitado em cada posição,
+  // corta o excedente, completa vazio o que faltar) — o índice é o que liga
+  // cada peso ao "animal #N" que vai ser criado pela RPC.
   const atualizarCategoriaCompra = (idx, patch) => {
     setForm(p => ({
       ...p,
-      compraCategorias: p.compraCategorias.map((c, i) => i === idx ? { ...c, ...patch } : c)
+      compraCategorias: p.compraCategorias.map((c, i) => {
+        if (i !== idx) return c
+        const atualizado = { ...c, ...patch }
+        if ('quantidade' in patch) {
+          const n = parseInt(patch.quantidade) || 0
+          const atuais = c.pesos_individuais || []
+          atualizado.pesos_individuais = Array.from({ length: n }, (_, j) => atuais[j] || '')
+        }
+        return atualizado
+      })
+    }))
+  }
+  const setPesoIndividualCompra = (idx, posicao, valor) => {
+    setForm(p => ({
+      ...p,
+      compraCategorias: p.compraCategorias.map((c, i) => {
+        if (i !== idx) return c
+        const arr = [...(c.pesos_individuais || [])]
+        arr[posicao] = valor
+        return { ...c, pesos_individuais: arr }
+      })
     }))
   }
   const removerCategoriaCompra = (idx) => {
@@ -400,8 +448,28 @@ export default function Financeiro() {
     const qtd   = numeroPositivo(c.quantidade)
     const peso  = numeroPositivo(c.peso_medio)
     const preco = numeroPositivo(c.preco_kg)
-    const subtotal = (qtd && peso && preco) ? qtd*peso*preco : 0
-    return { ...c, qtdNum: qtd, pesoNum: peso, precoNum: preco, subtotal }
+    // Bloco D12 — mesma lógica da venda: peso individual (por posição) some
+    // com o peso médio pros animais sem override, formando o peso total real
+    // dessa categoria antes de aplicar o preço/kg.
+    const pesosIndividuaisNum = (c.pesos_individuais || []).slice(0, qtd || 0).map(v => parsePesoIndividual(v))
+    const qtdComPesoIndividual = pesosIndividuaisNum.filter(p => p !== null).length
+    const qtdComPesoMedio = (qtd || 0) - qtdComPesoIndividual
+    const somaIndividuais = pesosIndividuaisNum.reduce((s, p) => s + (p || 0), 0)
+    // Bloco D12.2 — com 100% peso individual (qtdComPesoMedio===0), o peso
+    // médio da categoria não é usado nem exigido: pesoTotal vem só dos
+    // individuais, mesmo com o campo vazio (não pré-preenchido).
+    const pesoTotal = !qtd ? null : (qtdComPesoMedio === 0 ? somaIndividuais : (peso !== null ? somaIndividuais + qtdComPesoMedio * peso : null))
+    const pesoResultante = (pesoTotal !== null && qtd) ? pesoTotal / qtd : null
+    const subtotal = (pesoTotal !== null && preco) ? pesoTotal * preco : 0
+    // Demonstração do cálculo (D12.1) — mesma lógica da venda: só mostra as
+    // origens de peso realmente usadas na seleção.
+    const mediaPesoIndividual = qtdComPesoIndividual > 0 ? somaIndividuais / qtdComPesoIndividual : null
+    const valorIndividual = preco !== null ? somaIndividuais * preco : null
+    const valorMedio = (preco !== null && peso !== null) ? qtdComPesoMedio * peso * preco : null
+    return {
+      ...c, qtdNum: qtd, pesoNum: peso, precoNum: preco, subtotal, pesoResultante, qtdComPesoIndividual, qtdComPesoMedio,
+      mediaPesoIndividual, valorIndividual, valorMedio, pesosIndividuaisNum,
+    }
   })
   const totalCompra = resumoCompra.reduce((s, r) => s + r.subtotal, 0)
 
@@ -543,13 +611,21 @@ export default function Financeiro() {
     for (const r of resumoCompra) {
       if (!r.categoria) { toast('Selecione a categoria em todas as linhas.', 'error'); return }
       if (r.qtdNum === null) { toast(`Quantidade inválida para "${r.categoria}".`, 'error'); return }
-      if (r.pesoNum === null || r.precoNum === null) {
-        toast(`Informe peso médio e preço/kg válidos para "${r.categoria}".`, 'error'); return
+      if (r.precoNum === null) { toast(`Informe um preço/kg válido para "${r.categoria}".`, 'error'); return }
+      // Peso médio só é obrigatório se sobrar algum animal sem peso individual
+      // nessa categoria (Bloco D12.2) — com 100% peso individual, o campo não é usado.
+      if (r.qtdComPesoMedio > 0 && r.pesoNum === null) {
+        toast(`Informe um peso médio válido para "${r.categoria}" (${r.qtdComPesoMedio} animal(is) sem peso individual).`, 'error'); return
       }
       if (!r.proprietario_id) { toast(`Selecione o proprietário de "${r.categoria}".`, 'error'); return }
       if (!r.data_nascimento_estimada) { toast(`Informe a data de nascimento estimada de "${r.categoria}".`, 'error'); return }
       if (r.data_nascimento_estimada > form.data) {
         toast(`A data de nascimento estimada de "${r.categoria}" não pode ser depois da data da compra.`, 'error'); return
+      }
+      const posInvalida = (r.pesos_individuais || []).findIndex(v => pesoIndividualInvalido(v))
+      if (posInvalida !== -1) {
+        toast(`Peso individual inválido na categoria "${r.categoria}" (posição ${posInvalida+1}) — informe um valor maior que 0 e até ${PESO_INDIVIDUAL_MAX_KG} kg, ou deixe em branco para usar o peso médio.`, 'error')
+        return
       }
     }
     setSaving(true)
@@ -558,6 +634,7 @@ export default function Financeiro() {
       categoria: r.categoria, quantidade: r.qtdNum,
       peso_medio: r.pesoNum, preco_kg: r.precoNum, valor_total: r.subtotal,
       proprietario_id: r.proprietario_id, data_nascimento_estimada: r.data_nascimento_estimada,
+      pesos_individuais: r.pesosIndividuaisNum,
     }))
     const totalAnimais = detalhes.reduce((s,d) => s+d.quantidade, 0)
     const descricao = `Compra de ${totalAnimais} animal(is): ` +
@@ -592,8 +669,17 @@ export default function Financeiro() {
       return
     }
     for (const r of resumoPorCategoriaVenda) {
-      if (r.peso === null || r.preco === null) {
-        toast(`Informe peso médio e preço/kg válidos para "${r.categoria}".`, 'error')
+      if (r.preco === null) { toast(`Informe um preço/kg válido para "${r.categoria}".`, 'error'); return }
+      // Peso médio só é obrigatório se sobrar algum animal sem peso individual
+      // nessa categoria (Bloco D12.2) — com 100% peso individual, o campo não é usado.
+      if (r.qtdComPesoMedio > 0 && r.peso === null) {
+        toast(`Informe um peso médio válido para "${r.categoria}" (${r.qtdComPesoMedio} animal(is) sem peso individual).`, 'error')
+        return
+      }
+    }
+    for (const a of animaisSelecionadosObjs) {
+      if (pesoIndividualInvalido(vendaPesosIndividuais[a.id])) {
+        toast(`Peso individual do animal ${a.brinco} inválido — informe um valor maior que 0 e até ${PESO_INDIVIDUAL_MAX_KG} kg, ou deixe em branco para usar o peso médio.`, 'error')
         return
       }
     }
@@ -602,7 +688,7 @@ export default function Financeiro() {
     const detalhes = resumoPorCategoriaVenda.map(r => ({
       categoria: r.categoria, quantidade: r.quantidade,
       peso_medio: r.peso, preco_kg: r.preco, valor_total: r.subtotal,
-      animal_ids: r.animalIds,
+      animal_ids: r.animalIdsComPeso,
     }))
     const descricao = `Venda de ${vendaSelecionados.length} animal(is): ` +
       detalhes.map(d => `${d.quantidade}x ${d.categoria}`).join(', ')
@@ -649,8 +735,9 @@ export default function Financeiro() {
     if (form.tipo === 'venda_sim') {
       if (vendaSelecionados.length === 0) { toast('Selecione ao menos um animal.','error'); return }
       for (const r of resumoPorCategoriaVenda) {
-        if (r.peso === null || r.preco === null) {
-          toast(`Informe peso médio e preço/kg válidos para "${r.categoria}".`, 'error'); return
+        if (r.preco === null) { toast(`Informe um preço/kg válido para "${r.categoria}".`, 'error'); return }
+        if (r.qtdComPesoMedio > 0 && r.peso === null) {
+          toast(`Informe um peso médio válido para "${r.categoria}" (${r.qtdComPesoMedio} animal(is) sem peso individual).`, 'error'); return
         }
       }
       detalhes = resumoPorCategoriaVenda.map(r => ({
@@ -661,8 +748,10 @@ export default function Financeiro() {
       if (compraCategorias.length === 0) { toast('Adicione ao menos uma categoria.','error'); return }
       for (const r of resumoCompra) {
         if (!r.categoria) { toast('Selecione a categoria em todas as linhas.', 'error'); return }
-        if (r.qtdNum === null || r.pesoNum === null || r.precoNum === null) {
-          toast(`Preencha quantidade, peso e preço para "${r.categoria || 'a categoria'}".`, 'error'); return
+        if (r.qtdNum === null) { toast(`Quantidade inválida para "${r.categoria}".`, 'error'); return }
+        if (r.precoNum === null) { toast(`Informe um preço/kg válido para "${r.categoria}".`, 'error'); return }
+        if (r.qtdComPesoMedio > 0 && r.pesoNum === null) {
+          toast(`Informe um peso médio válido para "${r.categoria}" (${r.qtdComPesoMedio} animal(is) sem peso individual).`, 'error'); return
         }
       }
       detalhes = resumoCompra.map(r => ({
@@ -1464,18 +1553,29 @@ export default function Financeiro() {
                 ? <div style={{fontSize:'.8rem',color:'#9CA3AF',textAlign:'center',padding:'8px 0'}}>Nenhum animal ativo encontrado</div>
                 : animaisFiltradosVenda.map(a => {
                     const marcado = vendaSelecionados.includes(a.id)
+                    const cat = categoriaReal(a)
                     return (
-                      <label key={a.id} style={{display:'flex',alignItems:'center',gap:8,padding:'5px 4px',cursor:'pointer',fontSize:'.83rem',borderBottom:'.5px solid #F3F4F6'}}>
-                        <input type="checkbox" checked={marcado} onChange={() => setForm(p => ({
-                          ...p,
-                          vendaSelecionados: marcado
-                            ? vendaSelecionados.filter(id=>id!==a.id)
-                            : [...vendaSelecionados, a.id]
-                        }))}/>
-                        <strong>{a.brinco}</strong>
-                        <span style={{fontSize:'.75rem',color:'#7B2FBE',fontWeight:500}}>{categoriaReal(a)}</span>
-                        <span style={{fontSize:'.75rem',color:'#9CA3AF'}}>{a.proprietario?.nome?.split(' ')[0] || ''}</span>
-                      </label>
+                      <div key={a.id} style={{display:'flex',alignItems:'center',gap:8,padding:'5px 4px',fontSize:'.83rem',borderBottom:'.5px solid #F3F4F6'}}>
+                        <label style={{display:'flex',alignItems:'center',gap:8,cursor:'pointer',flex:1,minWidth:0}}>
+                          <input type="checkbox" checked={marcado} onChange={() => setForm(p => ({
+                            ...p,
+                            vendaSelecionados: marcado
+                              ? vendaSelecionados.filter(id=>id!==a.id)
+                              : [...vendaSelecionados, a.id]
+                          }))}/>
+                          <strong>{a.brinco}</strong>
+                          <span style={{fontSize:'.75rem',color:'#7B2FBE',fontWeight:500}}>{cat}</span>
+                          <span style={{fontSize:'.75rem',color:'#9CA3AF'}}>{a.proprietario?.nome?.split(' ')[0] || ''}</span>
+                        </label>
+                        {marcado && (
+                          <input type="number" step="0.1" value={vendaPesosIndividuais[a.id] ?? ''}
+                            onChange={e=>setForm(p=>({...p,vendaPesosIndividuais:{...p.vendaPesosIndividuais,[a.id]:e.target.value}}))}
+                            placeholder="Dig. peso kg"
+                            title="Peso individual (opcional) — em branco usa o peso médio da categoria"
+                            style={{width:74,fontSize:'.75rem',padding:'2px 6px',flexShrink:0}}
+                          />
+                        )}
+                      </div>
                     )
                   })
               }
@@ -1488,11 +1588,11 @@ export default function Financeiro() {
                   <div key={cat} style={{display:'flex',gap:8,alignItems:'flex-end',marginBottom:4,flexWrap:'wrap'}}>
                     <div style={{fontSize:'.8rem',fontWeight:500,minWidth:110}}>{cat}</div>
                     <Field label="Peso médio (kg)">
-                      <input type="number" step="0.1" value={vendaPrecos[cat]?.peso_medio ?? ''}
+                      <input type="number" step="0.1" value={vendaPrecos[cat]?.peso_medio ?? ''} placeholder="0,0"
                         onChange={e=>setForm(p=>({...p,vendaPrecos:{...p.vendaPrecos,[cat]:{...p.vendaPrecos?.[cat],peso_medio:e.target.value}}}))}/>
                     </Field>
                     <Field label="Preço/kg (R$)">
-                      <input type="number" step="0.01" value={vendaPrecos[cat]?.preco_kg ?? ''}
+                      <input type="number" step="0.01" value={vendaPrecos[cat]?.preco_kg ?? ''} placeholder="0,00"
                         onChange={e=>setForm(p=>({...p,vendaPrecos:{...p.vendaPrecos,[cat]:{...p.vendaPrecos?.[cat],preco_kg:e.target.value}}}))}/>
                     </Field>
                   </div>
@@ -1500,14 +1600,31 @@ export default function Financeiro() {
               </div>
             )}
 
-            {resumoPorCategoriaVenda.length > 0 && (
-              <div style={{background:'#F9FAFB',border:'.5px solid #E5E7EB',borderRadius:8,padding:'8px 12px',marginBottom:10,fontSize:'.8rem'}}>
-                {resumoPorCategoriaVenda.map(r => (
-                  <div key={r.categoria} style={{display:'flex',justifyContent:'space-between',padding:'2px 0'}}>
-                    <span>{r.quantidade}x {r.categoria}{r.peso&&r.preco ? ` × ${r.peso}kg × ${fmtMoeda(r.preco)}` : ' (falta peso/preço)'}</span>
-                    <span style={{fontWeight:500}}>{fmtMoeda(r.subtotal)}</span>
+            {vendaSelecionados.length > 0 && (
+              <div style={{background:'#E8F0FC',borderRadius:8,padding:'8px 12px',marginBottom:10,fontSize:'.85rem',color:'#1E55B0',fontWeight:500}}>
+                <div>Total: {vendaSelecionados.length} animal(is) selecionado(s) — {fmtMoeda(totalVenda)}</div>
+                {resumoPorCategoriaVenda.length > 0 && (
+                  <div style={{marginTop:6,fontSize:'.74rem',fontWeight:400,color:'#3B5FA0'}}>
+                    {resumoPorCategoriaVenda.map(r => (
+                      <div key={r.categoria}>
+                        {r.preco === null ? (
+                          <div>{r.quantidade}x {r.categoria} (falta preço/kg)</div>
+                        ) : (
+                          <>
+                            {r.qtdComPesoIndividual > 0 && (
+                              <div>{r.qtdComPesoIndividual}x {r.categoria} · peso individual (média {fmtKg(r.mediaPesoIndividual)} kg) × {fmtMoeda(r.preco)} = {fmtMoeda(r.valorIndividual)}</div>
+                            )}
+                            {r.qtdComPesoMedio > 0 && (
+                              r.peso !== null
+                                ? <div>{r.qtdComPesoMedio}x {r.categoria} · peso médio {fmtKg(r.peso)} kg × {fmtMoeda(r.preco)} = {fmtMoeda(r.valorMedio)}</div>
+                                : <div>{r.qtdComPesoMedio}x {r.categoria} (falta peso médio)</div>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    ))}
                   </div>
-                ))}
+                )}
               </div>
             )}
 
@@ -1530,26 +1647,23 @@ export default function Financeiro() {
                     <Field label="Categoria" required>
                       <select value={c.categoria} onChange={e=>{
                         const cat = e.target.value
-                        const cp = catPrecos.find(x=>x.categoria===cat)
                         const dataNascEstimada = estimarDataNascimentoPorCategoria(cat, form.data || hojeISO())
-                        atualizarCategoriaCompra(idx, { categoria: cat, peso_medio: cp?.peso_medio || '', preco_kg: cp?.preco_kg || '', data_nascimento_estimada: dataNascEstimada })
+                        // Bloco D12.2 — peso médio/preço/kg NÃO são mais pré-preenchidos
+                        // (categorias_preco vira só referência visual, ver hint abaixo).
+                        atualizarCategoriaCompra(idx, { categoria: cat, peso_medio: '', preco_kg: '', data_nascimento_estimada: dataNascEstimada })
                       }}>
                         <option value="">— selecione —</option>
                         {CATEGORIAS_VALOR.map(cat=><option key={cat} value={cat}>{cat}</option>)}
                       </select>
                     </Field>
-                    <Field label="Sexo" hint="Implícito pela categoria">
-                      <input value={c.categoria ? (sexoDaCategoria(c.categoria)==='M'?'Macho':'Fêmea') : '—'} disabled
-                        style={{background:'#F3F4F6',color:'#6B7280'}}/>
-                    </Field>
                     <Field label="Quantidade" required>
                       <input type="number" min={1} value={c.quantidade} onChange={e=>atualizarCategoriaCompra(idx,{quantidade:e.target.value})}/>
                     </Field>
-                    <Field label="Peso médio (kg)" required>
-                      <input type="number" step="0.1" value={c.peso_medio} onChange={e=>atualizarCategoriaCompra(idx,{peso_medio:e.target.value})}/>
+                    <Field label="Peso médio (kg)">
+                      <input type="number" step="0.1" value={c.peso_medio} placeholder="0,0" onChange={e=>atualizarCategoriaCompra(idx,{peso_medio:e.target.value})}/>
                     </Field>
                     <Field label="Preço/kg (R$)" required>
-                      <input type="number" step="0.01" value={c.preco_kg} onChange={e=>atualizarCategoriaCompra(idx,{preco_kg:e.target.value})}/>
+                      <input type="number" step="0.01" value={c.preco_kg} placeholder="0,00" onChange={e=>atualizarCategoriaCompra(idx,{preco_kg:e.target.value})}/>
                     </Field>
                     {compraCategorias.length > 1 && (
                       <button type="button" className="btn-icon" title="Remover categoria" onClick={()=>removerCategoriaCompra(idx)}>
@@ -1568,9 +1682,45 @@ export default function Financeiro() {
                       <input type="date" value={c.data_nascimento_estimada} onChange={e=>atualizarCategoriaCompra(idx,{data_nascimento_estimada:e.target.value})}/>
                     </Field>
                   </div>
-                  {r?.subtotal > 0 && (
-                    <div style={{textAlign:'right',fontSize:'.8rem',fontWeight:500,color:'#791F1F',marginTop:6}}>
-                      Subtotal: {fmtMoeda(r.subtotal)}
+
+                  <div style={{marginTop:8}}>
+                    <button type="button" onClick={()=>atualizarCategoriaCompra(idx,{mostrarPesosIndividuais: !c.mostrarPesosIndividuais})}
+                      style={{fontSize:'.76rem',color:'#2B6CD9',background:'none',border:'none',padding:0,cursor:'pointer'}}>
+                      {c.mostrarPesosIndividuais ? '− ocultar pesos individuais' : '+ pesos individuais (opcional)'}
+                    </button>
+                    {c.mostrarPesosIndividuais && r?.qtdNum > 0 && (
+                      <div style={{display:'flex',flexWrap:'wrap',gap:6,marginTop:8}}>
+                        {Array.from({length:r.qtdNum}).map((_,pos)=>(
+                          <div key={pos} style={{display:'flex',flexDirection:'column',alignItems:'center'}}>
+                            <span style={{fontSize:'.66rem',color:'#9CA3AF'}}>#{pos+1}</span>
+                            <input type="number" step="0.1" value={c.pesos_individuais?.[pos] ?? ''}
+                              onChange={e=>setPesoIndividualCompra(idx,pos,e.target.value)}
+                              placeholder="Dig. peso kg"
+                              style={{width:64,fontSize:'.74rem',padding:'2px 4px'}}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {r && r.precoNum !== null && (r.subtotal > 0 || r.qtdComPesoIndividual > 0 || r.qtdComPesoMedio > 0) && (
+                    <div style={{marginTop:6}}>
+                      {r.subtotal > 0 && (
+                        <div style={{textAlign:'right',fontSize:'.8rem',fontWeight:500,color:'#791F1F'}}>
+                          Subtotal: {fmtMoeda(r.subtotal)}
+                        </div>
+                      )}
+                      <div style={{textAlign:'right',fontSize:'.72rem',fontWeight:400,color:'#9B7373',marginTop:2}}>
+                        {r.qtdComPesoIndividual > 0 && (
+                          <div>{r.qtdComPesoIndividual}x {r.categoria} · peso individual (média {fmtKg(r.mediaPesoIndividual)} kg) × {fmtMoeda(r.precoNum)} = {fmtMoeda(r.valorIndividual)}</div>
+                        )}
+                        {r.qtdComPesoMedio > 0 && (
+                          r.pesoNum !== null
+                            ? <div>{r.qtdComPesoMedio}x {r.categoria} · peso médio {fmtKg(r.pesoNum)} kg × {fmtMoeda(r.precoNum)} = {fmtMoeda(r.valorMedio)}</div>
+                            : <div>{r.qtdComPesoMedio}x {r.categoria} (falta peso médio)</div>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -1580,23 +1730,18 @@ export default function Financeiro() {
               <i className="ti ti-plus"/> Adicionar categoria
             </button>
 
+            {totalCompra > 0 && (
+              <div style={{background:'#FDEEEE',borderRadius:8,padding:'8px 12px',marginBottom:10,fontSize:'.85rem',color:'#791F1F',fontWeight:500}}>
+                Total: {resumoCompra.reduce((s,r)=>s+(r.qtdNum||0),0)} animal(is) — {fmtMoeda(totalCompra)}
+              </div>
+            )}
+
             <div className="grid-form">
               <Field label="Contraparte"><input value={form.contraparte||''} onChange={e=>setForm(p=>({...p,contraparte:e.target.value}))} placeholder="Vendedor"/></Field>
               <Field label="Comissão (R$)"><input type="number" step="0.01" value={form.comissao??''} onChange={e=>setForm(p=>({...p,comissao:e.target.value}))} placeholder="0,00"/></Field>
               <Field label="Funrural / Imposto (R$)"><input type="number" step="0.01" value={form.imposto??''} onChange={e=>setForm(p=>({...p,imposto:e.target.value}))} placeholder="0,00"/></Field>
               <Field label="Frete (R$)"><input type="number" step="0.01" value={form.frete??''} onChange={e=>setForm(p=>({...p,frete:e.target.value}))} placeholder="0,00"/></Field>
             </div>
-          </div>
-        )}
-
-        {ehVendaShape && vendaSelecionados.length > 0 && (
-          <div style={{background:'#E8F0FC',borderRadius:8,padding:'8px 12px',marginBottom:10,fontSize:'.85rem',color:'#1E55B0',fontWeight:500}}>
-            Total: {vendaSelecionados.length} animal(is) selecionado(s) — {fmtMoeda(totalVenda)}
-          </div>
-        )}
-        {ehCompraShape && totalCompra > 0 && (
-          <div style={{background:'#FDEEEE',borderRadius:8,padding:'8px 12px',marginBottom:10,fontSize:'.85rem',color:'#791F1F',fontWeight:500}}>
-            Total: {resumoCompra.reduce((s,r)=>s+(r.qtdNum||0),0)} animal(is) — {fmtMoeda(totalCompra)}
           </div>
         )}
 

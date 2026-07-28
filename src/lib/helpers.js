@@ -190,24 +190,6 @@ export function estimarDataNascimentoPorCategoria(categoria, dataRefISO) {
   return format(subMonths(parseISO(dataRefISO), meses), 'yyyy-MM-dd')
 }
 
-// ── Pesagens de manejo (exclui venda/compra) ────────────────────────────────
-// "Peso real" de um animal pra fins de índice (GMD, kg produzido) deve vir de
-// uma pesagem de MANEJO (nascimento/desmama/sobreano/intermediária) — a
-// pesagem de venda/compra registra o peso MÉDIO da categoria/lote inteiro
-// vendido/comprado (mesmo valor pra todo animal do lote — ver
-// registrar_venda_animais/registrar_compra_animais no banco), não o peso
-// individual real de cada animal. Usá-la como "peso mais recente" faz o peso
-// de um animal cair no momento da venda sempre que ele estava acima da média
-// do lote, distorcendo GMD e produção pra baixo sem motivo real. Fallback:
-// se o animal só tem pesagem de venda/compra (nunca foi pesado por manejo —
-// ex: comprado e nunca mais pesado), usa essa mesmo, como último recurso.
-const TIPOS_PESAGEM_MANEJO = ['nascimento', 'desmama', 'sobreano', 'intermediaria']
-export function pesagensDeManejo(pesagensDoAnimal) {
-  const arr = pesagensDoAnimal || []
-  const manejo = arr.filter(p => TIPOS_PESAGEM_MANEJO.includes(p.tipo))
-  return manejo.length > 0 ? manejo : arr
-}
-
 // ── GMD ──────────────────────────────────────────────────────────────────────
 export const calcGMD = (pesagens) => {
   if (!pesagens || pesagens.length < 2) return null
@@ -230,6 +212,31 @@ export const numeroPositivo = (v) => {
 
 // Data (string 'AAAA-MM-DD') não pode ser posterior a hoje.
 export const dataNaoFutura = (d) => !!d && d <= hojeISO()
+
+// ── Peso individual em compra/venda (Bloco D12) ─────────────────────────────
+// Limite superior de 1500 kg: cobre folgado até touro/boi grande (a categoria
+// mais pesada do rebanho), sem deixar passar erro de digitação absurdo (ex:
+// vírgula/ponto trocado). Mesmo limite usado no client (Financeiro.jsx) e nas
+// RPCs registrar_venda_animais/registrar_compra_animais no banco — dois
+// lugares, mesmo número, pra nunca divergir.
+export const PESO_INDIVIDUAL_MAX_KG = 1500
+// Vazio = null (sem override — o animal usa o peso médio da categoria).
+// Preenchido mas fora do intervalo válido também vira null aqui (uso
+// silencioso em cálculo ao vivo, tipo "peso médio resultante" enquanto o
+// usuário ainda está digitando) — quem precisa BLOQUEAR o salvamento usa
+// pesoIndividualInvalido abaixo, que distingue "vazio" de "inválido".
+export const parsePesoIndividual = (v) => {
+  if (v === undefined || v === null || v === '') return null
+  const n = parseFloat(v)
+  return (Number.isFinite(n) && n > 0 && n <= PESO_INDIVIDUAL_MAX_KG) ? n : null
+}
+// true só quando o usuário digitou algo E esse algo não é um peso válido —
+// vazio nunca é inválido (é só "sem peso individual, usa o médio").
+export const pesoIndividualInvalido = (v) => {
+  if (v === undefined || v === null || v === '') return false
+  const n = parseFloat(v)
+  return !(Number.isFinite(n) && n > 0 && n <= PESO_INDIVIDUAL_MAX_KG)
+}
 
 // ── Taxa de prenhez (fórmula única e oficial, usada em todas as telas) ────────
 // Padrão oficial: fêmeas DISTINTAS prenhas / fêmeas DISTINTAS expostas —
