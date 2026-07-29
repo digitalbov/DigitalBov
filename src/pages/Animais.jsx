@@ -1,10 +1,11 @@
 ﻿import { useState, useEffect, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { usePermissoes } from '../lib/PermissoesContext'
 import { db } from '../lib/supabase'
-import { calcCategoria, calcCategoriaRebanho, idadeFormatada, fmtData, catCor, sitCor, repCor, sortBrinco, dataNaoFutura, algumErro, statusReprodutivoExibicao, statusReprodutivoCiclo, STATUS_CICLO_ANIMAL, paiEhMontaNaturalIndefinida, capitalizarPrimeira, capitalizarNome, sanidadeRealizada } from '../lib/helpers'
+import { calcCategoria, calcCategoriaRebanho, idadeFormatada, fmtData, catCor, sitCor, repCor, sortBrinco, dataNaoFutura, algumErro, statusReprodutivoExibicao, statusReprodutivoDetalhado, statusReprodutivoCiclo, STATUS_CICLO_ANIMAL, PERDA_PRESUMIDA_DIAS_APOS_PREVISTO, paiEhMontaNaturalIndefinida, capitalizarPrimeira, capitalizarNome, sanidadeRealizada } from '../lib/helpers'
 import { hojeISO } from '../lib/hoje'
-import { Loading, EmptyState, Modal, Field, MicButton, Badge, toast, BotaoPDF, ErroCarregamento } from '../components/UI'
+import { confirmarPerdaPresumida } from '../lib/perdaGestacionalPresumida'
+import { Loading, EmptyState, Modal, Field, MicButton, Badge, toast, BotaoPDF, ErroCarregamento, Confirm } from '../components/UI'
 import { baixarModeloAnimais, lerPlanilhaAnimais, validarLinhas } from '../lib/importacaoAnimais'
 
 const SITUACOES = ['ativo','vendido','morto']
@@ -295,6 +296,8 @@ export default function Animais() {
   // DESTINO, que pode ser diferente da de Animais.
   const podeVerLotes = podeVer('propriedade')
   const navigate = useNavigate()
+  const location = useLocation()
+  const abrirAnimalConsumido = useRef(false)
 
   // Com animal selecionado, leva pro lote DELE (se tiver um); sem seleção
   // (tela de lista), leva pra seção de Lotes geral. Propriedade.jsx lê esse
@@ -338,6 +341,11 @@ export default function Animais() {
   const [partoComoFilho,  setPartoComoFilho]  = useState(null)
   // Histórico sanitário
   const [histSanidade,    setHistSanidade]     = useState([])
+  // Perda gestacional presumida (Fase 10) — mesmo par de estados do detalhe
+  // do lote em Reprodutivo.jsx: confirmPerdaAlvo guarda o contexto pendente,
+  // confirmandoPerda desabilita o botão durante a gravação.
+  const [confirmPerdaAlvo, setConfirmPerdaAlvo] = useState(null)
+  const [confirmandoPerda, setConfirmandoPerda] = useState(false)
   // Notas
   const [notas,           setNotas]           = useState('')
   const [savingNotas,     setSavingNotas]     = useState(false)
@@ -357,6 +365,22 @@ export default function Animais() {
   const [excluindoLote,   setExcluindoLote]   = useState(false)
 
   useEffect(() => { loadAll() }, [])
+
+  // Veio de outra tela (Reprodutivo.jsx — clique num brinco de terneiro na
+  // linha do tempo do lote) — abre a ficha do animal direto, sem o usuário
+  // precisar buscar pelo brinco. Espera `animais` carregar (loadAll acima)
+  // antes de tentar achar o id; abrirAnimalConsumido evita reabrir de novo
+  // se o usuário limpar a seleção depois (mesmo padrão de abrirLoteId em
+  // Reprodutivo.jsx).
+  useEffect(() => {
+    const alvo = location.state?.abrirAnimalId
+    if (!alvo || abrirAnimalConsumido.current || animais.length === 0) return
+    const animal = animais.find(a => a.id === alvo)
+    if (!animal) return
+    abrirAnimalConsumido.current = true
+    setSelected(animal)
+    detalheRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [location.state, animais])
 
   // Carrega timeline e notas quando muda o animal selecionado
   useEffect(() => {
@@ -510,6 +534,29 @@ export default function Animais() {
 
     setTimeline(eventos)
     setTimelineLoading(false)
+  }
+
+  // Confirma perda gestacional presumida (Fase 10) — único ponto de escrita,
+  // só alcançável pelo clique em "Confirmar" do <Confirm> abaixo (ver
+  // lib/perdaGestacionalPresumida.js pro porquê disso nunca ser automático).
+  // Patcha `selected`/`animais` localmente com sit_reprodutiva + observacoes
+  // (retornado já concatenado por confirmarPerdaPresumida) em vez de
+  // recarregar a timeline inteira — mais rápido e evita uma re-busca à toa.
+  const confirmarPerda = async () => {
+    const alvo = confirmPerdaAlvo
+    if (!alvo) return
+    setConfirmandoPerda(true)
+    const { error, observacoesFinal } = await confirmarPerdaPresumida({
+      animalId: alvo.animalId, dataMonta: alvo.dataMonta, dataPrevistaParto: alvo.dataPrevistaParto,
+      observacoesAtuais: alvo.observacoesAtuais,
+    })
+    setConfirmandoPerda(false)
+    setConfirmPerdaAlvo(null)
+    if (error) { toast('Erro ao confirmar perda gestacional presumida: ' + error, 'error'); return }
+    toast(`${alvo.brinco} marcada como vazia — perda gestacional presumida confirmada.`)
+    setSelected(prev => prev?.id === alvo.animalId ? { ...prev, sit_reprodutiva: 'vazia', observacoes: observacoesFinal } : prev)
+    setAnimais(prev => prev.map(a => a.id === alvo.animalId ? { ...a, sit_reprodutiva: 'vazia', observacoes: observacoesFinal } : a))
+    setNotas(observacoesFinal)
   }
 
   const salvarNotas = async () => {
@@ -751,6 +798,25 @@ export default function Animais() {
     const rc  = repCor[statusExib] || repCor.nao_se_aplica
     const filhos = animais.filter(x => x.mae_brinco === a.brinco)
 
+    // Perda gestacional presumida (Fase 10) — mesmo helper do detalhe do
+    // lote (statusReprodutivoDetalhado), mas aqui sem o escopo automático de
+    // "partos de um lote só": acha a monta que gerou a prenhez ATUAL (a
+    // inseminação com diagnóstico Prenha mais recente) e filtra
+    // reprodutivoBruto.partos pra não confundir uma gestação anterior já
+    // resolvida com o ciclo atual — ver aviso no helper (helpers.js).
+    const insPrenhaAtual = a.sit_reprodutiva === 'prenha'
+      ? [...(reprodutivoBruto.inseminacoes || [])]
+          .filter(i => i.diagnostico === 'P' && i.lote?.data)
+          .sort((x, y) => (y.lote.data || '').localeCompare(x.lote.data || ''))[0]
+      : null
+    const dataMontaAtual = insPrenhaAtual?.lote?.data || null
+    const partosDestaGestacao = dataMontaAtual
+      ? (reprodutivoBruto.partos || []).filter(p => p.data_parto >= dataMontaAtual)
+      : []
+    const perdaDetalhe = dataMontaAtual
+      ? statusReprodutivoDetalhado({ id: a.id, sit_reprodutiva: a.sit_reprodutiva }, partosDestaGestacao, dataMontaAtual)
+      : null
+
     // "Vaca falhada" — status reprodutivo por ciclo, 100% derivado na leitura
     // (statusReprodutivoCiclo, helpers.js) a partir dos eventos já carregados
     // pela timeline (reprodutivoBruto). Só ciclos já iniciados, do primeiro em
@@ -868,6 +934,31 @@ export default function Animais() {
                     </span>
                   </div>
 
+                  {perdaDetalhe?.perdaPresumida && (
+                    // Sinal FORTE (estágio 2 da escala — ver PERDA_PRESUMIDA_DIAS_APOS_PREVISTO,
+                    // helpers.js). Puramente derivado até o clique em "Confirmar perda": nada
+                    // gravado antes disso.
+                    <div style={{ marginTop: 10, padding: '8px 10px', background: '#FCEBEB', border: '.5px solid #E24B4A', borderRadius: 8 }}>
+                      <div style={{ fontSize: '.75rem', color: '#791F1F', fontWeight: 700, marginBottom: 6 }}>
+                        <i className="ti ti-alert-triangle-filled" style={{ fontSize: 13 }} /> Perda gestacional presumida
+                      </div>
+                      <div style={{ fontSize: '.72rem', color: '#791F1F', marginBottom: 8 }}>
+                        Sem parto nem aborto registrado até {PERDA_PRESUMIDA_DIAS_APOS_PREVISTO} dias após o parto
+                        previsto ({fmtData(perdaDetalhe.dataPrevistaParto)}).
+                      </div>
+                      {podeEditarAnimais && (
+                        <button className="btn btn-xs" style={{ background: '#DC2626', color: 'white', border: 'none' }}
+                          disabled={confirmandoPerda}
+                          onClick={() => setConfirmPerdaAlvo({
+                            animalId: a.id, brinco: a.brinco, dataMonta: dataMontaAtual,
+                            dataPrevistaParto: perdaDetalhe.dataPrevistaParto, observacoesAtuais: a.observacoes || '',
+                          })}>
+                          {confirmandoPerda ? 'Confirmando...' : 'Confirmar perda'}
+                        </button>
+                      )}
+                    </div>
+                  )}
+
                   {historicoCiclosVisiveis.length > 0 && (
                     <div style={{ marginTop: 10 }}>
                       <div style={{ fontSize: '.68rem', fontWeight: 700, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 4 }}>
@@ -981,6 +1072,21 @@ export default function Animais() {
             </button>
           )}
         </div>
+
+        {/* Perda gestacional presumida — resumo do que será gravado, incluindo
+            o efeito colateral em calcCategoriaRebanho (a vaca some da
+            categoria "Vaca Prenha"/"Vaca Prenha 13-24m" etc. no Valor de
+            Mercado do Rebanho e nos filtros por categoria) e a nota de
+            auditoria em observações (concatenada, nunca sobrescreve — ver
+            lib/perdaGestacionalPresumida.js). */}
+        <Confirm
+          open={!!confirmPerdaAlvo}
+          onClose={() => setConfirmPerdaAlvo(null)}
+          onConfirm={confirmarPerda}
+          title="Confirmar perda gestacional presumida"
+          message={confirmPerdaAlvo && `${confirmPerdaAlvo.brinco} — sem parto nem aborto registrado até ${PERDA_PRESUMIDA_DIAS_APOS_PREVISTO} dias após o parto previsto (${fmtData(confirmPerdaAlvo.dataPrevistaParto)}, da monta de ${fmtData(confirmPerdaAlvo.dataMonta)}). Confirmando: a situação reprodutiva dela vira "Vazia" (isso também muda a categoria dela no Valor de Mercado do Rebanho, de "Prenha" para "Vazia"), e uma nota é adicionada às observações do cadastro com as três datas (monta, previsto, confirmação de hoje). Confirmar?`}
+          danger
+        />
       </div>
     )
   })() : null

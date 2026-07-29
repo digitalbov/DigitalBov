@@ -63,6 +63,8 @@ export const MANUAL_INDICE = [
       { id: 'reprodutivo-estacoes',    titulo: 'Estação de monta' },
       { id: 'reprodutivo-lotes',       titulo: 'Lotes de inseminação e monta natural' },
       { id: 'reprodutivo-diagnostico', titulo: 'Diagnóstico de gestação' },
+      { id: 'reprodutivo-linha-tempo', titulo: 'Linha do tempo por vaca e progresso da safra' },
+      { id: 'reprodutivo-perda-presumida', titulo: 'Perda gestacional presumida' },
       { id: 'reprodutivo-partos',      titulo: 'Partos' },
       { id: 'reprodutivo-abortos',     titulo: 'Abortos' },
       { id: 'reprodutivo-indices',     titulo: 'Índices e funil da safra' },

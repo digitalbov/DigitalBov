@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
-import { useLocation } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { supabase, db } from '../lib/supabase'
 import { usePermissoes } from '../lib/PermissoesContext'
 import { useFazenda } from '../lib/FazendaContext'
@@ -8,19 +8,20 @@ import { useCiclo, statusCiclo } from '../lib/CicloContext'
 import { useCicloLocal } from '../lib/useCicloLocal'
 import {
   fmtData, pct, contarMatrizes, contarExpostas, contarPrenhas, calcTaxaPrenhez, calcCategoriaRebanho, algumErro,
-  GESTACAO_MAX_DIAS, calcGestacaoLote, calcDesmameMetrics, calcIntervaloPartos, statusReprodutivoExibicao,
+  GESTACAO_MAX_DIAS, GESTACAO_ANGUS_DIAS, PERDA_PRESUMIDA_DIAS_APOS_PREVISTO, calcGestacaoLote, calcDesmameMetrics,
+  calcIntervaloPartos, statusReprodutivoExibicao, statusReprodutivoDetalhado,
   dataNaoFutura, resolverPaiDerivado, mesesDeVida, capitalizarPrimeira, capitalizarNome, numeroPositivo,
 } from '../lib/helpers'
 import { hoje as hojeAgora, hojeISO } from '../lib/hoje'
 import { registrarDesmame, desfazerDesmame } from '../lib/reprodutivoDesmame'
-import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, AlertBox, BotaoPDF, ErroCarregamento, BannerCicloEncerrado, SeletorCicloLocal } from '../components/UI'
+import { confirmarPerdaPresumida } from '../lib/perdaGestacionalPresumida'
+import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, AlertBox, BotaoPDF, ErroCarregamento, BannerCicloEncerrado, SeletorCicloLocal, Confirm } from '../components/UI'
 import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer
 } from 'recharts'
 
 const TABS = ['Lotes / Montas','Nascimentos','Índices']
-const GESTACAO_ANGUS_DIAS = 283
 const GESTACAO_MIN_DIAS = 260
 // Guards de coerência de datas (Bloco D7) — valores confirmados com o usuário,
 // não inventados: 24 meses é o MESMO corte que ehMatriz (helpers.js) já usa
@@ -121,6 +122,7 @@ export default function Reprodutivo() {
   const { cicloLocal, setCicloLocal, ciclos } = useCicloLocal()
   const statusCicloLocal = statusCiclo(cicloLocal)
   const location = useLocation()
+  const navigate = useNavigate()
   const abrirLoteConsumido = useRef(false)
   const podeEditarReprodCiclo = podeEditarReprod && (statusCicloLocal === 'atual' || statusCicloLocal === 'carencia')
 
@@ -195,6 +197,12 @@ export default function Reprodutivo() {
   const [dataDesmameLote,  setDataDesmameLote]  = useState(() => hojeISO())
   const [formDesmame,      setFormDesmame]      = useState({})
   const [salvandoDesmameId, setSalvandoDesmameId] = useState(null)
+  // Perda gestacional presumida (Fase 10) — confirmAlvo guarda o contexto da
+  // vaca pendente de confirmação (animalId/brinco/dataMonta/dataPrevistaParto)
+  // pro <Confirm> e pro handler; confirmandoPerdaId desabilita o botão da
+  // linha durante a gravação.
+  const [confirmPerdaAlvo, setConfirmPerdaAlvo] = useState(null)
+  const [confirmandoPerdaId, setConfirmandoPerdaId] = useState(null)
 
   // Nascimentos tab state
   const [partosNasc,    setPartosNasc]    = useState(null)
@@ -1096,6 +1104,39 @@ export default function Reprodutivo() {
     await loadAll(false)
   }
 
+  // Abre a confirmação de perda gestacional presumida (Fase 10) — até este
+  // clique nada foi gravado, é só o sinal derivado de statusReprodutivoDetalhado.
+  const abrirConfirmarPerdaPresumida = (ins, detalheVaca) => {
+    if (!podeEditarReprod) return
+    setConfirmPerdaAlvo({
+      animalId: ins.animal_id,
+      brinco: ins.animal?.brinco || '?',
+      dataMonta: selLote.data,
+      dataPrevistaParto: detalheVaca.dataPrevistaParto,
+    })
+  }
+
+  // Grava sit_reprodutiva='vazia' + nota em observações (concatenada, nunca
+  // sobrescreve — ver perdaGestacionalPresumida.js) — único ponto de
+  // escrita, só alcançável pelo clique em "Confirmar" do <Confirm> abaixo.
+  // loadAll(false) abaixo já traz o observacoes atualizado do servidor, sem
+  // precisar patchar `animais` localmente aqui (ao contrário de Animais.jsx).
+  const confirmarPerda = async () => {
+    const alvo = confirmPerdaAlvo
+    if (!alvo) return
+    setConfirmandoPerdaId(alvo.animalId)
+    const animalAtual = animais.find(a => a.id === alvo.animalId)
+    const { error } = await confirmarPerdaPresumida({
+      animalId: alvo.animalId, dataMonta: alvo.dataMonta, dataPrevistaParto: alvo.dataPrevistaParto,
+      observacoesAtuais: animalAtual?.observacoes || '',
+    })
+    setConfirmandoPerdaId(null)
+    setConfirmPerdaAlvo(null)
+    if (error) { toast('Erro ao confirmar perda gestacional presumida: ' + error, 'error'); return }
+    toast(`${alvo.brinco} marcada como vazia — perda gestacional presumida confirmada.`)
+    await loadAll(false)
+  }
+
   // Abre modal de edição de nascimento
   const abrirEditarParto = (p) => {
     if (!podeEditarReprodCiclo) return
@@ -1655,6 +1696,25 @@ export default function Reprodutivo() {
                   </span>
                 </div>
 
+                {/* Contador de progresso da safra (Fase 10 — etapa A): mesmos
+                    números do card acima (sm.total/prenhas) + nascimentos/
+                    desmamados de calcLoteMetrics (spread de calcDesmameMetrics),
+                    só reorganizados como funil — nenhum cálculo novo. */}
+                <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap', marginBottom:14, fontSize:'.8rem', color:'#374151' }}>
+                  <span style={{ fontWeight:600, color:'#111' }}>Progresso da safra:</span>
+                  {[
+                    ['Expostas', sm.total],
+                    ['Prenhas', sm.prenhas],
+                    ['Paridas', sm.nascimentos],
+                    ['Desmamadas', sm.desmamados],
+                  ].map(([l, v], i) => (
+                    <span key={l} style={{ display:'flex', alignItems:'center', gap:8 }}>
+                      {i > 0 && <i className="ti ti-arrow-right" style={{ fontSize:12, color:'#9CA3AF' }} />}
+                      <span>{l}: <strong>{v}</strong></span>
+                    </span>
+                  ))}
+                </div>
+
                 {/* Resultado da safra — índices ancorados nesta monta, mesmo que os partos ocorram no ciclo seguinte */}
                 <CardResultadoSafra
                   titulo="Resultado da safra"
@@ -1740,6 +1800,16 @@ export default function Reprodutivo() {
                 { id: ins.animal_id, sit_reprodutiva: ins.animal?.sit_reprodutiva },
                 selLote.partos
               )
+              // Linha do tempo por vaca (Fase 10 — etapa A): objeto estruturado
+              // com a etapa atual desta vaca NESTE lote (helpers.js). "Atrasada"
+              // não vem do helper (não fazia parte dos campos pedidos) — é só a
+              // comparação da data prevista com hoje, calculada aqui na tela.
+              const detalheVaca = statusReprodutivoDetalhado(
+                { id: ins.animal_id, sit_reprodutiva: ins.animal?.sit_reprodutiva },
+                selLote.partos, selLote.data
+              )
+              const partoAtrasado = detalheVaca.etapa === 'prenha_sem_parto'
+                && detalheVaca.dataPrevistaParto && detalheVaca.dataPrevistaParto < hojeISO()
               return (
                 <div key={ins.id} style={{
                   display:'flex', alignItems:'center', justifyContent:'space-between',
@@ -1758,9 +1828,25 @@ export default function Reprodutivo() {
                           {situacaoAtual === 'prenha' ? 'Prenha (atual)' : situacaoAtual === 'vazia' ? 'Vazia (atual)' : situacaoAtual === 'Lactante' ? 'Lactante' : situacaoAtual}
                         </Badge>
                       )}
-                      {d === 'P' && partoReg && (
+                      {detalheVaca.etapa === 'pariu_morto' && (
+                        <div style={{ fontSize:'.72rem', color:'#791F1F', marginTop:2, fontWeight:600 }}>
+                          <i className="ti ti-circle-x" style={{ fontSize:11 }} /> Pariu em {fmtData(detalheVaca.dataParto)} · Bezerro morto
+                        </div>
+                      )}
+                      {detalheVaca.etapa === 'lactante' && (
                         <div style={{ fontSize:'.72rem', color:'#166534', marginTop:2, fontWeight:600 }}>
-                          <i className="ti ti-circle-check" style={{ fontSize:11 }} /> Pariu em {fmtData(partoReg.data_parto)}
+                          <i className="ti ti-circle-check" style={{ fontSize:11 }} /> Pariu em {fmtData(detalheVaca.dataParto)} ·{' '}
+                          <button onClick={() => navigate('/animais', { state: { abrirAnimalId: detalheVaca.bezerro.id } })}
+                            title="Abrir cadastro do terneiro"
+                            style={{ background:'none', border:'none', padding:0, font:'inherit', fontWeight:700, color:'#166534', textDecoration:'underline', cursor:'pointer' }}>
+                            {detalheVaca.bezerro.brinco}
+                          </button>
+                          {' '}· Lactante
+                        </div>
+                      )}
+                      {detalheVaca.etapa === 'desmamado' && (
+                        <div style={{ fontSize:'.72rem', color:'#6B7280', marginTop:2, fontWeight:600 }}>
+                          <i className="ti ti-circle-check" style={{ fontSize:11 }} /> Desmamado em {fmtData(detalheVaca.dataDesmame)}{detalheVaca.pesoDesmame ? ` · ${detalheVaca.pesoDesmame}kg` : ''}
                         </div>
                       )}
                       {d === 'P' && !partoReg && abortoReg && (
@@ -1780,9 +1866,33 @@ export default function Reprodutivo() {
                           )}
                         </div>
                       )}
-                      {d === 'P' && !partoReg && !abortoReg && selLote.data && (
-                        <div style={{ fontSize:'.72rem', color:'#1E55B0', marginTop:2 }}>
-                          Prenha · Parto previsto: {fmtData(previsaoPartoLote)}
+                      {detalheVaca.etapa === 'prenha_sem_parto' && detalheVaca.perdaPresumida ? (
+                        // Sinal FORTE (estágio 2 da escala — ver PERDA_PRESUMIDA_DIAS_APOS_PREVISTO,
+                        // helpers.js), mais forte que o "atrasada" (vermelho simples) abaixo: fundo
+                        // + botão de confirmar. Até o clique, nada gravado — puramente derivado.
+                        <div style={{
+                          marginTop:4, padding:'6px 10px', background:'#FCEBEB', border:'.5px solid #E24B4A',
+                          borderRadius:8, display:'flex', alignItems:'center', gap:8, flexWrap:'wrap'
+                        }}>
+                          <span style={{ fontSize:'.72rem', color:'#791F1F', fontWeight:700 }}>
+                            <i className="ti ti-alert-triangle-filled" style={{ fontSize:12 }} /> Perda gestacional presumida — sem parto nem aborto até {PERDA_PRESUMIDA_DIAS_APOS_PREVISTO} dias após o previsto ({fmtData(detalheVaca.dataPrevistaParto)})
+                          </span>
+                          {podeEditarReprod && (
+                            <button className="btn btn-xs" style={{ background:'#DC2626', color:'white', border:'none' }}
+                              disabled={confirmandoPerdaId === ins.animal_id}
+                              onClick={() => abrirConfirmarPerdaPresumida(ins, detalheVaca)}>
+                              {confirmandoPerdaId === ins.animal_id ? 'Confirmando...' : 'Confirmar perda'}
+                            </button>
+                          )}
+                        </div>
+                      ) : detalheVaca.etapa === 'prenha_sem_parto' && (
+                        <div style={{
+                          fontSize:'.72rem', marginTop:2,
+                          color: partoAtrasado ? '#DC2626' : '#1E55B0',
+                          fontWeight: partoAtrasado ? 700 : 400,
+                        }}>
+                          {partoAtrasado && <i className="ti ti-alert-triangle" style={{ fontSize:11 }} />}{' '}
+                          Prevista para {fmtData(detalheVaca.dataPrevistaParto)}
                         </div>
                       )}
                       {d && ins.data_diagnostico && (
@@ -1956,6 +2066,20 @@ export default function Reprodutivo() {
               })}
             </div>
           )}
+          {/* Perda gestacional presumida (Fase 10) — resumo do que será gravado,
+              incluindo o efeito colateral em calcCategoriaRebanho (a vaca some
+              da categoria "Vaca Prenha"/"Vaca Prenha 13-24m" etc. no Valor de
+              Mercado do Rebanho e nos filtros por categoria) e a nota de
+              auditoria em observações (concatenada, nunca sobrescreve — ver
+              perdaGestacionalPresumida.js). */}
+          <Confirm
+            open={!!confirmPerdaAlvo}
+            onClose={() => setConfirmPerdaAlvo(null)}
+            onConfirm={confirmarPerda}
+            title="Confirmar perda gestacional presumida"
+            message={confirmPerdaAlvo && `${confirmPerdaAlvo.brinco} — sem parto nem aborto registrado até ${PERDA_PRESUMIDA_DIAS_APOS_PREVISTO} dias após o parto previsto (${fmtData(confirmPerdaAlvo.dataPrevistaParto)}, da monta de ${fmtData(confirmPerdaAlvo.dataMonta)}). Confirmando: a situação reprodutiva dela vira "Vazia" (isso também muda a categoria dela no Valor de Mercado do Rebanho, de "Prenha" para "Vazia"), e uma nota é adicionada às observações do cadastro com as três datas (monta, previsto, confirmação de hoje). Confirmar?`}
+            danger
+          />
           </div>{/* end refDiag */}
         </div>
       )}
@@ -2104,14 +2228,17 @@ export default function Reprodutivo() {
       {/* ── Índices ── */}
       {tab === 2 && (
         <div>
-          <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:8 }}>
-            <BotaoPDF contentRef={refIndices} filename="reprodutivo-indices" titulo="Reprodutivo: Índices" />
-          </div>
-          {loadingIdx ? <Loading /> : <>
-          <div ref={refIndices}>
-
-            {/* Filtro por proprietário — reduz o funil da safra a um único dono */}
-            <div style={{ display:'flex', gap:6, flexWrap:'wrap', marginBottom:14 }}>
+          {/* Filtro por proprietário + Gerar PDF na mesma linha (filtro à
+              esquerda, botão à direita) — antes o botão tinha uma linha só
+              pra ele, desperdiçando espaço vertical. Os dois ficam FORA de
+              refIndices de propósito (sempre foi assim pro botão; o filtro
+              se junta a ele agora): o conteúdo capturado pro PDF não deve
+              incluir os próprios controles de filtro/exportação, só o
+              resultado. Em tela estreita, flex-wrap deixa o botão descer
+              pra uma linha própria — mas nunca sozinho ocupando a largura
+              toda, sempre ao lado do que couber dos filtros. */}
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:8, marginBottom:14 }}>
+            <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
               {[{ id:'', nome:'Todos' }, ...proprietarios].map(prop => {
                 const active = filtroPropIdx === prop.id
                 return (
@@ -2128,6 +2255,10 @@ export default function Reprodutivo() {
                 )
               })}
             </div>
+            <BotaoPDF contentRef={refIndices} filename="reprodutivo-indices" titulo="Reprodutivo: Índices" />
+          </div>
+          {loadingIdx ? <Loading /> : <>
+          <div ref={refIndices}>
 
             {/* Seção 1 — Resultado da safra reprodutiva (consolidado do ciclo selecionado) */}
             <div style={{ marginBottom:16 }}>

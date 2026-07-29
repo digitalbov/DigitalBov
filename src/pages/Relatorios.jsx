@@ -225,8 +225,17 @@ export default function Relatorios() {
     setGenerating(false)
   }
 
-  const PDFButton = () => (
-    <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:12 }}>
+  // Cabeçalho discreto de cada aba (nome do relatório à esquerda) + botão de
+  // PDF à direita, na MESMA linha — antes o botão tinha uma linha só pra ele
+  // (justify-content:flex-end), desperdiçando espaço vertical, e nenhuma aba
+  // tinha um cabeçalho de tela próprio (só o PrintHeader, centralizado,
+  // dentro do card — é o preview de como fica o PDF, não um cabeçalho de
+  // navegação, por isso não é reaproveitado aqui). Em tela estreita,
+  // flex-wrap deixa o botão descer pra baixo do título — nunca ocupa uma
+  // faixa própria sozinho.
+  const PDFButton = ({ titulo }) => (
+    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:8, marginBottom:12 }}>
+      <h3 style={{ fontSize:'.95rem', fontWeight:700, color:'#111', margin:0 }}>{titulo}</h3>
       <button className="btn btn-primary btn-sm" onClick={gerarPDF} disabled={generating}>
         <i className="ti ti-file-type-pdf" /> {generating ? 'Gerando...' : 'Gerar PDF'}
       </button>
@@ -269,7 +278,7 @@ export default function Relatorios() {
       {/* ── Resumo Geral ── */}
       {tab === 0 && (
         <div>
-          <PDFButton />
+          <PDFButton titulo="Relatório Geral" />
           <div>
             <div style={{ background:'var(--gray-100)', border:'.5px solid var(--gray-200)', borderRadius:12, padding:'16px 20px', color:'var(--gray-900)', marginBottom:16 }}>
               <PrintHeader titulo="Relatório Geral" />
@@ -375,7 +384,7 @@ export default function Relatorios() {
       {/* ── Reprodução ── */}
       {tab === 1 && (
         <div>
-          <PDFButton />
+          <PDFButton titulo="Relatório Reprodutivo" />
           <div>
             <div className="card" style={{ marginBottom:14 }}>
               <PrintHeader titulo="Relatório Reprodutivo" />
@@ -478,7 +487,7 @@ export default function Relatorios() {
       {/* ── Financeiro ── */}
       {tab === 2 && (
         <div>
-          <PDFButton />
+          <PDFButton titulo="Relatório Financeiro" />
           <div>
             <div className="card" style={{ marginBottom:14 }}>
               <PrintHeader titulo="Relatório Financeiro" />

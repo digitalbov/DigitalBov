@@ -122,7 +122,7 @@ export const db = {
     // de 1 touro só, que continuam usando só o campo touro de sempre.
     list: (cicloId) => T('lotes_inseminacao').select(`
       *, inseminacoes(*, animal:animais(brinco,proprietario_id,sit_reprodutiva,proprietario:proprietarios(nome))),
-      partos(id,bezerro_id,mae_id,data_parto,mae:animais!mae_id(brinco,proprietario_id),bezerro:animais!bezerro_id(brinco,sexo,pai,situacao,data_desmame,desmame_confirmado,pesagens(id,data,tipo,peso_kg))),
+      partos(id,bezerro_id,mae_id,data_parto,natimorto,mae:animais!mae_id(brinco,proprietario_id),bezerro:animais!bezerro_id(id,brinco,sexo,pai,situacao,data_desmame,desmame_confirmado,pesagens(id,data,tipo,peso_kg))),
       abortos(id,animal_id,data,causa,observacoes,animal:animais(proprietario_id)),
       estacao:estacoes_monta(id,nome,inicio,fim),
       lote_touros(id,nome)
@@ -203,7 +203,10 @@ export const db = {
     // (IA/Natural/Consolidado, Fase 2 da monta natural) sem mudar o resto do select.
     listAll:   ()           => T('partos').select('bezerro_id,mae_id,data_parto,ciclo_id,lote_inseminacao_id,mae:animais!mae_id(proprietario_id),bezerro:animais!bezerro_id(data_desmame),lote:lotes_inseminacao(tipo)').order('data_parto', { ascending: true }),
     insert:    (data)       => T('partos').insertOne(data).select().single(),
-    byMae:     (maeId)      => T('partos').select('*, bezerro:animais!bezerro_id(brinco,sexo)').eq('mae_id', maeId).order('data_parto', { ascending: true }),
+    // bezerro: id/situacao/data_desmame/pesagens — usado por
+    // statusReprodutivoDetalhado (Animais.jsx, ficha do animal) além dos
+    // campos já usados (brinco/sexo pra timeline).
+    byMae:     (maeId)      => T('partos').select('*, bezerro:animais!bezerro_id(id,brinco,sexo,situacao,data_desmame,pesagens(id,data,tipo,peso_kg))').eq('mae_id', maeId).order('data_parto', { ascending: true }),
     // lote: usado por Animais.jsx pra resolver o clique em "pai" quando o valor
     // é "Monta natural — Lote N" (paternidade indefinida) — leva pro detalhe do
     // lote em vez de tentar achar um animal com esse nome (ver PAI_MONTA_NATURAL_PREFIX).

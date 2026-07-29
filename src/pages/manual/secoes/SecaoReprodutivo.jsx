@@ -139,6 +139,66 @@ export default function SecaoReprodutivo({ item }) {
         </p>
       </div>
 
+      <div id="reprodutivo-linha-tempo" style={{ scrollMarginTop: 90, marginTop: 18 }}>
+        <h4 style={H4}>Linha do tempo por vaca e progresso da safra</h4>
+        <p style={P}>
+          No detalhe do lote, logo abaixo do badge de situação (Prenha/Vazia/Lactante), cada fêmea mostra sua
+          etapa atual dentro da safra:
+        </p>
+        <ul style={{ ...OL, listStyle: 'disc' }}>
+          <li><strong>Prenha, sem parto ainda</strong> — "Prevista para dd/mm/aaaa" (data da monta + 283
+            dias). Se essa data já passou e a vaca ainda não pariu nem tem aborto registrado, o texto aparece em
+            vermelho e negrito, como aviso de atraso.</li>
+          <li><strong>Pariu, bezerro vivo, ainda não desmamado</strong> — "Pariu em dd/mm/aaaa · BRINCO ·
+            Lactante", com o brinco do terneiro clicável: abre o cadastro dele direto na tela Animais.</li>
+          <li><strong>Pariu, bezerro morto (inclusive natimorto)</strong> — "Pariu em dd/mm/aaaa · Bezerro
+            morto", sem oferecer desmame — não faz sentido desmamar um bezerro que não sobreviveu.</li>
+          <li><strong>Desmamado</strong> — "Desmamado em dd/mm/aaaa · Xkg" (o peso some se não foi
+            informado).</li>
+        </ul>
+        <p style={P}>
+          No topo do lote, o <strong>"Progresso da safra"</strong> resume o funil completo num único lugar:
+          Expostas → Prenhas → Paridas → Desmamadas — os mesmos números já usados no Resumo do lote e no
+          Resultado da safra logo abaixo, só reorganizados como sequência.
+        </p>
+      </div>
+
+      <div id="reprodutivo-perda-presumida" style={{ scrollMarginTop: 90, marginTop: 18 }}>
+        <h4 style={H4}>Perda gestacional presumida</h4>
+        <p style={P}>
+          O sistema tem <strong>duas réguas</strong> pra uma vaca prenha sem desfecho — uma escala em dois
+          estágios, ancorados na mesma data (a da monta), não dois conceitos concorrentes:
+        </p>
+        <ul style={{ ...OL, listStyle: 'disc' }}>
+          <li><strong>Estágio 1 — sinal fraco, só agregado</strong> (300 dias da monta, ~17 dias após o parto
+            previsto): entra na % de "Perda Gestacional" mostrada em Reprodutivo/Metas. Não identifica nenhuma
+            vaca específica, não muda nenhum cadastro — um atraso de 2-3 semanas é comum (erro de diagnóstico,
+            gestação um pouco mais longa) e não justifica mexer em nada.</li>
+          <li><strong>Estágio 2 — sinal forte, individual</strong> (180 dias APÓS o parto previsto = 463 dias
+            da monta): essa é a "perda gestacional presumida" descrita aqui. Só depois de quase 6 meses de
+            atraso, sem parto nem aborto registrado, a vaca específica ganha um aviso mais forte que o simples
+            "atrasada" (vermelho) da linha do tempo — com fundo e botão de confirmação — na linha dela no
+            detalhe do lote <strong>e</strong> na ficha do animal (Cadastro de Animais → Histórico
+            reprodutivo).</li>
+        </ul>
+        <p style={P}>
+          Até você clicar em <strong>"Confirmar perda"</strong>, nada é gravado — o aviso é só um sinal
+          calculado na hora de exibir a tela (mesmo princípio do "Lactante": nunca mexe no cadastro sozinho).
+          Confirmando, o sistema mostra um resumo do que vai mudar e só grava depois desse clique:
+        </p>
+        <div style={{ background:'#F3F4F6', borderRadius:8, padding:'10px 14px', fontSize:'.82rem', color:'#111827', marginBottom:18, lineHeight:1.7 }}>
+          Situação reprodutiva da vaca: prenha → vazia
+        </div>
+        <AlertBox type="amber" icon="ti-tag"
+          title='Por que confirmar importa: muda a CATEGORIA da vaca, não os índices reprodutivos'
+          body='Taxa de prenhez, taxa de parição, taxa de aproveitamento e kg desmamado por matriz NÃO mudam com isso — são calculados a partir do diagnóstico da inseminação e dos partos/abortos, nunca da situação reprodutiva atual do animal. O que muda de verdade é a CATEGORIA dela (calcCategoriaRebanho): enquanto ficar "prenha" sem confirmação, ela continua contando como "Vaca Prenha" (ou "Vaca Prenha 13-24m" etc.) no Valor de Mercado do Rebanho (Dashboard, Relatórios) e nos filtros por categoria (Animais, Pesagens, Sanidade) — superavaliada, e na categoria errada — mesmo já fazendo mais de um ano que a gestação deveria ter terminado. Confirmar corrige isso.' />
+        <p style={P}>
+          Se um parto atrasado for registrado depois — mesmo já tendo confirmado a perda presumida — não há
+          conflito: registrar um nascimento sempre marca a mãe como "vazia" de novo, então é só uma gravação
+          repetida sobre o mesmo valor.
+        </p>
+      </div>
+
       <div id="reprodutivo-partos" style={{ scrollMarginTop: 90 }}>
         <h4 style={H4}>Partos</h4>
         <p style={P}>

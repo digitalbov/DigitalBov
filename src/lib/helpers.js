@@ -293,11 +293,38 @@ export function calcTaxaPrenhez(inseminacoes) {
 export const contarExpostas = (inseminacoes) => new Set((inseminacoes || []).map(i => i.animal_id)).size
 export const contarPrenhas  = (inseminacoes) => new Set((inseminacoes || []).filter(i => i.diagnostico === 'P').map(i => i.animal_id)).size
 
-// ── Perda gestacional (fórmula única, usada em Reprodutivo e Metas) ───────────
-// Fim da janela normal de gestação — prenhas cuja monta ainda está dentro dela
-// NÃO são perda (ainda podem parir); só depois disso, sem parto nem aborto
-// registrado, uma prenha vira "perda não identificada".
+// ── Perda gestacional — UMA escala de confiança em dois estágios, não dois
+// conceitos concorrentes. As duas constantes abaixo são ancoradas na MESMA
+// data (a da monta) e alimentam ações de peso bem diferente:
+//
+// Estágio 1 — GESTACAO_MAX_DIAS (300 dias da monta, ~17 dias após o parto
+// previsto): sinal FRACO e só AGREGADO. Usado em calcGestacaoLote pra somar
+// quantas prenhas de um lote ainda não têm desfecho — vira % de "Perda
+// Gestacional" em Reprodutivo/Metas. NUNCA identifica uma vaca específica,
+// nunca grava nada. Um atraso de 2-3 semanas é comum (erro de diagnóstico,
+// gestação um pouco mais longa) — não é motivo pra mexer no cadastro de
+// ninguém.
+//
+// Estágio 2 — GESTACAO_ANGUS_DIAS + PERDA_PRESUMIDA_DIAS_APOS_PREVISTO (283 +
+// 180 = 463 dias da monta): sinal FORTE, no nível INDIVIDUAL da vaca — ver
+// statusReprodutivoDetalhado, mais abaixo. Só nesse ponto (quase 6 meses
+// depois da data prevista de parto, sem parto nem aborto registrado) é que
+// vale a pena marcar "perda gestacional presumida" pra uma vaca específica,
+// e mesmo assim SÓ como sinal visual — a gravação de sit_reprodutiva='vazia'
+// só acontece se o usuário confirmar num clique (ver
+// lib/perdaGestacionalPresumida.js). Nunca escrita automática por navegação.
 export const GESTACAO_MAX_DIAS = 300
+
+// Gestação padrão (raça Angus) usada pra PREVER a data de parto de uma monta
+// (monta + 283 dias). Movida pra cá (antes só existia em Reprodutivo.jsx) pra
+// statusReprodutivoDetalhado, abaixo, poder calcular dataPrevistaParto sem
+// duplicar o número.
+export const GESTACAO_ANGUS_DIAS = 283
+
+// Estágio 2 da escala acima — dias APÓS a data prevista de parto (não desde a
+// monta) pra presumir perda gestacional de uma vaca específica. 283 + 180 =
+// 463 dias desde a monta.
+export const PERDA_PRESUMIDA_DIAS_APOS_PREVISTO = 180
 
 export function calcGestacaoLote(loteData, prenhas, nascimentos, nAbortos, hoje = hojeAgora()) {
   const diasDesdeMonta = loteData ? Math.round((hoje - new Date(loteData + 'T12:00:00')) / 86400000) : null
@@ -471,6 +498,70 @@ export function statusReprodutivoExibicao(animal, partos) {
   const ultimoParto = partosDaMae[0]
   if (ultimoParto && !ultimoParto.bezerro?.data_desmame) return 'Lactante'
   return animal.sit_reprodutiva
+}
+
+// ── Linha do tempo por vaca dentro de um lote (Fase 10 — Reprodutivo.jsx,
+// detalhe do lote) — NÃO mexe em statusReprodutivoExibicao (intocada,
+// continua exatamente como usada hoje); esta é mais rica: devolve um objeto
+// estruturado com a ETAPA atual da vaca NESTE lote e os dados prontos pra
+// próxima ação (botão) da linha do tempo.
+//
+// `partos` = partos DESTE lote (ex: selLote.partos), cada item precisa de
+// mae_id, data_parto, natimorto e bezerro:{id,brinco,sexo,situacao,
+// data_desmame,pesagens:[{tipo,peso_kg}]}. `dataMonta` = selLote.data (usada
+// pra calcular dataPrevistaParto = monta + GESTACAO_ANGUS_DIAS e, a partir
+// dela, perdaPresumida — ver PERDA_PRESUMIDA_DIAS_APOS_PREVISTO acima).
+//
+// IMPORTANTE pra quem chamar isto fora do contexto de um lote específico
+// (ex: ficha do animal): `partos` precisa estar filtrado pra conter só
+// partos DESTA gestação em diante (data_parto >= dataMonta), senão uma
+// gestação anterior já resolvida (parto/desmame antigos) é confundida com a
+// gestação atual — no detalhe do lote isso já vem de graça (partos vêm
+// filtrados pelo FK do lote).
+//
+// etapa possíveis: 'prenha_sem_parto' | 'pariu_morto' | 'lactante' |
+// 'desmamado' | null (vazia, ou qualquer outra situação sem linha do tempo
+// própria — a tela mantém o badge de sempre nesses casos, sem usar isto).
+export function statusReprodutivoDetalhado(animal, partos, dataMonta) {
+  const vazio = { etapa: null, dataParto: null, bezerro: null, dataDesmame: null, pesoDesmame: null, dataPrevistaParto: null, perdaPresumida: false }
+  if (!animal) return vazio
+
+  const partosDaMae = (partos || [])
+    .filter(p => p.mae_id === animal.id)
+    .sort((a, b) => (b.data_parto || '').localeCompare(a.data_parto || ''))
+  const ultimoParto = partosDaMae[0]
+
+  if (!ultimoParto) {
+    if (animal.sit_reprodutiva !== 'prenha') return vazio
+    let dataPrevistaParto = null
+    let perdaPresumida = false
+    if (dataMonta) {
+      const d = new Date(dataMonta + 'T12:00:00')
+      d.setDate(d.getDate() + GESTACAO_ANGUS_DIAS)
+      dataPrevistaParto = d.toISOString().slice(0, 10)
+      const dLimite = new Date(d)
+      dLimite.setDate(dLimite.getDate() + PERDA_PRESUMIDA_DIAS_APOS_PREVISTO)
+      perdaPresumida = hojeISO() >= dLimite.toISOString().slice(0, 10)
+    }
+    return { ...vazio, etapa: 'prenha_sem_parto', dataPrevistaParto, perdaPresumida }
+  }
+
+  const b = ultimoParto.bezerro
+  const bezerro = b ? { id: b.id, brinco: b.brinco, sexo: b.sexo, situacao: b.situacao } : null
+  const morto = !!ultimoParto.natimorto || b?.situacao === 'morto'
+
+  if (morto) {
+    return { ...vazio, etapa: 'pariu_morto', dataParto: ultimoParto.data_parto, bezerro }
+  }
+  if (!b?.data_desmame) {
+    return { ...vazio, etapa: 'lactante', dataParto: ultimoParto.data_parto, bezerro }
+  }
+  const pesoDesm = (b.pesagens || []).find(ps => ps.tipo === 'desmama')
+  return {
+    ...vazio, etapa: 'desmamado', dataParto: ultimoParto.data_parto, bezerro,
+    dataDesmame: b.data_desmame,
+    pesoDesmame: pesoDesm ? parseFloat(pesoDesm.peso_kg) : null,
+  }
 }
 
 // ── "Vaca falhada" — status reprodutivo por ciclo, 100% DERIVADO na leitura ──
