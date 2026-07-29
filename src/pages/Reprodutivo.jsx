@@ -190,6 +190,18 @@ export default function Reprodutivo() {
   // <Confirm> (ids já vem filtrado pros elegíveis — ver elegiveisDiagLote).
   const [confirmDiagLote, setConfirmDiagLote] = useState(null)
   const [aplicandoDiagLote, setAplicandoDiagLote] = useState(false)
+  // Padronização de diálogos de confirmação: os 5 confirm() nativos restantes
+  // desta tela (excluir estação, excluir lote, remover um único brinco,
+  // excluir aborto, desmamar/desfazer desmame) trocados pelo <Confirm> do
+  // app — mesma inconsistência já corrigida em remover-em-lote e excluir
+  // nascimento (etapa D); um deles (excluir estação) nem tinha sido pego
+  // antes, porque usava confirm(msg) com variável, não confirm('...') literal.
+  const [confirmExcluirEstacao,       setConfirmExcluirEstacao]       = useState(null) // { es, msg, lotesDaEstacao }
+  const [confirmExcluirLote,          setConfirmExcluirLote]          = useState(null) // l
+  const [confirmRemoverInsem,         setConfirmRemoverInsem]         = useState(null) // ins
+  const [confirmExcluirAborto,        setConfirmExcluirAborto]        = useState(null) // ab
+  const [confirmSalvarDesmame,        setConfirmSalvarDesmame]        = useState(null) // parto
+  const [confirmDesfazerDesmameLote,  setConfirmDesfazerDesmameLote]  = useState(null) // p
   const [filtroPropLote, setFiltroPropLote] = useState('') // filtro visual dos animais dentro do detalhe do lote
   const [filtroPropIdx,  setFiltroPropIdx]  = useState('') // filtra o funil da aba Índices por proprietário
   // todosLotes/todosPartos cobrem TODOS os ciclos (necessário pro histórico da
@@ -535,14 +547,20 @@ export default function Reprodutivo() {
   // Exclui a estação de monta. Os lotes vinculados NÃO são apagados — só
   // desvinculados (estacao_monta_id = null) antes da exclusão, para não deixar
   // referência quebrada e não perder o histórico das inseminações.
-  const excluirEstacao = async (es) => {
+  const excluirEstacao = (es) => {
     if (!podeEditarReprodCiclo || !es) return
     const lotesDaEstacao = lotes.filter(l => l.estacao_monta_id === es.id)
     const msg = lotesDaEstacao.length > 0
       ? `Os ${lotesDaEstacao.length} lote${lotesDaEstacao.length !== 1 ? 's' : ''} desta estação serão desvinculados, mas não excluídos. Confirmar?`
       : `Excluir a estação "${es.nome}"? Esta ação não pode ser desfeita.`
-    if (!confirm(msg)) return
+    setConfirmExcluirEstacao({ es, msg, lotesDaEstacao })
+  }
 
+  const executarExcluirEstacao = async () => {
+    const alvo = confirmExcluirEstacao
+    setConfirmExcluirEstacao(null)
+    if (!alvo) return
+    const { es, lotesDaEstacao } = alvo
     setSavingEstacao(true)
     if (lotesDaEstacao.length > 0) {
       await Promise.all(lotesDaEstacao.map(l => db.lotesInseminacao.update(l.id, { estacao_monta_id: null })))
@@ -676,13 +694,19 @@ export default function Reprodutivo() {
     setSaving(false); setModal(null); setSelBrs([]); setForm({}); loadAll()
   }
 
-  const excluirLote = async (l, e) => {
+  const excluirLote = (l, e) => {
     e.stopPropagation()   // não abrir o detalhe ao clicar no botão
     if (!podeEditarReprodCiclo) return
     if (l.inseminacoes?.some(i => i.diagnostico)) {
       toast('Não é possível excluir: já há diagnóstico registrado.', 'error'); return
     }
-    if (!confirm(`Excluir o Lote ${l.numero} (${l.touro})? As inseminações sem diagnóstico serão removidas.`)) return
+    setConfirmExcluirLote(l)
+  }
+
+  const executarExcluirLote = async () => {
+    const l = confirmExcluirLote
+    setConfirmExcluirLote(null)
+    if (!l) return
     const { error } = await db.lotesInseminacao.delete(l.id)
     if (error) { toast('Erro ao excluir: '+error.message, 'error'); return }
     toast('Lote excluído.')
@@ -731,9 +755,15 @@ export default function Reprodutivo() {
   }
 
   // Remover animal de um lote (só se ainda não houver diagnóstico)
-  const removerInsem = async (ins) => {
+  const removerInsem = (ins) => {
     if (!podeEditarReprodCiclo) return
-    if (!confirm(`Remover o brinco ${ins.animal?.brinco || ''} deste lote?`)) return
+    setConfirmRemoverInsem(ins)
+  }
+
+  const executarRemoverInsem = async () => {
+    const ins = confirmRemoverInsem
+    setConfirmRemoverInsem(null)
+    if (!ins) return
     const { error } = await db.inseminacoes.delete(ins.id)
     if (error) { toast('Erro ao remover: ' + error.message, 'error'); return }
     toast('Animal removido do lote.')
@@ -985,9 +1015,15 @@ export default function Reprodutivo() {
   // Exclui um aborto. Não reverte sit_reprodutiva automaticamente — mesma lógica
   // cautelosa da exclusão de parto: não há garantia de que a vaca esteja prenha
   // de novo só porque o registro de aborto foi removido.
-  const excluirAborto = async (ab) => {
+  const excluirAborto = (ab) => {
     if (!podeEditarReprodCiclo) return
-    if (!confirm(`Excluir o registro de aborto de ${fmtData(ab.data)}? A situação reprodutiva do animal não é alterada automaticamente.`)) return
+    setConfirmExcluirAborto(ab)
+  }
+
+  const executarExcluirAborto = async () => {
+    const ab = confirmExcluirAborto
+    setConfirmExcluirAborto(null)
+    if (!ab) return
     const { error } = await db.abortos.delete(ab.id)
     if (error) { toast('Erro ao excluir: ' + error.message, 'error'); return }
     toast('Aborto excluído.')
@@ -1254,7 +1290,7 @@ export default function Reprodutivo() {
   // do ciclo atual (o terneiro pode ser desmamado bem depois da estação de
   // monta que gerou o lote). dataEhEditavel abaixo avalia o ciclo da DATA DO
   // DESMAME (o que de fato vai ser gravado), não o cicloLocal.
-  const salvarDesmame = async (parto) => {
+  const salvarDesmame = (parto) => {
     if (!podeEditarReprod) return
     const data = dataDesmameLote
     if (!data) { toast('Informe a data do desmame.', 'error'); return }
@@ -1268,7 +1304,15 @@ export default function Reprodutivo() {
     }
     const fd = formDesmame[parto.id] || {}
     if (numeroPositivo(fd.peso) === null) { toast('Informe o peso para registrar o desmame.', 'error'); return }
-    if (!confirm(`Desmamar ${parto.bezerro?.brinco || ''}? Isso entra imediatamente no cálculo de Kg ao Desmame e Kg Desmamado/Matriz em Metas.`)) return
+    setConfirmSalvarDesmame(parto)
+  }
+
+  const executarSalvarDesmame = async () => {
+    const parto = confirmSalvarDesmame
+    setConfirmSalvarDesmame(null)
+    if (!parto) return
+    const data = dataDesmameLote
+    const fd = formDesmame[parto.id] || {}
     setSalvandoDesmameId(parto.id)
     const { error } = await registrarDesmame({ animalId: parto.bezerro_id, data, pesoKg: fd.peso })
     setSalvandoDesmameId(null)
@@ -1279,12 +1323,17 @@ export default function Reprodutivo() {
   }
 
   // Corrige lançamento por engano (ver desfazerDesmame em
-  // reprodutivoDesmame.js). Confirmação nativa, mesmo padrão já usado nas
-  // outras exclusões desta tela (excluirNascimento etc.) — avisa que isso
+  // reprodutivoDesmame.js). Confirmação via <Confirm> do app — avisa que isso
   // também muda os indicadores.
-  const desfazerDesmameLote = async (p) => {
+  const desfazerDesmameLote = (p) => {
     if (!podeEditarReprod) return
-    if (!confirm(`Desfazer o desmame de ${p.bezerro?.brinco || ''}? A data e o peso registrados serão apagados, e isso também muda o cálculo de Kg ao Desmame e Kg Desmamado/Matriz em Metas.`)) return
+    setConfirmDesfazerDesmameLote(p)
+  }
+
+  const executarDesfazerDesmameLote = async () => {
+    const p = confirmDesfazerDesmameLote
+    setConfirmDesfazerDesmameLote(null)
+    if (!p) return
     const pesoDesm = (p.bezerro?.pesagens || []).find(ps => ps.tipo === 'desmama')
     setSalvandoDesmameId(p.id)
     const { error } = await desfazerDesmame({ animalId: p.bezerro_id, pesagemId: pesoDesm?.id || null })
@@ -1775,6 +1824,24 @@ export default function Reprodutivo() {
               </>
             )
           })()}
+          {/* Confirmação de exclusão — <Confirm> do app (padronização, ver
+              comentário no estado confirmExcluirEstacao). */}
+          <Confirm
+            open={!!confirmExcluirEstacao}
+            onClose={() => setConfirmExcluirEstacao(null)}
+            onConfirm={executarExcluirEstacao}
+            title="Excluir estação de monta"
+            message={confirmExcluirEstacao?.msg}
+            danger
+          />
+          <Confirm
+            open={!!confirmExcluirLote}
+            onClose={() => setConfirmExcluirLote(null)}
+            onConfirm={executarExcluirLote}
+            title="Excluir lote"
+            message={confirmExcluirLote && `Excluir o Lote ${confirmExcluirLote.numero} (${confirmExcluirLote.touro})? As inseminações sem diagnóstico serão removidas.`}
+            danger
+          />
         </div>
       )}
 
@@ -2321,6 +2388,40 @@ export default function Reprodutivo() {
             onConfirm={executarRemoverInsemSelecionados}
             title="Remover animais do lote"
             message={`Remover ${selInsem.length} animal(is) do lote? Inclui animais já diagnosticados, se houver — o diagnóstico deles será perdido.`}
+            danger
+          />
+          {/* Padronização de diálogos: os 4 confirm() nativos restantes desta
+              seção (remover 1 brinco, excluir aborto, desmamar, desfazer
+              desmame) trocados pelo <Confirm> do app. */}
+          <Confirm
+            open={!!confirmRemoverInsem}
+            onClose={() => setConfirmRemoverInsem(null)}
+            onConfirm={executarRemoverInsem}
+            title="Remover animal do lote"
+            message={confirmRemoverInsem && `Remover o brinco ${confirmRemoverInsem.animal?.brinco || ''} deste lote?`}
+            danger
+          />
+          <Confirm
+            open={!!confirmExcluirAborto}
+            onClose={() => setConfirmExcluirAborto(null)}
+            onConfirm={executarExcluirAborto}
+            title="Excluir aborto"
+            message={confirmExcluirAborto && `Excluir o registro de aborto de ${fmtData(confirmExcluirAborto.data)}? A situação reprodutiva do animal não é alterada automaticamente.`}
+            danger
+          />
+          <Confirm
+            open={!!confirmSalvarDesmame}
+            onClose={() => setConfirmSalvarDesmame(null)}
+            onConfirm={executarSalvarDesmame}
+            title="Registrar desmame"
+            message={confirmSalvarDesmame && `Desmamar ${confirmSalvarDesmame.bezerro?.brinco || ''}? Isso entra imediatamente no cálculo de Kg ao Desmame e Kg Desmamado/Matriz em Metas.`}
+          />
+          <Confirm
+            open={!!confirmDesfazerDesmameLote}
+            onClose={() => setConfirmDesfazerDesmameLote(null)}
+            onConfirm={executarDesfazerDesmameLote}
+            title="Desfazer desmame"
+            message={confirmDesfazerDesmameLote && `Desfazer o desmame de ${confirmDesfazerDesmameLote.bezerro?.brinco || ''}? A data e o peso registrados serão apagados, e isso também muda o cálculo de Kg ao Desmame e Kg Desmamado/Matriz em Metas.`}
             danger
           />
           </div>{/* end refDiag */}
