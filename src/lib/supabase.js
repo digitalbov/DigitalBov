@@ -122,7 +122,7 @@ export const db = {
     // de 1 touro só, que continuam usando só o campo touro de sempre.
     list: (cicloId) => T('lotes_inseminacao').select(`
       *, inseminacoes(*, animal:animais(brinco,proprietario_id,sit_reprodutiva,proprietario:proprietarios(nome))),
-      partos(id,bezerro_id,mae_id,data_parto,mae:animais!mae_id(brinco,proprietario_id),bezerro:animais!bezerro_id(brinco,sexo,pai,situacao,data_desmame,pesagens(data,tipo,peso_kg))),
+      partos(id,bezerro_id,mae_id,data_parto,mae:animais!mae_id(brinco,proprietario_id),bezerro:animais!bezerro_id(brinco,sexo,pai,situacao,data_desmame,desmame_confirmado,pesagens(id,data,tipo,peso_kg))),
       abortos(id,animal_id,data,causa,observacoes,animal:animais(proprietario_id)),
       estacao:estacoes_monta(id,nome,inicio,fim),
       lote_touros(id,nome)
@@ -224,6 +224,7 @@ export const db = {
     // salvaguarda contra retorno ilimitado, não um corte funcional esperado.
     listAll:       ()         => T('pesagens').select('*, animal:animais(brinco,proprietario_id)').order('data', { ascending: false }).limit(10000),
     insert:        (data)     => T('pesagens').insertOne(data).select().single(),
+    update:        (id, d)    => escopo(T('pesagens').raw().update(d).eq('id', id)).select().single(),
     delete:        (id)       => escopo(T('pesagens').raw().delete().eq('id', id)),
     countByAnimal: (animalId) => supabase.from('pesagens').select('id', { count:'exact', head:true }).eq('animal_id', animalId),
   },
@@ -372,6 +373,16 @@ export const db = {
     listDataEntradaCompras: () => T('transacao_animais_itens')
       .select('animal_id, transacoes_animais!inner(data,tipo)')
       .eq('transacoes_animais.tipo', 'C'),
+    // Receita real de vendas (Metas.jsx — cards "Receita Real de Terneiros ♂♀").
+    // Sem filtro de categoria_venda de propósito: a âncora é por SAFRA DE
+    // NASCIMENTO (bezerroIdsSafra, calculado em Metas.jsx), então um terneiro
+    // vendido bem depois — já reclassificado como Novilho/Novilha, ou vendido
+    // sob categoria com override — ainda precisa entrar na conta. Sem escopo
+    // de ciclo (mesmo motivo): a venda pode cair num ciclo bem depois do
+    // nascimento.
+    listVendasAnimais: () => T('transacao_animais_itens')
+      .select('animal_id, valor, transacoes_animais!inner(tipo)')
+      .eq('transacoes_animais.tipo', 'V'),
   },
 
   simulacoes: {

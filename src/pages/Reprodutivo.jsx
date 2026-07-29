@@ -9,9 +9,10 @@ import { useCicloLocal } from '../lib/useCicloLocal'
 import {
   fmtData, pct, contarMatrizes, contarExpostas, contarPrenhas, calcTaxaPrenhez, calcCategoriaRebanho, algumErro,
   GESTACAO_MAX_DIAS, calcGestacaoLote, calcDesmameMetrics, calcIntervaloPartos, statusReprodutivoExibicao,
-  dataNaoFutura, resolverPaiDerivado, mesesDeVida, capitalizarPrimeira, capitalizarNome,
+  dataNaoFutura, resolverPaiDerivado, mesesDeVida, capitalizarPrimeira, capitalizarNome, numeroPositivo,
 } from '../lib/helpers'
 import { hoje as hojeAgora, hojeISO } from '../lib/hoje'
+import { registrarDesmame, desfazerDesmame } from '../lib/reprodutivoDesmame'
 import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, AlertBox, BotaoPDF, ErroCarregamento, BannerCicloEncerrado, SeletorCicloLocal } from '../components/UI'
 import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
@@ -1043,12 +1044,20 @@ export default function Reprodutivo() {
   }
 
   // Desmame direto no detalhe do lote — atalho pra aba Desmame de Pesagens.
-  // Data única no topo do card (dataDesmameLote), mesmo padrão de dataDiagLote:
-  // todo desmame registrado usa essa data até o usuário trocá-la. Peso é
-  // OPCIONAL: sempre grava animais.data_desmame; só insere a pesagem
-  // tipo='desmama' se um peso válido foi informado.
+  // Data única no topo do card (dataDesmameLote), mesmo padrão de dataDiagLote.
+  // Digitar o peso na linha do terneiro já é o gatilho do desmame — sem peso,
+  // o botão fica desabilitado. Um único clique já confirma (com aviso nativo
+  // de impacto nos indicadores, mesmo padrão de confirmação já usado nesta
+  // tela — excluirNascimento etc.); não há mais etapa separada de edição.
+  //
+  // Gate de PERMISSÃO (podeEditarReprod), não de ciclo — de propósito, mesmo
+  // raciocínio de salvarParto (ver comentário lá): o cicloLocal deste lote
+  // pode já estar encerrado mesmo com a data do desmame em si caindo dentro
+  // do ciclo atual (o terneiro pode ser desmamado bem depois da estação de
+  // monta que gerou o lote). dataEhEditavel abaixo avalia o ciclo da DATA DO
+  // DESMAME (o que de fato vai ser gravado), não o cicloLocal.
   const salvarDesmame = async (parto) => {
-    if (!podeEditarReprodCiclo) return
+    if (!podeEditarReprod) return
     const data = dataDesmameLote
     if (!data) { toast('Informe a data do desmame.', 'error'); return }
     if (!dataNaoFutura(data)) { toast('Data do desmame não pode ser futura.', 'error'); return }
@@ -1059,31 +1068,32 @@ export default function Reprodutivo() {
         : 'Data fora de qualquer ciclo cadastrado.', 'error')
       return
     }
+    const fd = formDesmame[parto.id] || {}
+    if (numeroPositivo(fd.peso) === null) { toast('Informe o peso para registrar o desmame.', 'error'); return }
+    if (!confirm(`Desmamar ${parto.bezerro?.brinco || ''}? Isso entra imediatamente no cálculo de Kg ao Desmame e Kg Desmamado/Matriz em Metas.`)) return
     setSalvandoDesmameId(parto.id)
-    try {
-      const { error: errUpd } = await db.animais.update(parto.bezerro_id, { data_desmame: data })
-      if (errUpd) { toast('Erro ao registrar desmame: ' + errUpd.message, 'error'); return }
-      const fd = formDesmame[parto.id] || {}
-      const peso = fd.peso ? parseFloat(fd.peso) : null
-      if (peso && peso > 0) {
-        const { error: errPes } = await db.pesagens.insert({
-          animal_id: parto.bezerro_id, data, tipo: 'desmama',
-          peso_kg: peso, observacoes: 'Peso ao desmame'
-        })
-        if (errPes) {
-          console.error('[Reprodutivo] salvarDesmame: erro ao salvar peso:', errPes)
-          toast('Desmame registrado, mas o peso não foi salvo: ' + errPes.message, 'error')
-        }
-      }
-      toast(`Terneiro ${parto.bezerro?.brinco || ''} desmamado!`)
-      setFormDesmame(prev => { const n = { ...prev }; delete n[parto.id]; return n })
-      await loadAll(false)
-    } catch (e) {
-      console.error('[Reprodutivo] salvarDesmame: erro inesperado:', e)
-      toast('Erro inesperado ao registrar desmame: ' + (e?.message || String(e)), 'error')
-    } finally {
-      setSalvandoDesmameId(null)
-    }
+    const { error } = await registrarDesmame({ animalId: parto.bezerro_id, data, pesoKg: fd.peso })
+    setSalvandoDesmameId(null)
+    if (error) { toast('Erro ao registrar desmame: ' + error, 'error'); return }
+    toast(`Terneiro ${parto.bezerro?.brinco || ''} desmamado!`)
+    setFormDesmame(prev => { const n = { ...prev }; delete n[parto.id]; return n })
+    await loadAll(false)
+  }
+
+  // Corrige lançamento por engano (ver desfazerDesmame em
+  // reprodutivoDesmame.js). Confirmação nativa, mesmo padrão já usado nas
+  // outras exclusões desta tela (excluirNascimento etc.) — avisa que isso
+  // também muda os indicadores.
+  const desfazerDesmameLote = async (p) => {
+    if (!podeEditarReprod) return
+    if (!confirm(`Desfazer o desmame de ${p.bezerro?.brinco || ''}? A data e o peso registrados serão apagados, e isso também muda o cálculo de Kg ao Desmame e Kg Desmamado/Matriz em Metas.`)) return
+    const pesoDesm = (p.bezerro?.pesagens || []).find(ps => ps.tipo === 'desmama')
+    setSalvandoDesmameId(p.id)
+    const { error } = await desfazerDesmame({ animalId: p.bezerro_id, pesagemId: pesoDesm?.id || null })
+    setSalvandoDesmameId(null)
+    if (error) { toast('Erro ao desfazer desmame: ' + error, 'error'); return }
+    toast('Desmame desfeito.')
+    await loadAll(false)
   }
 
   // Abre modal de edição de nascimento
@@ -1883,11 +1893,15 @@ export default function Reprodutivo() {
 
           {/* Desmame dos terneiros nascidos neste lote — atalho pra não precisar ir
               até a aba Desmame de Pesagens. Data única no topo (mesmo padrão da
-              data do diagnóstico de gestação), peso por terneiro é opcional. */}
+              data do diagnóstico de gestação). Digitar o peso na linha do
+              terneiro já é o gatilho do desmame — sem peso, o botão fica
+              desabilitado e nada é gravado (ver salvarDesmame acima). Gate de
+              PERMISSÃO (podeEditarReprod), não de ciclo — ver comentário em
+              salvarDesmame. */}
           {selLote.partos?.length > 0 && (
             <div className="card" style={{ marginTop:14 }}>
               <div className="card-title"><i className="ti ti-scale" /> Desmame dos terneiros deste lote</div>
-              {podeEditarReprodCiclo && (
+              {podeEditarReprod && (
                 <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:10, flexWrap:'wrap' }}>
                   <label style={{ fontSize:'.8rem', color:'#374151', fontWeight:500 }}>Data do desmame:</label>
                   <input type="date" value={dataDesmameLote} onChange={e => setDataDesmameLote(e.target.value)} style={{ maxWidth:170 }} />
@@ -1900,6 +1914,8 @@ export default function Reprodutivo() {
                 const desmamado = !!p.bezerro?.data_desmame
                 const pesoDesm  = (p.bezerro?.pesagens || []).find(ps => ps.tipo === 'desmama')
                 const fd = formDesmame[p.id] || {}
+                const temPeso = numeroPositivo(fd.peso) !== null
+                const ocupado = salvandoDesmameId === p.id
                 return (
                   <div key={p.id} style={{
                     display:'flex', alignItems:'center', justifyContent:'space-between',
@@ -1912,17 +1928,24 @@ export default function Reprodutivo() {
                       </span>
                     </div>
                     {desmamado ? (
-                      <Badge color="green">
-                        Desmamado em {fmtData(p.bezerro.data_desmame)}{pesoDesm ? ` · ${pesoDesm.peso_kg}kg` : ''}
-                      </Badge>
-                    ) : podeEditarReprodCiclo ? (
                       <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
-                        <input type="number" step="0.1" min="0" placeholder="kg (opcional)" value={fd.peso || ''}
+                        <Badge color="green">
+                          Desmamado em {fmtData(p.bezerro.data_desmame)}{pesoDesm ? ` · ${pesoDesm.peso_kg}kg` : ''}
+                        </Badge>
+                        {podeEditarReprod && (
+                          <button className="btn-icon" title="Desfazer desmame" disabled={ocupado} onClick={() => desfazerDesmameLote(p)}>
+                            <i className="ti ti-x" />
+                          </button>
+                        )}
+                      </div>
+                    ) : podeEditarReprod ? (
+                      <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
+                        <input type="number" step="0.1" min="0" placeholder="kg" value={fd.peso || ''}
                           onChange={e => setFormDesmame(prev => ({ ...prev, [p.id]: { ...prev[p.id], peso: e.target.value } }))}
                           style={{ maxWidth:110 }} />
-                        <button className="btn btn-secondary btn-xs" disabled={salvandoDesmameId === p.id}
+                        <button className="btn btn-secondary btn-xs" disabled={ocupado || !temPeso}
                           onClick={() => salvarDesmame(p)}>
-                          {salvandoDesmameId === p.id ? 'Salvando...' : <><i className="ti ti-check" /> Registrar desmame</>}
+                          {ocupado ? 'Salvando...' : <><i className="ti ti-check" /> Registrar desmame</>}
                         </button>
                       </div>
                     ) : (
@@ -1989,11 +2012,17 @@ export default function Reprodutivo() {
                   <div style={{ fontSize:'.72rem', color:'#6B7280', marginTop:2 }}>Nascimentos no ciclo</div>
                 </div>
                 <div style={{ background:'#EFF6FF', border:'.5px solid #BFDBFE', borderRadius:12, padding:'12px 14px', textAlign:'center' }}>
-                  <div style={{ fontSize:'1.5rem', fontWeight:700, color:'#1D4ED8' }}>♂ {nascMachos}</div>
+                  {/* Preto/neutro (#1a1a1a), sem cor própria pro ♂ — mesmo
+                      padrão dos símbolos ♂♀ no sistema todo, ver labelComSexo
+                      em Metas.jsx */}
+                  <div style={{ fontSize:'1.5rem', fontWeight:700, color:'#1a1a1a' }}>♂ {nascMachos}</div>
                   <div style={{ fontSize:'.72rem', color:'#6B7280', marginTop:2 }}>Machos</div>
                 </div>
                 <div style={{ background:'#FDF4FF', border:'.5px solid #F0ABFC', borderRadius:12, padding:'12px 14px', textAlign:'center' }}>
-                  <div style={{ fontSize:'1.5rem', fontWeight:700, color:'#86198F' }}>♀ {nascFemeas}</div>
+                  {/* Preto/neutro (#1a1a1a), sem cor própria pro ♀ — mesmo
+                      padrão dos símbolos ♂♀ no sistema todo, ver labelComSexo
+                      em Metas.jsx */}
+                  <div style={{ fontSize:'1.5rem', fontWeight:700, color:'#1a1a1a' }}>♀ {nascFemeas}</div>
                   <div style={{ fontSize:'.72rem', color:'#6B7280', marginTop:2 }}>Fêmeas</div>
                 </div>
                 {proprietarios.map(prop => {

@@ -5,6 +5,7 @@ import { useCiclo, statusCiclo } from '../lib/CicloContext'
 import { useCicloLocal } from '../lib/useCicloLocal'
 import { fmtData, calcGMD, fmtPeso, numeroPositivo, dataNaoFutura, calcCategoria, calcCategoriaRebanho, mesesDeVida, algumErro, capitalizarPrimeira } from '../lib/helpers'
 import { hoje as hojeAgora, hojeISO } from '../lib/hoje'
+import { registrarDesmame as gravarDesmame, desfazerDesmame } from '../lib/reprodutivoDesmame'
 import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, IndexCard, BotaoPDF, Confirm, ErroCarregamento, BannerCicloEncerrado, SeletorCicloLocal } from '../components/UI'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 
@@ -94,13 +95,19 @@ export default function Pesagens() {
   const [loadError,  setLoadError]  = useState(false)
   const [pesoAlvo,   setPesoAlvo]   = useState(480)
 
-  // Desmame
+  // Desmame — digitar o peso na linha do animal já é o gatilho do desmame
+  // (não há mais seleção por checkbox separada, ver registrarDesmame abaixo).
   const [lotesSistema,     setLotesSistema]     = useState([])
   const [filtroLoteDesm,   setFiltroLoteDesm]   = useState('')
-  const [selDesmame,       setSelDesmame]       = useState([])
   const [pesosDesmame,     setPesosDesmame]     = useState({})
   const [dataDesmame,      setDataDesmame]      = useState(hojeISO())
   const [salvandoDesmame,  setSalvandoDesmame]  = useState(false)
+  // Registrar desmame é definitivo num clique só (com aviso de impacto nos
+  // indicadores antes de gravar); ocupadoDesmameId desabilita o botão
+  // "Desfazer" da linha durante a ação individual.
+  const [confirmRegistrarDesmame, setConfirmRegistrarDesmame] = useState(false)
+  const [ocupadoDesmameId,  setOcupadoDesmameId]  = useState(null)
+  const [confirmDesfazerDesmame, setConfirmDesfazerDesmame] = useState(null)
 
   useEffect(() => { loadAll() }, [])
 
@@ -268,23 +275,39 @@ export default function Pesagens() {
     .filter(p => cicloLocal && dentroDoCiclo(p.data, cicloLocal))
     .sort((a, b) => (b.criado_em || '').localeCompare(a.criado_em || '') || (b.id || '').localeCompare(a.id || ''))
 
-  // Candidatos ao desmame: bezerros/terneiros ativos (≤12 meses) que ainda não
-  // têm data_desmame registrada, com filtro opcional por lote (pasto/manejo).
+  // Candidatos + já desmamados: bezerros/terneiros ativos (≤12 meses,
+  // categoria por idade — desmame não muda a categoria, então esta lista fica
+  // naturalmente limitada à safra do ano corrente, desmamada ou não). Quem já
+  // desmamou aparece com o badge + botão Desfazer; quem não desmamou aparece
+  // com o campo de peso.
   const candidatosDesmame = animais
-    .filter(a => a.situacao === 'ativo' && !a.data_desmame && ['Terneiro','Terneira'].includes(calcCategoria(a.data_nascimento, a.sexo)))
+    .filter(a => a.situacao === 'ativo' && ['Terneiro','Terneira'].includes(calcCategoria(a.data_nascimento, a.sexo)))
     .filter(a => !filtroLoteDesm || a.lote_id === filtroLoteDesm)
     // Mesmo princípio das outras telas: nunca oferece um animal que ainda nem
-    // tinha nascido na data de desmame escolhida.
-    .filter(a => !dataDesmame || !a.data_nascimento || a.data_nascimento <= dataDesmame)
+    // tinha nascido na data de desmame escolhida — só vale pra quem ainda não
+    // foi desmamado (quem já desmamou tem sua própria data fixa, independente
+    // da data selecionada no topo pra NOVOS desmames).
+    .filter(a => a.data_desmame || !dataDesmame || !a.data_nascimento || a.data_nascimento <= dataDesmame)
     .sort((a, b) => a.brinco.localeCompare(b.brinco, undefined, { numeric: true }))
 
-  const togSelDesmame = (id) => setSelDesmame(prev =>
-    prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
-  )
+  // Digitar o peso na linha já é o gatilho do desmame; não há checkbox de
+  // seleção. Sem peso digitado, o animal simplesmente não entra no lote a
+  // desmamar (ver botão "Registrar desmame" abaixo, que só mostra/gasta os
+  // que têm peso).
+  const desmamandoIds = candidatosDesmame
+    .filter(a => !a.data_desmame && numeroPositivo(pesosDesmame[a.id]) !== null)
+    .map(a => a.id)
 
+  // Gate de PERMISSÃO (podeEditarPesagens), não de ciclo — de propósito, mesmo
+  // raciocínio de salvarDesmame em Reprodutivo.jsx: o desmame é um evento do
+  // animal, datado por si só (dataDesmame), não um lançamento amarrado ao
+  // ciclo selecionado nesta tela. dataEhEditavel abaixo avalia o ciclo da DATA
+  // DO DESMAME (o que de fato vai ser gravado). Valida e abre o aviso de
+  // impacto nos indicadores — a gravação em si só acontece em
+  // executarRegistroDesmame, depois da confirmação.
   const registrarDesmame = async () => {
-    if (!podeEditarPesagensCiclo) return
-    if (selDesmame.length === 0) { toast('Selecione ao menos um animal.', 'error'); return }
+    if (!podeEditarPesagens) return
+    if (desmamandoIds.length === 0) { toast('Digite o peso de ao menos um animal.', 'error'); return }
     if (!dataDesmame) { toast('Informe a data do desmame.', 'error'); return }
     if (!dataNaoFutura(dataDesmame)) { toast('Data do desmame não pode ser futura.', 'error'); return }
     if (!dataEhEditavel(dataDesmame)) {
@@ -294,34 +317,46 @@ export default function Pesagens() {
         : 'Data fora de qualquer ciclo cadastrado.', 'error')
       return
     }
-    const semPeso = selDesmame.filter(id => numeroPositivo(pesosDesmame[id]) === null)
-    if (semPeso.length > 0) { toast('Informe um peso válido para todos os animais selecionados.', 'error'); return }
     // Defesa em profundidade — o filtro do candidatosDesmame já evita isto na
-    // maioria dos casos, mas selDesmame pode ter sido marcado antes da data
-    // mudar (mesmo raciocínio do bloqueio individual acima).
-    const nascidosDepois = selDesmame
+    // maioria dos casos, mas o peso pode ter sido digitado antes da data mudar
+    // (mesmo raciocínio do bloqueio individual acima).
+    const nascidosDepois = desmamandoIds
       .map(id => animais.find(a => a.id === id))
       .filter(a => a?.data_nascimento && a.data_nascimento > dataDesmame)
     if (nascidosDepois.length > 0) {
-      toast(`${nascidosDepois.map(a => `${a.brinco} (nasceu ${fmtData(a.data_nascimento)})`).join(', ')} — não pode desmamar antes de nascer. Desmarque e tente de novo.`, 'error')
+      toast(`${nascidosDepois.map(a => `${a.brinco} (nasceu ${fmtData(a.data_nascimento)})`).join(', ')} — não pode desmamar antes de nascer. Apague o peso e tente de novo.`, 'error')
       return
     }
+    setConfirmRegistrarDesmame(true)
+  }
 
+  const executarRegistroDesmame = async () => {
+    setConfirmRegistrarDesmame(false)
     setSalvandoDesmame(true)
     let erros = 0
-    for (const id of selDesmame) {
-      const peso = numeroPositivo(pesosDesmame[id])
-      const { error: e1 } = await db.animais.update(id, { data_desmame: dataDesmame })
-      const { error: e2 } = await db.pesagens.insert({
-        animal_id: id, data: dataDesmame, tipo: 'desmama',
-        peso_kg: peso, observacoes: 'Peso ao desmame'
-      })
-      if (e1 || e2) erros++
+    for (const id of desmamandoIds) {
+      const { error } = await gravarDesmame({ animalId: id, data: dataDesmame, pesoKg: pesosDesmame[id] })
+      if (error) erros++
     }
     setSalvandoDesmame(false)
     if (erros > 0) toast(`${erros} animal(is) não puderam ser desmamados — confira e tente de novo.`, 'error')
-    else toast(`${selDesmame.length} animal(is) desmamado(s)!`)
-    setSelDesmame([]); setPesosDesmame({})
+    else toast(`${desmamandoIds.length} animal(is) desmamado(s)!`)
+    setPesosDesmame({})
+    loadAll()
+  }
+
+  // Corrige lançamento por engano — apaga data_desmame e a pesagem de
+  // desmame associada (ver desfazerDesmame em reprodutivoDesmame.js). O
+  // <Confirm> avisa que isso também muda os indicadores.
+  const desfazerDesmameAnimal = async (a) => {
+    if (!podeEditarPesagens) return
+    const pesoDesm = pesagens.find(p => p.animal_id === a.id && p.tipo === 'desmama')
+    setOcupadoDesmameId(a.id)
+    const { error } = await desfazerDesmame({ animalId: a.id, pesagemId: pesoDesm?.id || null })
+    setOcupadoDesmameId(null)
+    setConfirmDesfazerDesmame(null)
+    if (error) { toast('Erro ao desfazer desmame: ' + error, 'error'); return }
+    toast('Desmame desfeito.')
     loadAll()
   }
 
@@ -700,7 +735,7 @@ export default function Pesagens() {
         <div>
           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:8, marginBottom:12 }}>
             <span style={{ fontSize:'.85rem', color:'#6B7280' }}>
-              {candidatosDesmame.length} candidato{candidatosDesmame.length!==1?'s':''} ao desmame (terneiros/terneiras ativos sem desmame registrado)
+              {candidatosDesmame.length} candidato{candidatosDesmame.length!==1?'s':''} ao desmame (sem desmame registrado ou aguardando confirmação)
             </span>
           </div>
 
@@ -708,12 +743,16 @@ export default function Pesagens() {
             <Field label="Data do desmame" required>
               <input type="date" value={dataDesmame} onChange={e => {
                 const novaData = e.target.value
-                const invalidos = selDesmame
+                const invalidos = desmamandoIds
                   .map(id => animais.find(a => a.id === id))
                   .filter(a => a?.data_nascimento && novaData && a.data_nascimento > novaData)
                 if (invalidos.length > 0) {
-                  setSelDesmame(prev => prev.filter(id => !invalidos.some(a => a.id === id)))
-                  toast(`${invalidos.length} animal(is) desmarcado(s) por nascer depois da nova data: ${invalidos.map(a => a.brinco).join(', ')}.`, 'error')
+                  setPesosDesmame(prev => {
+                    const n = { ...prev }
+                    invalidos.forEach(a => delete n[a.id])
+                    return n
+                  })
+                  toast(`${invalidos.length} animal(is) com peso apagado por nascer depois da nova data: ${invalidos.map(a => a.brinco).join(', ')}.`, 'error')
                 }
                 setDataDesmame(novaData)
               }} />
@@ -731,48 +770,54 @@ export default function Pesagens() {
           ) : (
             <>
               <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
-                <label style={{ display:'flex', alignItems:'center', gap:8, fontSize:'.82rem', color:'#374151' }}>
-                  <input type="checkbox"
-                    checked={selDesmame.length > 0 && candidatosDesmame.every(a => selDesmame.includes(a.id))}
-                    onChange={() => {
-                      const todos = candidatosDesmame.map(a => a.id)
-                      const todosSel = todos.every(id => selDesmame.includes(id))
-                      setSelDesmame(todosSel ? [] : todos)
-                    }} />
-                  Marcar/desmarcar todos
-                </label>
-                {podeEditarPesagensCiclo && selDesmame.length > 0 && (
-                  <button className="btn btn-primary btn-sm" onClick={registrarDesmame} disabled={salvandoDesmame}>
-                    {salvandoDesmame ? 'Registrando...' : <><i className="ti ti-check" /> Registrar desmame ({selDesmame.length})</>}
+                <span style={{ fontSize:'.78rem', color:'#9CA3AF' }}>
+                  Digite o peso na linha do animal para desmamá-lo — sem peso, ele fica de fora.
+                </span>
+                {podeEditarPesagens && (
+                  <button className="btn btn-primary btn-sm" onClick={registrarDesmame} disabled={salvandoDesmame || desmamandoIds.length === 0}>
+                    {salvandoDesmame ? 'Registrando...' : <><i className="ti ti-check" /> Registrar desmame ({desmamandoIds.length})</>}
                   </button>
                 )}
               </div>
               <div className="table-wrap">
                 <table>
                   <thead>
-                    <tr><th></th><th>Brinco</th><th>Idade</th><th>Sexo</th><th>Lote</th><th style={{textAlign:'right'}}>Peso ao desmame (kg)</th></tr>
+                    <tr><th>Brinco</th><th>Idade</th><th>Sexo</th><th>Lote</th><th style={{textAlign:'right'}}>Desmame</th></tr>
                   </thead>
                   <tbody>
-                    {candidatosDesmame.map(a => (
-                      <tr key={a.id}>
-                        <td>
-                          {podeEditarPesagensCiclo && (
-                            <input type="checkbox" checked={selDesmame.includes(a.id)} onChange={() => togSelDesmame(a.id)} />
-                          )}
-                        </td>
-                        <td><strong>{a.brinco}</strong></td>
-                        <td style={{ fontSize:'.82rem', color:'#6B7280' }}>{mesesDeVida(a.data_nascimento)}m</td>
-                        <td>{a.sexo === 'F' ? '♀' : '♂'}</td>
-                        <td style={{ fontSize:'.82rem', color:'#6B7280' }}>{a.lote?.nome || '—'}</td>
-                        <td style={{ textAlign:'right' }}>
-                          <input type="number" step="0.1" min="0" placeholder="0,0"
-                            disabled={!selDesmame.includes(a.id)}
-                            value={pesosDesmame[a.id] || ''}
-                            onChange={e => setPesosDesmame(p => ({ ...p, [a.id]: e.target.value }))}
-                            style={{ width:90, textAlign:'right' }} />
-                        </td>
-                      </tr>
-                    ))}
+                    {candidatosDesmame.map(a => {
+                      const desmamado = !!a.data_desmame
+                      const pesoDesm  = pesagens.find(p => p.animal_id === a.id && p.tipo === 'desmama')
+                      const ocupado = ocupadoDesmameId === a.id
+                      return (
+                        <tr key={a.id}>
+                          <td><strong>{a.brinco}</strong></td>
+                          <td style={{ fontSize:'.82rem', color:'#6B7280' }}>{mesesDeVida(a.data_nascimento)}m</td>
+                          <td>{a.sexo === 'F' ? '♀' : '♂'}</td>
+                          <td style={{ fontSize:'.82rem', color:'#6B7280' }}>{a.lote?.nome || '—'}</td>
+                          <td style={{ textAlign:'right' }}>
+                            {!desmamado ? (
+                              <input type="number" step="0.1" min="0" placeholder="0,0"
+                                disabled={!podeEditarPesagens}
+                                value={pesosDesmame[a.id] || ''}
+                                onChange={e => setPesosDesmame(p => ({ ...p, [a.id]: e.target.value }))}
+                                style={{ width:90, textAlign:'right' }} />
+                            ) : (
+                              <div style={{ display:'flex', alignItems:'center', gap:6, justifyContent:'flex-end', flexWrap:'wrap' }}>
+                                <Badge color="green">
+                                  Desmamado em {fmtData(a.data_desmame)}{pesoDesm ? ` · ${pesoDesm.peso_kg}kg` : ''}
+                                </Badge>
+                                {podeEditarPesagens && (
+                                  <button className="btn-icon" title="Desfazer desmame" disabled={ocupado} onClick={() => setConfirmDesfazerDesmame(a)}>
+                                    <i className="ti ti-x" />
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -787,6 +832,23 @@ export default function Pesagens() {
         onConfirm={() => excluir(confirmDel)}
         title="Excluir pesagem"
         message="Excluir esta pesagem? Esta ação não pode ser desfeita."
+        danger
+      />
+
+      <Confirm
+        open={confirmRegistrarDesmame}
+        onClose={() => setConfirmRegistrarDesmame(false)}
+        onConfirm={executarRegistroDesmame}
+        title="Confirmar desmame"
+        message={`Desmamar ${desmamandoIds.length} animal(is)? Isso entra imediatamente no cálculo de Kg ao Desmame e Kg Desmamado/Matriz em Metas.`}
+      />
+
+      <Confirm
+        open={!!confirmDesfazerDesmame}
+        onClose={() => setConfirmDesfazerDesmame(null)}
+        onConfirm={() => desfazerDesmameAnimal(confirmDesfazerDesmame)}
+        title="Desfazer desmame"
+        message={`Desfazer o desmame de ${confirmDesfazerDesmame?.brinco || ''}? A data e o peso registrados serão apagados, e isso também muda o cálculo de Kg ao Desmame e Kg Desmamado/Matriz em Metas.`}
         danger
       />
 

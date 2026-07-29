@@ -110,9 +110,22 @@ export default function SecaoPesagens({ item }) {
         pesagens de rotina (intermediária, sobreano), cada animal é lançado separadamente na aba Registrar. A
         única pesagem em lote de verdade é a de <strong>desmame</strong>: na aba Desmame, escolha a data e,
         opcionalmente, filtre por lote — aparecem só terneiros/terneiras ativos que ainda não têm desmame
-        registrado. Marque os que deseja desmamar, digite o peso de cada um na própria linha da tabela e
-        clique em <strong>"Registrar desmame"</strong>. Isso grava a data de desmame do animal e cria uma
-        pesagem tipo "Desmama" para cada um automaticamente.
+        registrado. Digitar o peso na linha do animal já o seleciona para o desmame — não há caixa de seleção
+        separada. Preenchidos os pesos desejados, clique em <strong>"Registrar desmame"</strong>: o sistema avisa
+        quantos animais serão desmamados e que isso entra imediatamente no cálculo de Kg ao Desmame e Kg
+        Desmamado/Matriz em Metas; confirmando, grava a data de desmame de cada um mais uma pesagem tipo
+        "Desmama" — já é definitivo, não existe rascunho ou etapa de confirmação separada. Quem ficar sem peso
+        simplesmente não é desmamado e continua na lista para depois. O mesmo atalho de desmame também existe
+        direto no detalhe do lote de inseminação, na aba Reprodutivo, com a mesma regra (peso digitado = gatilho
+        do desmame, com o mesmo aviso antes de gravar). Em ambos os pontos, o desmame pode ser registrado mesmo
+        com o ciclo do lote/monta encerrado — é a data do próprio desmame que precisa estar dentro do ciclo atual
+        (ou carência), não a monta que originou o terneiro.
+      </p>
+      <p style={{ color: '#374151', fontSize: '.85rem', lineHeight: 1.8, marginBottom: 18 }}>
+        Um animal já desmamado aparece com o selo verde de sempre ("Desmamado em dd/mm · Xkg") e um botão
+        <strong> ✕ Desfazer desmame</strong>, disponível nos dois pontos de entrada — corrige um lançamento por
+        engano apagando a data de desmame e a pesagem "Desmama" associada. O sistema avisa, antes de desfazer,
+        que isso também muda o cálculo de Kg ao Desmame e Kg Desmamado/Matriz.
       </p>
 
       <h4 style={{ fontSize: '.88rem', fontWeight: 700, color: '#1a1a1a', marginBottom: 8 }}>Badges de origem da pesagem</h4>

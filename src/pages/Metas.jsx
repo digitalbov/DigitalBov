@@ -4,7 +4,7 @@ import {
   calcCategoria, calcGMD, calcTaxaPrenhez, contarPrenhas, contarExpostas, contarMatrizes,
   calcGestacaoLote, calcDesmameMetrics, calcIntervaloPartos, algumErro, fmtMoeda,
 } from '../lib/helpers'
-import { Loading, Modal, toast, BotaoPDF, EmptyState, ErroCarregamento, SeletorCicloLocal, AlertBox } from '../components/UI'
+import { Loading, Modal, toast, BotaoPDF, EmptyState, ErroCarregamento, SeletorCicloLocal, AlertBox, Badge } from '../components/UI'
 import { usePermissoes } from '../lib/PermissoesContext'
 import { useCicloLocal } from '../lib/useCicloLocal'
 import {
@@ -29,6 +29,7 @@ const CFG = {
   gmd_terneiros_femeas: { label: 'GMD Terneiras (fêmeas)',  icon: '⚖️', inverted: false, desc: 'GMD médio das terneiras (fêmeas) com ≥2 pesagens' },
   gmd_terneiros_machos: { label: 'GMD Terneiros (machos)',  icon: '⚖️', inverted: false, desc: 'GMD médio dos terneiros (machos) com ≥2 pesagens' },
   kg_bezerro_matriz:    { label: 'Kg Desmamado / Matriz',   icon: '🐄', inverted: false, desc: 'Peso de desmame somado / matrizes expostas (ciclo atual)', semDadosMsg: 'Aguardando desmames' },
+  kg_nascimento:        { label: 'Kg ao Nascer',            icon: '⚖️', inverted: false, desc: 'Peso médio dos terneiros ao nascer na safra do ciclo', semDadosMsg: 'Aguardando pesagens de nascimento' },
   kg_desmame:           { label: 'Kg ao Desmame',           icon: '⚖️', inverted: false, desc: 'Peso médio dos terneiros desmamados na safra do ciclo', semDadosMsg: 'Aguardando desmames' },
   intervalo_partos:     { label: 'Intervalo entre Partos',  icon: '📅', inverted: true,  desc: 'Média de dias entre partos consecutivos da mesma matriz (meta = máx. aceitável)', semDadosMsg: 'Precisa de matrizes com 2+ partos' },
   taxa_aborto:          { label: 'Perda Gestacional',       icon: '⚠️', inverted: true,  desc: 'Abortos + perdas não identificadas / prenhas — exclui gestações ainda em andamento', semDadosMsg: 'Aguardando desfechos da safra' },
@@ -36,10 +37,22 @@ const CFG = {
   // Produção da safra x hectare útil — mesmos 4 números que antes eram um
   // painel kpi-card só leitura (ver git history); viraram indicador completo
   // (meta + semáforo + barra) sem mudar nenhuma conta, só a apresentação.
-  producao_kg:       { label: 'Kg de Terneiros Produzidos', icon: '🌾', inverted: false, desc: 'Última pesagem de manejo somada dos terneiros da safra', semDadosMsg: 'Aguardando pesagens de desmame', mostraSubtitulo: true },
-  producao_valor:    { label: 'Valor Produzido',            icon: '💰', inverted: false, desc: 'Machos × valor médio de Terneiro + fêmeas × valor médio de Terneira (categorias_preco)', semDadosMsg: 'Cadastre peso/preço de Terneiro e Terneira em Parâmetros', mostraSubtitulo: true },
-  producao_kg_ha:    { label: 'Kg por Hectare',              icon: '🌱', inverted: false, desc: 'Kg de terneiros produzidos / hectare útil (soma dos piquetes)', semDadosMsg: 'Cadastre piquetes com área', mostraSubtitulo: true },
-  producao_valor_ha: { label: 'R$ por Hectare',              icon: '💵', inverted: false, desc: 'Valor produzido / hectare útil (soma dos piquetes)', semDadosMsg: 'Cadastre piquetes e o preço das categorias', mostraSubtitulo: true },
+  // Títulos curtos de propósito (ver labelComSexo mais abaixo) — não cabiam
+  // em duas linhas dentro do card com "Produzido em"/"por Hectare" por
+  // extenso. "(Estimado)" saiu do título dos dois cards de valor estimado e
+  // virou o badge `estimado: true`, renderizado à parte em IndicadorCard.
+  // Espaço NÃO separável (NBSP, não espaço normal) entre "Terneiros" e "♂♀"
+  // — impede a linha de quebrar bem no meio do par palavra+símbolos.
+  producao_kg:       { label: 'Kg de Terneiros ♂♀', icon: '🌾', inverted: false, desc: 'Última pesagem de manejo somada dos terneiros da safra', semDadosMsg: 'Aguardando pesagens de desmame', mostraSubtitulo: true },
+  producao_valor:    { label: 'Valor de Terneiros ♂♀',      icon: '💰', inverted: false, desc: 'Machos × valor médio de Terneiro + fêmeas × valor médio de Terneira (categorias_preco) — valor estimado com base no valor de referência definido pelo usuário em Parâmetros do sistema', semDadosMsg: 'Cadastre peso/preço de Terneiro e Terneira em Parâmetros', mostraSubtitulo: true, estimado: true },
+  producao_kg_ha:    { label: 'Kg de Terneiros ♂♀ / ha',    icon: '🌱', inverted: false, desc: 'Kg de terneiros produzidos / hectare útil (soma dos piquetes)', semDadosMsg: 'Cadastre piquetes com área', mostraSubtitulo: true },
+  producao_valor_ha: { label: 'Valor de Terneiros ♂♀ / ha', icon: '💵', inverted: false, desc: 'Valor produzido (estimado) / hectare útil (soma dos piquetes) — valor estimado com base no valor de referência definido pelo usuário em Parâmetros do sistema', semDadosMsg: 'Cadastre piquetes e o preço das categorias', mostraSubtitulo: true, estimado: true },
+  // Receita REAL — venda efetiva (transacao_animais_itens), mesma população
+  // de bezerroIdsSafra que os 4 de cima (SEM filtro de categoria_venda: um
+  // terneiro vendido depois de virar Novilho/Novilha, ou sob categoria com
+  // override, ainda conta). Ao lado dos cards estimados, pra comparação direta.
+  receita_real_terneiros:    { label: 'Receita Real de Terneiros ♂♀',      icon: '💲', inverted: false, desc: 'Soma do valor de venda efetiva (transacao_animais_itens) dos terneiros/terneiras NASCIDOS nesta safra, seja qual for a categoria no momento da venda', semDadosMsg: 'Sem vendas no período', mostraSubtitulo: true },
+  receita_real_terneiros_ha: { label: 'Receita Real de Terneiros ♂♀ / ha', icon: '💷', inverted: false, desc: 'Receita real de terneiros/as / hectare útil (soma dos piquetes)', semDadosMsg: 'Sem vendas no período', mostraSubtitulo: true },
   // Custos — fonte ÚNICA é o grupo financeiro 'Inseminação' (lancamentos_financeiros,
   // tipo despesa), agrupado pela DATA do lançamento dentro do intervalo do ciclo
   // selecionado (não pelo ciclo_id salvo no lançamento — a despesa pode ter sido
@@ -70,7 +83,14 @@ function subtituloProducao(indicador, d) {
       return `${d.qtdMachos} macho${d.qtdMachos === 1 ? '' : 's'} + ${d.qtdFemeas} fêmea${d.qtdFemeas === 1 ? '' : 's'}`
     case 'producao_kg_ha':
     case 'producao_valor_ha':
+    case 'receita_real_terneiros_ha':
       return `${d.hectareUtil.toFixed(1)} ha úteis`
+    case 'receita_real_terneiros':
+      // 0 vendas já vira "Sem vendas no período" no valor principal
+      // (semDadosMsg) — mesmo padrão de subtituloCustos com nLancamentos.
+      return d.vendasSafraLength > 0
+        ? `${d.vendasSafraLength} venda${d.vendasSafraLength === 1 ? '' : 's'} de terneiro/a desta safra`
+        : null
     default:
       return null
   }
@@ -94,13 +114,17 @@ function subtituloCustos(indicador, custosPorModo, modo) {
 // Posição no array = ordem de entrada nos GRUPOS abaixo — cada grupo tem seu
 // próprio grid de 4 colunas (.grid-4), então a posição dentro do array só
 // importa relativa ao grupo, não à tela inteira (ver GRUPOS/render).
-const ORDEM = ['taxa_prenhez', 'taxa_aproveitamento', 'taxa_paricao', 'taxa_aborto', 'mortalidade', 'gmd_terneiros', 'gmd_terneiros_femeas', 'gmd_terneiros_machos', 'kg_bezerro_matriz', 'intervalo_partos', 'kg_desmame', 'producao_kg', 'producao_valor', 'producao_kg_ha', 'producao_valor_ha', 'custo_insem_terneiro', 'custo_insem_pct_valor', 'custo_insem_total', 'custo_insem_matriz']
+const ORDEM = ['taxa_prenhez', 'taxa_aproveitamento', 'taxa_paricao', 'taxa_aborto', 'mortalidade', 'gmd_terneiros', 'gmd_terneiros_femeas', 'gmd_terneiros_machos', 'kg_bezerro_matriz', 'intervalo_partos', 'kg_nascimento', 'kg_desmame', 'producao_kg', 'producao_valor', 'receita_real_terneiros', 'producao_kg_ha', 'producao_valor_ha', 'receita_real_terneiros_ha', 'custo_insem_terneiro', 'custo_insem_pct_valor', 'custo_insem_total', 'custo_insem_matriz']
 // Containers exibidos na tela, nesta ordem — Produção sempre por último.
 const GRUPOS = [
   { titulo: 'Reprodução', indicadores: ['taxa_prenhez', 'taxa_aproveitamento', 'taxa_paricao', 'intervalo_partos'] },
   { titulo: 'Perdas',     indicadores: ['taxa_aborto', 'mortalidade'] },
-  { titulo: 'GMD',        indicadores: ['gmd_terneiros', 'gmd_terneiros_femeas', 'gmd_terneiros_machos', 'kg_bezerro_matriz', 'kg_desmame'] },
-  { titulo: 'Produção da Safra x Hectare Útil', indicadores: ['producao_kg', 'producao_kg_ha', 'producao_valor', 'producao_valor_ha'] },
+  { titulo: 'GMD',        indicadores: ['gmd_terneiros', 'gmd_terneiros_femeas', 'gmd_terneiros_machos', 'kg_bezerro_matriz', 'kg_nascimento', 'kg_desmame'] },
+  // Grid de 4 colunas: linha 1 = Kg, Kg/ha, Valor Estimado, Receita Real —
+  // linha 2 = Valor Estimado/ha, Receita Real/ha. Cada card real fica na
+  // posição logo após seu estimado correspondente (só R$ tem par real; Kg é
+  // só estimado — não há "kg vendido" pra comparar).
+  { titulo: 'Produção da Safra x Hectare Útil', indicadores: ['producao_kg', 'producao_kg_ha', 'producao_valor', 'receita_real_terneiros', 'producao_valor_ha', 'receita_real_terneiros_ha'] },
   { titulo: 'Custos', indicadores: ['custo_insem_terneiro', 'custo_insem_pct_valor', 'custo_insem_total', 'custo_insem_matriz'] },
 ]
 const IDEAIS = {
@@ -131,8 +155,9 @@ const UNIDADES_PADRAO = {
   taxa_prenhez: '%', taxa_paricao: '%', mortalidade: '%',
   gmd_terneiros: 'kg/dia', gmd_terneiros_femeas: 'kg/dia', gmd_terneiros_machos: 'kg/dia',
   taxa_aproveitamento: '%', kg_bezerro_matriz: 'kg', intervalo_partos: 'dias', taxa_aborto: '%',
-  kg_desmame: 'kg',
+  kg_nascimento: 'kg', kg_desmame: 'kg',
   producao_kg: 'kg', producao_valor: 'R$', producao_kg_ha: 'kg/ha', producao_valor_ha: 'R$/ha',
+  receita_real_terneiros: 'R$', receita_real_terneiros_ha: 'R$/ha',
   custo_insem_terneiro: 'R$/terneiro', custo_insem_pct_valor: '%', custo_insem_total: 'R$', custo_insem_matriz: 'R$/matriz',
 }
 
@@ -196,6 +221,26 @@ function avaliar(atual, meta, inverted) {
   return pct >= 100 ? 'verde' : pct >= 90 ? 'amarelo' : 'vermelho'
 }
 
+// Negrito nos símbolos ♂♀ dentro do label de um indicador, sem cor própria
+// (herda a cor do texto ao redor). "Terneiros ♂♀" fica colado mesmo quebrando
+// linha porque o espaço entre os dois já é NBSP na própria string em CFG, não
+// um espaço normal — não precisa de nowrap nem de span extra pra isso aqui.
+//
+// Retorna UM span só (nunca uma Fragment com vários filhos soltos): o
+// container onde isto é usado (.card-title) é display:flex — cada filho
+// direto de um flex container vira um item de flex próprio, e texto solto +
+// elementos como itens de flex separados quebra de forma esquisita (cada
+// pedaço em sua própria "caixa"/linha, em vez de fluir como texto normal).
+// Um span só = um item de flex só, com o texto fluindo normalmente por
+// dentro dele. label continua string pura em todo lugar que precisa disso
+// (gráfico comparativo, toasts de erro — ver CFG/GraficoComparativoModo):
+// isto só aplica o negrito na hora de renderizar em JSX (card e modal).
+function labelComSexo(label) {
+  const partes = (label || '').split('♂♀')
+  if (partes.length !== 2) return label
+  return <span>{partes[0]}<strong>♂♀</strong>{partes[1]}</span>
+}
+
 function statusSty(s, semDadosMsg) {
   if (s === 'verde')    return { dot: '#27A838', bg: '#E8F0FC', borda: '#A5C8F5', cor: '#1A5C25', txt: 'Atingiu a meta'       }
   if (s === 'amarelo')  return { dot: '#D97706', bg: '#FEF3C7', borda: '#F3D5A3', cor: '#633806', txt: 'Próximo da meta'      }
@@ -241,7 +286,13 @@ function IndicadorCard({ meta, atual, subtitulo }) {
       }} />
 
       <div style={{ fontSize: 20, marginBottom: 4 }}>{cfg.icon}</div>
-      <div className="card-title" style={{ marginBottom: 3, paddingRight: 24 }}>{cfg.label}</div>
+      <div className="card-title" style={{ marginBottom: 3, paddingRight: 24 }}>{labelComSexo(cfg.label)}</div>
+      {/* "(Estimado)" saiu do título (não cabia em duas linhas) e virou este
+          badge — só nos 2 cards de valor estimado, ao lado do card de
+          Receita Real correspondente pra distinção ficar clara. Div (bloco)
+          em volta do Badge (span) pra garantir espaçamento vertical
+          confiável — margin em inline não empurra o próximo bloco. */}
+      {cfg.estimado && <div style={{ marginBottom: 8 }}><Badge color="gray">Estimado</Badge></div>}
       <div style={{ fontSize: '.71rem', color: '#9CA3AF', marginBottom: 14 }}>{cfg.desc}</div>
 
       {/* Valores */}
@@ -513,11 +564,14 @@ function valorIndicadorDoBloco(ind, bloco, temValorCadastrado) {
     case 'gmd_terneiros_femeas': return bloco.gmdTerneirosFemeas
     case 'gmd_terneiros_machos': return bloco.gmdTerneirosMachos
     case 'kg_bezerro_matriz':    return bloco.kgBezerroMatriz
+    case 'kg_nascimento':        return bloco.kgNascimento
     case 'kg_desmame':           return bloco.kgDesmame
     case 'producao_kg':          return bloco.pesosSafraLength > 0 ? bloco.kgProduzido : null
     case 'producao_valor':       return temValorCadastrado ? bloco.valorProduzido : null
     case 'producao_kg_ha':       return bloco.kgPorHa
     case 'producao_valor_ha':    return temValorCadastrado ? bloco.valorPorHa : null
+    case 'receita_real_terneiros':    return bloco.receitaRealTerneiros
+    case 'receita_real_terneiros_ha': return bloco.receitaRealTerneirosHa
     case 'custo_insem_terneiro':  return bloco.custoPorTerneiro
     case 'custo_insem_pct_valor': return bloco.custoPctValor
     case 'custo_insem_total':     return bloco.custoInseminacaoTotal
@@ -713,10 +767,11 @@ export default function Metas() {
         db.lancamentos.listAll(),
         db.transacoes.listVendas(),
         db.transacaoAnimaisItens.listDataEntradaCompras(),
+        db.transacaoAnimaisItens.listVendasAnimais(),
       ])
       if (mySeq !== loadSeqRef.current) return // superada por um loadAll() mais novo
       if (algumErro('[Metas]', resultados)) { setLoadError(true); return }
-      const [rLotes, rPartosTodos, rAnimais, rPesagens, rProps, rCatPrecos, rPiquetes, rLancamentos, rVendas, rEntradas] = resultados
+      const [rLotes, rPartosTodos, rAnimais, rPesagens, rProps, rCatPrecos, rPiquetes, rLancamentos, rVendas, rEntradas, rVendasAnimaisItens] = resultados
       setProprietarios(rProps.data || [])
 
       const lotesCiclo    = rLotes.data       || []
@@ -751,6 +806,11 @@ export default function Metas() {
       const temValorCadastrado = !!(catTerneiro || catTerneira)
 
       const hectareUtil = (rPiquetes.data || []).reduce((s, p) => s + (parseFloat(p.area_ha) || 0), 0)
+
+      // Receita real de vendas (Terneiro/Terneira) — filtrada por SAFRA dentro
+      // de calcularBloco (bezerroIdsSafra), não aqui: sem escopo de categoria
+      // nem de ciclo, ver comentário em db.transacaoAnimaisItens.listVendasAnimais.
+      const vendasAnimaisItens = rVendasAnimaisItens.data || []
 
       // Peso mais recente do bezerro — TODA pesagem conta, inclusive
       // compra/venda (peso real do lote pesado no negócio).
@@ -826,6 +886,7 @@ export default function Metas() {
         const taxaParicao = (prenhas > 0 && nPartos > 0) ? (nPartos / prenhas) * 100 : null
         const desmameMetrics  = calcDesmameMetrics(partosSafra, matrizesExpostas)
         const kgBezerroMatriz = desmameMetrics.kgPorMatrizExposta
+        const kgNascimento    = desmameMetrics.pesoMedioNascimento
         const kgDesmame       = desmameMetrics.pesoMedioDesmame
 
         // taxa_aborto (perda gestacional) — soma "gestando" lote a lote, pois
@@ -895,6 +956,20 @@ export default function Metas() {
         const kgPorHa    = hectareUtil > 0 ? kgProduzido / hectareUtil : null
         const valorPorHa = hectareUtil > 0 ? valorProduzido / hectareUtil : null
 
+        // Receita REAL (venda efetiva) — mesma população de bezerroIdsSafra do
+        // GMD/kg produzido acima, não filtrada por categoria de venda: um
+        // terneiro vendido bem depois (já Novilho/Novilha, ou sob categoria com
+        // override) ainda é resultado desta safra. null (não 0) sem nenhuma
+        // venda ainda — "sem vendas no período" é diferente de "vendeu por
+        // zero". Pode ficar abaixo do valor ESTIMADO (valorProduzido) enquanto
+        // houver terneiros da safra ainda não vendidos — vai preenchendo
+        // conforme as vendas acontecem, mesmo que atravessem ciclo.
+        const vendasSafra = vendasAnimaisItens.filter(v => bezerroIdsSafra.has(v.animal_id))
+        const receitaRealTerneiros = vendasSafra.length > 0
+          ? vendasSafra.reduce((s, v) => s + (parseFloat(v.valor) || 0), 0)
+          : null
+        const receitaRealTerneirosHa = (hectareUtil > 0 && receitaRealTerneiros != null) ? receitaRealTerneiros / hectareUtil : null
+
         // Custos — divide o total do grupo financeiro DESTE modo
         // (custoTotalModo — Inseminação/Monta Natural/soma dos dois, ver
         // chamada de calcularBloco abaixo) pelo cohort deste mesmo modo.
@@ -904,13 +979,14 @@ export default function Metas() {
 
         return {
           partosSafra, prenhas, matrizesExpostas, taxaPrenhez, taxaAproveitamento,
-          nPartos, taxaParicao, kgBezerroMatriz, kgDesmame,
+          nPartos, taxaParicao, kgBezerroMatriz, kgNascimento, kgDesmame,
           nAbortos, gestandoTotal, perdasNaoIdentificadas, taxaAborto,
           gmdTerneiros: media(gmdsT), gmdTerneirosFemeas: media(gmdsF), gmdTerneirosMachos: media(gmdsM),
           gmdIndividuais: gmdsT,
           mortosBezerros, mortalidade,
           qtdMachos, qtdFemeas, pesosSafraLength: pesosSafra.length, kgProduzido, kgPorSexo,
           valorMachos, valorFemeas, valorProduzido, kgPorHa, valorPorHa,
+          vendasSafraLength: vendasSafra.length, receitaRealTerneiros, receitaRealTerneirosHa,
           custoPorTerneiro, custoPctValor, custoPorMatriz,
         }
       }
@@ -1112,6 +1188,7 @@ export default function Metas() {
     pesados: bProducaoAtual.pesosSafraLength, totalTerneiros: bProducaoAtual.nPartos,
     hectareUtil: producaoSafra?.hectareUtil || 0,
     qtdMachos: bProducaoAtual.qtdMachos, qtdFemeas: bProducaoAtual.qtdFemeas,
+    vendasSafraLength: bProducaoAtual.vendasSafraLength,
   } : null
   const producaoPorSexo = bProducaoAtual ? {
     kgMachos: bProducaoAtual.kgPorSexo.kgMachos, kgFemeas: bProducaoAtual.kgPorSexo.kgFemeas,
@@ -1480,7 +1557,7 @@ export default function Metas() {
                 <span style={{ fontSize: 16, flexShrink: 0 }}>{cfg.icon}</span>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: '.82rem', fontWeight: 500, color: '#374151', marginBottom: 3 }}>
-                    {cfg.label}
+                    {labelComSexo(cfg.label)}
                     {cfg.inverted && <span style={{ fontSize: '.70rem', color: '#9CA3AF', marginLeft: 6 }}>(menor é melhor)</span>}
                     {IDEAIS[m.indicador] && <span style={{ fontSize: '.70rem', color: '#9CA3AF', marginLeft: 6 }}>(ideal: {IDEAIS[m.indicador]})</span>}
                   </div>

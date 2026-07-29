@@ -319,11 +319,19 @@ export function calcDesmameMetrics(partosArr, totalInseminadas) {
   // vez de "ainda não há desmames" — a safra pode estar só em andamento.
   const txDesmama = (totalInseminadas > 0 && desmamados > 0) ? Math.round(desmamados / totalInseminadas * 100) : null
   const pesosDesmame = []
+  const pesosNascimento = []
   const p205s = []
   ;(partosArr || []).forEach(p => {
     const pesagensB = p.bezerro?.pesagens || []
     const pesoNasc = pesagensB.find(ps => ps.tipo === 'nascimento')
     const pesoDesm = pesagensB.find(ps => ps.tipo === 'desmama')
+    // Peso ao nascer entra independente de já ter desmame ou não (ao
+    // contrário de pesosDesmame/p205s abaixo, que exigem pesoDesm) — senão
+    // "Kg ao nascer" ficaria vazio até o primeiro desmame da safra.
+    if (pesoNasc) {
+      const pn0 = parseFloat(pesoNasc.peso_kg)
+      if (Number.isFinite(pn0)) pesosNascimento.push(pn0)
+    }
     if (!pesoDesm) return
     const pd = parseFloat(pesoDesm.peso_kg)
     if (Number.isFinite(pd)) pesosDesmame.push(pd)
@@ -339,6 +347,7 @@ export function calcDesmameMetrics(partosArr, totalInseminadas) {
   return {
     desmamados, txDesmama,
     pesoMedioDesmame: media(pesosDesmame),
+    pesoMedioNascimento: media(pesosNascimento),
     p205Medio: media(p205s),
     kgPorMatrizExposta: (totalInseminadas > 0 && pesosDesmame.length > 0) ? Math.round(pesosDesmame.reduce((s, v) => s + v, 0) / totalInseminadas * 10) / 10 : null,
   }

@@ -1,4 +1,4 @@
-import { AlertBox } from '../../../components/UI'
+import { AlertBox, Badge } from '../../../components/UI'
 
 const H4 = { fontSize: '.88rem', fontWeight: 700, color: '#1a1a1a', marginBottom: 8 }
 const H5 = { fontSize: '.85rem', fontWeight: 700, color: '#1a1a1a', marginBottom: 6, marginTop: 12 }
@@ -95,31 +95,61 @@ export default function SecaoMetas({ item }) {
         <div style={FORMULA}>Média do GMD individual de cada bezerro do grupo acima (veja a fórmula do GMD na seção Pesagens)</div>
         <h5 style={H5}>Kg Desmamado / Matriz Exposta</h5>
         <div style={FORMULA}>Soma dos pesos de desmame ÷ Matrizes expostas</div>
+        <h5 style={H5}>Kg ao Nascer</h5>
+        <div style={FORMULA}>Média simples dos pesos de nascimento</div>
         <h5 style={H5}>Kg ao Desmame</h5>
         <div style={FORMULA}>Média simples dos pesos de desmame</div>
         <p style={P}>
-          Esses dois últimos exigem uma pesagem do tipo <strong>"Desmama"</strong> especificamente — um
-          bezerro que só tem pesagens de sobreano/intermediária (nunca foi pesado como "desmama") não entra
-          neles, mesmo que já apareça no GMD Terneiros.
+          Esses três exigem uma pesagem do tipo específico — <strong>"Nascimento"</strong> para Kg ao Nascer,
+          <strong> "Desmama"</strong> para os outros dois — um bezerro que só tem pesagens de sobreano/
+          intermediária não entra neles, mesmo que já apareça no GMD Terneiros. Kg ao Nascer também não exige
+          o bezerro estar vivo nem ter 2+ pesagens (ao contrário do resto do contêiner): basta ter sido pesado
+          ao nascer.
         </p>
       </div>
 
       <div id="metas-producao" style={{ scrollMarginTop: 90 }}>
         <h4 style={H4}>Contêiner Produção da Safra × Hectare Útil</h4>
-        <h5 style={H5}>Kg de Terneiros Produzidos</h5>
+        <p style={P}>
+          Os títulos deste contêiner usam <strong>♂♀</strong> em negrito pra deixar explícito que "Terneiros"
+          aqui inclui os dois sexos (machos e fêmeas).
+        </p>
+        <h5 style={H5}>Kg de Terneiros ♂♀</h5>
         <div style={FORMULA}>Soma da última pesagem de manejo de cada bezerro da safra</div>
-        <h5 style={H5}>Kg por Hectare</h5>
+        <h5 style={H5}>Kg de Terneiros ♂♀ / ha</h5>
         <div style={FORMULA}>Kg de terneiros produzidos ÷ Hectare útil total da fazenda</div>
         <p style={P}>O hectare útil aqui é a soma de TODOS os piquetes cadastrados na fazenda — não é filtrado por safra nem por modo.</p>
-        <h5 style={H5}>Valor Produzido</h5>
+        <h5 style={H5}>Valor de Terneiros ♂♀ <Badge color="gray">Estimado</Badge></h5>
         <div style={FORMULA}>(Nº de machos × preço médio da categoria "Terneiro") + (Nº de fêmeas × preço médio da categoria "Terneira")</div>
         <p style={P}>
-          Repare que este NÃO usa o peso real pesado de cada bezerro — é contagem de cabeças × o peso médio e
-          preço/kg cadastrados em <strong>Financeiro → Parâmetros</strong> para as categorias Terneiro e
-          Terneira. Se essas categorias não tiverem peso/preço cadastrado, o card avisa e fica sem valor.
+          Este é um valor <strong>ESTIMADO</strong>, não a receita real de venda — repare que ele NÃO usa o peso
+          real pesado de cada bezerro nem o preço de nenhuma venda efetiva: é contagem de cabeças × o peso médio
+          e preço/kg cadastrados em <strong>Financeiro → Parâmetros</strong> para as categorias Terneiro e
+          Terneira, aplicado a TODOS os terneiros da safra (vendidos ou não) — valor estimado com base no valor
+          de referência definido pelo usuário em Parâmetros do sistema. Se essas categorias não tiverem
+          peso/preço cadastrado, o card avisa e fica sem valor. O selo "Estimado" ao lado do título marca os
+          dois cards que usam este cálculo (este e o próximo, por hectare) — antes ficava escrito por extenso no
+          título, mas não cabia em duas linhas.
         </p>
-        <h5 style={H5}>R$ por Hectare</h5>
-        <div style={FORMULA}>Valor produzido ÷ Hectare útil total</div>
+        <h5 style={H5}>Valor de Terneiros ♂♀ / ha <Badge color="gray">Estimado</Badge></h5>
+        <div style={FORMULA}>Valor produzido (estimado) ÷ Hectare útil total</div>
+        <p style={P}>Mesmo valor estimado com base no valor de referência definido pelo usuário em Parâmetros do sistema, dividido pelo hectare útil.</p>
+        <h5 style={H5}>Receita Real de Terneiros ♂♀</h5>
+        <div style={FORMULA}>Soma do valor de venda (transacao_animais_itens) dos terneiros/terneiras NASCIDOS nesta safra</div>
+        <h5 style={H5}>Receita Real de Terneiros ♂♀ / ha</h5>
+        <div style={FORMULA}>Receita real de terneiros/as ÷ Hectare útil total</div>
+        <p style={P}>
+          Os dois cards de <strong>Receita Real</strong> ficam ao lado dos seus equivalentes estimados de
+          propósito, pra comparar direto: um é preço de referência aplicado a TODOS os terneiros da safra
+          (estimado), o outro é o que já foi efetivamente vendido deles (real). A população é a MESMA nos dois
+          — todo terneiro/terneira nascido nesta safra — mas a Receita Real não filtra por categoria de venda:
+          um animal vendido bem depois, já reclassificado como Novilho/Novilha, ou vendido sob uma categoria com
+          override (ex: "Vaca Gorda"), ainda entra na conta, porque a receita dele é resultado desta safra
+          independente de como foi rotulado na hora da venda.
+        </p>
+        <AlertBox type="blue" icon="ti-clock"
+          title="Receita Real vai preenchendo com o tempo — pode ficar abaixo do Estimado"
+          body='Diferente do valor Estimado (calculado na hora, pra TODOS os terneiros da safra), a Receita Real só soma o que já foi vendido de fato. Enquanto houver terneiros da safra ainda ativos (não vendidos), a Receita Real fica menor que o Estimado — isso não é um problema, é esperado: ela vai subindo conforme as vendas acontecem, mesmo que isso atravesse um ou mais ciclos depois da safra em si (o sistema busca a venda onde quer que ela esteja, sem prender à data do ciclo selecionado). Sem nenhuma venda ainda, o card mostra "Sem vendas no período", nunca R$ 0,00 — zero seria lido como prejuízo.' />
       </div>
 
       <div id="metas-custos" style={{ scrollMarginTop: 90 }}>
