@@ -5,12 +5,12 @@ import { useConta } from '../lib/ContaContext'
 import { useFazenda } from '../lib/FazendaContext'
 import { useCiclo, statusCiclo } from '../lib/CicloContext'
 import { useCicloLocal } from '../lib/useCicloLocal'
-import { fmtData, diasDesde, calcCategoriaRebanho, algumErro, capitalizarPrimeira } from '../lib/helpers'
+import { fmtData, diasDesde, calcCategoriaRebanho, algumErro, capitalizarPrimeira, sanidadeRealizada, sanidadeAgendada } from '../lib/helpers'
 import { hoje as hojeAgora, hojeISO } from '../lib/hoje'
 import { validarSaldoEstoque, aplicarMovimentacaoEstoque, reverterCascata } from '../lib/estoqueFinanceiro'
 import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, AlertBox, BotaoPDF, Confirm, ErroCarregamento, BannerCicloEncerrado, SeletorCicloLocal } from '../components/UI'
 
-const TABS   = ['Registros','Alertas','Histórico']
+const TABS   = ['Registros','Calendário de vacinação','Alertas','Histórico']
 const TIPOS  = ['Vacina','Vermifugação','Ectoparasita','Medicação','Exame']
 const COR_TP = { Vacina:'green', Vermifugação:'blue', Ectoparasita:'amber', Medicação:'purple', Exame:'gray' }
 
@@ -53,6 +53,10 @@ export default function Sanidade() {
   const [modal,      setModal]      = useState(false)
   const [form,       setForm]       = useState({})
   const [editandoId, setEditandoId] = useState(null)
+  // Fase 7 — 'novo' | 'editar' (registro realizado, como já era) |
+  // 'editar-agendamento' (troca campos + animais, continua agendado) |
+  // 'concluir' (idem + status vira 'realizado' + pode baixar estoque agora).
+  const [modalIntent, setModalIntent] = useState('novo')
   const [saving,     setSaving]     = useState(false)
   const [confirmDel, setConfirmDel] = useState(null)
   const [loadError,  setLoadError]  = useState(false)
@@ -136,15 +140,27 @@ export default function Sanidade() {
     setItensEstoqueUsados([])
   }
 
-  const fecharModal = () => { setModal(false); setForm({}); setEditandoId(null); resetFormSelecao() }
+  const fecharModal = () => { setModal(false); setForm({}); setEditandoId(null); setModalIntent('novo'); resetFormSelecao() }
 
-  // Editar só toca nos campos do registro em si (data/tipo/procedimento/próximo/
-  // observações) — não reabre a seleção de lote/animais, que é um passo de
-  // CRIAÇÃO (vínculos em sanidade_animais) e não faz parte do que foi pedido aqui.
+  const abrirNovo = () => {
+    if (!podeEditarSanidadeCiclo) return
+    resetFormSelecao()
+    setEditandoId(null)
+    setModalIntent('novo')
+    setForm({ tipo: 'Vacina', data: hojeISO() })
+    setModal(true)
+  }
+
+  // Editar um registro REALIZADO só toca nos campos do registro em si (data/
+  // tipo/procedimento/próximo/observações) — não reabre a seleção de lote/
+  // animais, que é um passo de CRIAÇÃO (vínculos em sanidade_animais) e não
+  // faz parte do que foi pedido aqui. Diferente de abrirEditarAgendamento
+  // abaixo (Fase 7), que reabre tudo porque agendamento é editável por inteiro.
   const abrirEditar = (d) => {
     if (!podeEditarSanidadeCiclo) return
     resetFormSelecao()
     setEditandoId(d.id)
+    setModalIntent('editar')
     setForm({
       data:         d.data,
       tipo:         d.tipo,
@@ -153,6 +169,85 @@ export default function Sanidade() {
       obs:          d.observacoes || '',
     })
     setModal(true)
+  }
+
+  // Fase 7 — abre o modal de EDIÇÃO de um AGENDAMENTO (status='agendado'):
+  // todos os campos editáveis, inclusive trocar os animais (recarrega a
+  // seleção a partir dos vínculos atuais em sanidade_animais) e os itens de
+  // estoque PREVISTOS (carregados de itens_previstos — reaproveita o mesmo
+  // estado/UI de itensEstoqueUsados, só que aqui é planejamento: NUNCA baixa
+  // estoque, só grava no jsonb). Continua agendado ao salvar — a baixa de
+  // verdade só acontece na conclusão (ver confirmarConclusao abaixo).
+  const abrirEditarAgendamento = async (d) => {
+    if (!podeEditarSanidadeCiclo) return
+    resetFormSelecao()
+    setEditandoId(d.id)
+    setModalIntent('editar-agendamento')
+    setForm({
+      data:         d.data,
+      tipo:         d.tipo,
+      procedimento: d.procedimento,
+      proximo:      d.proximo || '',
+      obs:          d.observacoes || '',
+    })
+    setModoSelecao('individual')
+    setItensEstoqueUsados((d.itens_previstos || []).map(it => ({ item_id: it.item_id, quantidade: String(it.quantidade) })))
+    setModal(true)
+    const { data: vincs, error } = await db.sanidadeAnimais.listPorProcedimento(d.id)
+    if (error) { toast('Erro ao carregar animais vinculados: ' + error.message, 'error'); return }
+    setSelAnimais((vincs || []).map(v => v.animal_id))
+  }
+
+  // Fase 7 — CONCLUIR um agendamento é uma confirmação curta, não um modal de
+  // edição (edição é uma ação separada — ver abrirEditarAgendamento acima).
+  // confirmConcluir guarda o registro sendo concluído, só pra montar o resumo
+  // no <Confirm>; confirmarConclusao é chamado com esse mesmo registro.
+  const [confirmConcluir, setConfirmConcluir] = useState(null)
+
+  const confirmarConclusao = async (d) => {
+    if (!d || !podeEditarSanidadeCiclo) return
+    // Não dá pra "concluir" algo que ainda não aconteceu — a data tem que
+    // estar em hoje ou no passado. Se o usuário quer mudar a data, usa Editar
+    // primeiro (fluxo separado) e só depois conclui.
+    if (d.data > hojeISO()) {
+      toast(`A data deste agendamento (${fmtData(d.data)}) ainda é futura — edite a data para hoje ou uma data passada antes de concluir.`, 'error')
+      return
+    }
+    if (!dataEhEditavel(d.data)) {
+      const c = cicloDaData(d.data)
+      toast(c
+        ? 'Não é possível concluir: a data está fora do ciclo atual (ou em um ciclo já encerrado). Edite a data antes de concluir.'
+        : 'Data fora de qualquer ciclo cadastrado.', 'error')
+      return
+    }
+
+    const previstos = d.itens_previstos || []
+    if (previstos.length > 0) {
+      // Item previsto que não existe mais no estoque (excluído desde o
+      // agendamento) é tratado como saldo insuficiente — mesma decisão,
+      // mesmo bloqueio total, mensagem clara de qual item.
+      const removido = previstos.find(p => !estoqueItens.some(i => i.id === p.item_id))
+      if (removido) {
+        toast(`Não é possível concluir: um item previsto foi excluído do estoque. Edite o agendamento e ajuste os itens previstos antes de concluir.`, 'error')
+        return
+      }
+      // Bloqueia tudo se faltar saldo em qualquer item — nunca baixa parcial.
+      const erroSaldo = validarSaldoEstoque(estoqueItens, previstos)
+      if (erroSaldo) { toast(erroSaldo, 'error'); return }
+    }
+
+    const { error } = await db.sanidade.update(d.id, { status: 'realizado' })
+    if (error) { toast('Erro: ' + error.message, 'error'); return }
+
+    // A partir daqui itens_previstos deixa de valer — a movimentação real
+    // (vinculada ao procedimento) é que passa a ser a fonte de verdade, é ela
+    // que reverterCascata usa se o registro for excluído depois.
+    if (podeEditarEstoque && previstos.length > 0) {
+      await aplicarBaixaEstoque(d.id, d.data, d.procedimento, previstos.map(p => ({ item_id: p.item_id, quantidade: String(p.quantidade) })))
+    }
+
+    toast('Vacinação concluída!')
+    load()
   }
 
   // Quantidade automática: soma de animais ativos dos lotes selecionados, ou seleção individual.
@@ -183,28 +278,128 @@ export default function Sanidade() {
     return true
   })
 
+  // Fase 7 — mesmo filtro de data_nascimento usado hoje (individual e por
+  // lote), fatorado pra ser reusado em 3 lugares: criação, editar-agendamento
+  // e concluir. Uma função só, sem caminho paralelo.
+  const animaisParaVincularAtual = () => {
+    if (modoSelecao === 'individual') {
+      return selAnimais.filter(id => {
+        const a = animais.find(x => x.id === id)
+        return !a?.data_nascimento || a.data_nascimento <= form.data
+      })
+    }
+    if (modoSelecao === 'lote' && selLotes.length > 0) {
+      const idsLotes = lotes.filter(l => selLotes.includes(l.nome)).map(l => l.id)
+      return animais.filter(a =>
+        idsLotes.includes(a.lote_id) && (!a.data_nascimento || a.data_nascimento <= form.data)
+      ).map(a => a.id)
+    }
+    return []
+  }
+
+  const descricaoSelecaoAtual = () => modoSelecao === 'individual'
+    ? (selAnimais.length > 0
+        ? `Individual: ${animais.filter(a => selAnimais.includes(a.id)).map(a => a.brinco).join(', ')}`
+        : 'Individual')
+    : (selLotes.length > 0 ? selLotes.join(', ') : 'Geral')
+
+  // Fase 7 — itens de estoque PREVISTOS de um agendamento, no formato salvo
+  // em itens_previstos (jsonb [{item_id, quantidade}]) — usa o mesmo estado
+  // itensEstoqueUsados da seção de estoque do form, só que aqui nunca vira
+  // uma baixa de verdade (ver mostrarEstoqueForm/modoEstoquePrevisto abaixo).
+  const itensPrevistosAtual = () => itensEstoqueUsados
+    .filter(l => l.item_id && parseFloat(l.quantidade) > 0)
+    .map(l => ({ item_id: l.item_id, quantidade: parseFloat(l.quantidade) }))
+
+  // Apaga e recria os vínculos em sanidade_animais a partir da seleção ATUAL
+  // — usada na criação, ao editar um agendamento (trocar animais) e ao
+  // concluir. Delete de um procedimento sem vínculo nenhum (caso da criação)
+  // é um no-op seguro. Retorna string de erro ou null.
+  const sincronizarVinculos = async (procedimentoId) => {
+    const ids = animaisParaVincularAtual()
+    const { error: errDel } = await db.sanidadeAnimais.deletePorProcedimento(procedimentoId)
+    if (errDel) return errDel.message
+    if (ids.length === 0) return null
+    const vinculos = ids.map(animalId => ({
+      conta_id: contaAtual.id, fazenda_id: fazendaAtual.id, procedimento_id: procedimentoId, animal_id: animalId,
+    }))
+    const { error: errIns } = await db.sanidadeAnimais.inserirVarios(vinculos)
+    return errIns ? errIns.message : null
+  }
+
+  // Baixa de estoque (Bloco D6, opcional) — por procedimento, não por animal
+  // (ver diagnóstico). Usa aplicarMovimentacaoEstoque (Bloco D10 — módulo
+  // compartilhado), que já grava a movimentação ANTES de ajustar o saldo
+  // (ordem auditável). itensSnapshot avança a cada linha, pra 2 linhas do
+  // mesmo item descontarem em sequência. Fatorada (Fase 7) pra ser chamada
+  // tanto ao criar um registro já realizado (linhasBrutas = itensEstoqueUsados
+  // do form) quanto ao concluir um agendamento (linhasBrutas = itens_previstos
+  // do registro, já que o form não está aberto nessa confirmação) — nenhum
+  // caminho paralelo de baixa de estoque. Recebe as linhas por parâmetro (não
+  // lê itensEstoqueUsados direto) justamente pra servir aos dois casos.
+  const aplicarBaixaEstoque = async (procedimentoId, dataProced, procedimentoNome, linhasBrutas) => {
+    const linhas = linhasBrutas.filter(l => l.item_id && parseFloat(l.quantidade) > 0)
+    if (linhas.length === 0) return
+    const motivo = `Sanidade: ${procedimentoNome} em ${fmtData(dataProced)}`
+    let itensSnapshot = estoqueItens
+    for (const linha of linhas) {
+      const item = itensSnapshot.find(i => i.id === linha.item_id)
+      if (!item) continue
+      const r = await aplicarMovimentacaoEstoque({
+        itemId: linha.item_id, tipo: 'S', quantidade: linha.quantidade, data: dataProced,
+        motivo, vinculo: { procedimento_id: procedimentoId }, itensEstoque: itensSnapshot,
+      })
+      if (r.error && !r.movJaGravada) {
+        toast(`Salvo, mas falhou ao baixar "${item.item}" do estoque: ${r.error.message}. As baixas seguintes foram interrompidas — confira em Estoque.`, 'error')
+        break // não tenta as próximas linhas — evita baixas fora de ordem sem a anterior registrada
+      }
+      if (r.error && r.movJaGravada) {
+        // A movimentação JÁ existe (passo anterior deu certo) — o saldo é
+        // que não foi ajustado. Não interrompe as próximas linhas: cada uma
+        // é independente, e a inconsistência desta já ficou visível/auditável.
+        toast(`Baixa de "${item.item}" registrada, mas o saldo não foi atualizado automaticamente: ${r.error.message}. Confira e ajuste em Estoque.`, 'error')
+        continue // não avança o snapshot pra este item — saldo real não mudou
+      }
+      itensSnapshot = itensSnapshot.map(i => i.id === linha.item_id ? { ...i, quantidade: r.novaQt } : i)
+    }
+  }
+
   const salvar = async () => {
     if (!podeEditarSanidadeCiclo) return
     if (!form.data || !form.tipo || !form.procedimento) {
       toast('Preencha data, tipo e procedimento.', 'error'); return
     }
-    if (!dataEhEditavel(form.data)) {
+
+    // Fase 7 — um agendamento (criação com data futura, ou edição de um que
+    // já é agendado) não é evento financeiro/operacional até ser concluído,
+    // então pula o guard de ciclo. Editar um registro REALIZADO continua
+    // exigindo data dentro do ciclo atual/carência — concluir um agendamento
+    // (que também exige isso) não passa mais por aqui, tem fluxo próprio (ver
+    // confirmarConclusao).
+    const criandoAgendamento = !editandoId && form.data > hojeISO()
+    const puloGuardCiclo = criandoAgendamento || modalIntent === 'editar-agendamento'
+    if (!puloGuardCiclo && !dataEhEditavel(form.data)) {
       const c = cicloDaData(form.data)
       toast(c
         ? 'Não é possível lançar nesta data: ela está fora do ciclo atual (ou em um ciclo já encerrado).'
         : 'Data fora de qualquer ciclo cadastrado.', 'error')
       return
     }
-    // Valida saldo ANTES de criar qualquer coisa — bloqueia o procedimento
-    // inteiro, não só a baixa, se algum item não tiver saldo suficiente.
-    if (!editandoId) {
+
+    // Baixa de estoque só acontece ao criar um registro já realizado (data
+    // hoje/passada) — nunca ao criar/editar um agendamento (ele não baixa
+    // nada enquanto não for concluído, e concluir não passa mais por aqui).
+    const vaiAplicarEstoque = !editandoId && !criandoAgendamento
+    if (vaiAplicarEstoque) {
       const pedidos = itensEstoqueUsados.filter(l => l.item_id && parseFloat(l.quantidade) > 0)
       const erroSaldo = validarSaldoEstoque(estoqueItens, pedidos)
       if (erroSaldo) { toast(erroSaldo, 'error'); return }
     }
     setSaving(true)
 
-    if (editandoId) {
+    // ── Editar registro REALIZADO (Registros) — só os campos do registro em
+    // si, como já era antes da Fase 7. ──
+    if (editandoId && modalIntent === 'editar') {
       const { error } = await db.sanidade.update(editandoId, {
         data:         form.data,
         tipo:         form.tipo,
@@ -215,92 +410,58 @@ export default function Sanidade() {
       setSaving(false)
       if (error) { toast('Erro: ' + error.message, 'error'); return }
       toast('Procedimento atualizado!')
-      setModal(false); setForm({}); setEditandoId(null); resetFormSelecao(); load()
+      fecharModal(); load()
       return
     }
 
-    const lote_descricao = modoSelecao === 'individual'
-      ? (selAnimais.length > 0
-          ? `Individual: ${animais.filter(a => selAnimais.includes(a.id)).map(a => a.brinco).join(', ')}`
-          : 'Individual')
-      : (selLotes.length > 0 ? selLotes.join(', ') : 'Geral')
+    // ── Editar AGENDAMENTO sem concluir (Calendário de vacinação) — campos +
+    // reselecionar animais, continua 'agendado'. ──
+    if (editandoId && modalIntent === 'editar-agendamento') {
+      const { error } = await db.sanidade.update(editandoId, {
+        data:          form.data,
+        tipo:          form.tipo,
+        procedimento:  capitalizarPrimeira(form.procedimento),
+        lote_descricao: descricaoSelecaoAtual(),
+        quantidade:    autoQtd !== null ? autoQtd : (parseInt(form.quantidade) || 0),
+        proximo:       form.proximo || null,
+        observacoes:   capitalizarPrimeira(form.obs) || '',
+        status:        'agendado',
+        itens_previstos: itensPrevistosAtual(),
+      })
+      if (error) { setSaving(false); toast('Erro: ' + error.message, 'error'); return }
+      const errVinc = await sincronizarVinculos(editandoId)
+      setSaving(false)
+      if (errVinc) toast('Agendamento atualizado, mas erro ao atualizar animais: ' + errVinc, 'error')
+      else toast('Agendamento atualizado!')
+      fecharModal(); load()
+      return
+    }
+
+    // ── Novo procedimento — realizado imediato (data hoje/passada) OU novo
+    // agendamento (data futura). ──
     const { data: procData, error } = await db.sanidade.insert({
       data:         form.data,
       tipo:         form.tipo,
       procedimento: capitalizarPrimeira(form.procedimento),
-      lote_descricao,
+      lote_descricao: descricaoSelecaoAtual(),
       quantidade:   autoQtd !== null ? autoQtd : (parseInt(form.quantidade) || 0),
       proximo:      form.proximo || null,
-      observacoes:  capitalizarPrimeira(form.obs) || ''
+      observacoes:  capitalizarPrimeira(form.obs) || '',
+      status:       criandoAgendamento ? 'agendado' : 'realizado',
+      itens_previstos: criandoAgendamento ? itensPrevistosAtual() : [],
     })
     if (error) { setSaving(false); toast('Erro: ' + error.message, 'error'); return }
 
-    let animaisParaVincular = []
-    if (modoSelecao === 'individual') {
-      // Defesa em profundidade — o dropdown já filtra, isto garante que nunca
-      // vincula mesmo se selAnimais ficou desatualizado por algum motivo.
-      animaisParaVincular = selAnimais.filter(id => {
-        const a = animais.find(x => x.id === id)
-        return !a?.data_nascimento || a.data_nascimento <= form.data
-      })
-    } else if (modoSelecao === 'lote' && selLotes.length > 0) {
-      const idsLotes = lotes.filter(l => selLotes.includes(l.nome)).map(l => l.id)
-      // Só vincula quem já existia na data do procedimento — sem isso, um bezerro
-      // nascido depois herdava procedimentos aplicados antes dele existir (bug:
-      // "todo o lote" usava a composição ATUAL do lote, não a de quando o
-      // procedimento aconteceu). Não cobre "estava no lote naquela data" (não há
-      // histórico de mudança de lote), só "já tinha nascido".
-      animaisParaVincular = animais.filter(a =>
-        idsLotes.includes(a.lote_id) && (!a.data_nascimento || a.data_nascimento <= form.data)
-      ).map(a => a.id)
-    }
+    const errVinc = await sincronizarVinculos(procData.id)
+    if (errVinc) toast('Procedimento salvo, mas erro ao vincular animais: ' + errVinc, 'error')
 
-    if (animaisParaVincular.length > 0 && procData?.id) {
-      const vinculos = animaisParaVincular.map(animalId => ({
-        conta_id:        contaAtual.id,
-        fazenda_id:      fazendaAtual.id,
-        procedimento_id: procData.id,
-        animal_id:       animalId,
-      }))
-      const { error: errVinc } = await db.sanidadeAnimais.inserirVarios(vinculos)
-      if (errVinc) toast('Procedimento salvo, mas erro ao vincular animais: ' + errVinc.message, 'error')
-    }
-
-    // ── Baixa de estoque (Bloco D6, opcional) — por procedimento, não por
-    // animal (ver diagnóstico). Usa aplicarMovimentacaoEstoque (Bloco D10 —
-    // módulo compartilhado), que já grava a movimentação ANTES de ajustar o
-    // saldo (ordem auditável). itensSnapshot é uma cópia local que avança a
-    // cada linha, pra 2 linhas do mesmo item descontarem em sequência (não do
-    // mesmo saldo "congelado" do carregamento da tela).
-    if (podeEditarEstoque && procData?.id) {
-      const linhas = itensEstoqueUsados.filter(l => l.item_id && parseFloat(l.quantidade) > 0)
-      const motivo = `Sanidade: ${form.procedimento} em ${fmtData(form.data)}`
-      let itensSnapshot = estoqueItens
-      for (const linha of linhas) {
-        const item = itensSnapshot.find(i => i.id === linha.item_id)
-        if (!item) continue
-        const r = await aplicarMovimentacaoEstoque({
-          itemId: linha.item_id, tipo: 'S', quantidade: linha.quantidade, data: form.data,
-          motivo, vinculo: { procedimento_id: procData.id }, itensEstoque: itensSnapshot,
-        })
-        if (r.error && !r.movJaGravada) {
-          toast(`Procedimento salvo, mas falhou ao baixar "${item.item}" do estoque: ${r.error.message}. As baixas seguintes foram interrompidas — confira em Estoque.`, 'error')
-          break // não tenta as próximas linhas — evita baixas fora de ordem sem a anterior registrada
-        }
-        if (r.error && r.movJaGravada) {
-          // A movimentação JÁ existe (passo anterior deu certo) — o saldo é
-          // que não foi ajustado. Não interrompe as próximas linhas: cada uma
-          // é independente, e a inconsistência desta já ficou visível/auditável.
-          toast(`Baixa de "${item.item}" registrada, mas o saldo não foi atualizado automaticamente: ${r.error.message}. Confira e ajuste em Estoque.`, 'error')
-          continue // não avança o snapshot pra este item — saldo real não mudou
-        }
-        itensSnapshot = itensSnapshot.map(i => i.id === linha.item_id ? { ...i, quantidade: r.novaQt } : i)
-      }
+    if (vaiAplicarEstoque && podeEditarEstoque) {
+      await aplicarBaixaEstoque(procData.id, form.data, form.procedimento, itensEstoqueUsados)
     }
 
     setSaving(false)
-    toast('Procedimento registrado!')
-    setModal(false); setForm({}); resetFormSelecao(); load()
+    toast(criandoAgendamento ? 'Vacinação agendada!' : 'Procedimento registrado!')
+    fecharModal(); load()
   }
 
   // Reverte a baixa de estoque (se houver) antes de apagar o procedimento —
@@ -342,6 +503,8 @@ export default function Sanidade() {
 
   const registrarAplicacaoDoAlerta = (d) => {
     resetFormSelecao()
+    setEditandoId(null)
+    setModalIntent('novo')
     setForm({ tipo: d.tipo, procedimento: d.procedimento, data: hojeISO() })
     setOfertaNovoProc(null)
     setModal(true)
@@ -361,12 +524,47 @@ export default function Sanidade() {
 
   const hoje    = hojeAgora()
   const em30    = hojeAgora(); em30.setDate(em30.getDate() + 30)
-  const vencidos = dados.filter(d => d.proximo && !d.proximo_concluido_em && new Date(d.proximo + 'T12:00:00') < hoje)
-  const proximos = dados.filter(d => d.proximo && !d.proximo_concluido_em && new Date(d.proximo + 'T12:00:00') >= hoje && new Date(d.proximo + 'T12:00:00') <= em30)
+  const em90    = hojeAgora(); em90.setDate(em90.getDate() + 90)
+  // Fase 7 — agendamento não é procedimento REALIZADO, então não gera alerta
+  // de "próxima aplicação" (ele ainda nem aconteceu uma vez sequer) — isso
+  // continua vindo só de dados REALIZADOS. Mas o próprio agendamento entra em
+  // Alertas por outro motivo: dentro dos próximos 90 dias, ou vencido (passou
+  // da data e ninguém concluiu — o caso mais importante de ver). Os dois tipos
+  // (reaplicação de realizado × agendamento) ficam juntos nas mesmas seções
+  // vencidos/próximos, ordenados por proximidade da data, cada um com um
+  // _origem pra o JSX saber como renderizar (badge "Agendado" só no segundo).
+  const vencidos = [
+    ...dados.filter(d => sanidadeRealizada(d) && d.proximo && !d.proximo_concluido_em && new Date(d.proximo + 'T12:00:00') < hoje)
+      .map(d => ({ ...d, _origem: 'reaplicacao', _dataRef: d.proximo })),
+    ...dados.filter(d => sanidadeAgendada(d) && new Date(d.data + 'T12:00:00') < hoje)
+      .map(d => ({ ...d, _origem: 'agendamento', _dataRef: d.data })),
+  ].sort((a, b) => a._dataRef.localeCompare(b._dataRef))
+  const proximos = [
+    ...dados.filter(d => sanidadeRealizada(d) && d.proximo && !d.proximo_concluido_em && new Date(d.proximo + 'T12:00:00') >= hoje && new Date(d.proximo + 'T12:00:00') <= em30)
+      .map(d => ({ ...d, _origem: 'reaplicacao', _dataRef: d.proximo })),
+    ...dados.filter(d => sanidadeAgendada(d) && new Date(d.data + 'T12:00:00') >= hoje && new Date(d.data + 'T12:00:00') <= em90)
+      .map(d => ({ ...d, _origem: 'agendamento', _dataRef: d.data })),
+  ].sort((a, b) => a._dataRef.localeCompare(b._dataRef))
 
   // Filtra os registros (Registros/Histórico) pelo ciclo local; Alertas mostra
   // sempre tudo, pois trata de vencimentos futuros, não do período de registro.
-  const dadosFiltrados = dados.filter(d => cicloLocal && dentroDoCiclo(d.data, cicloLocal))
+  // Fase 7 — Registros/Alertas/Histórico só mostram REALIZADO; agendamento
+  // vive só na aba Calendário de vacinação (dadosAgendados), sem filtro de
+  // ciclo (é uma lista prospectiva, não presa ao período de um ciclo fechado).
+  const dadosFiltrados = dados.filter(d => sanidadeRealizada(d) && cicloLocal && dentroDoCiclo(d.data, cicloLocal))
+  const dadosAgendados = dados.filter(sanidadeAgendada).sort((a, b) => a.data.localeCompare(b.data))
+
+  // Fase 7 — no modal, a seleção de animais e a visibilidade da seção de
+  // estoque dependem do modo (novo/editar/editar-agendamento) e, numa
+  // criação, também da data escolhida (futura = vira agendamento). Concluir
+  // não usa mais este modal (é uma confirmação curta — ver confirmarConclusao),
+  // então não aparece em nenhuma condição aqui. modoEstoquePrevisto distingue
+  // planejamento (agendamento — grava em itens_previstos, nunca baixa) de
+  // baixa imediata (registro já realizado — baixa de verdade ao salvar).
+  const criandoAgendamentoForm = !editandoId && form.data && form.data > hojeISO()
+  const mostrarSelecaoAnimais  = !editandoId || modalIntent === 'editar-agendamento'
+  const modoEstoquePrevisto    = criandoAgendamentoForm || modalIntent === 'editar-agendamento'
+  const mostrarEstoqueForm     = podeEditarEstoque && (!editandoId || modalIntent === 'editar-agendamento')
 
   if (loading) return <Loading />
   if (loadError) return <ErroCarregamento onRetry={load} />
@@ -395,7 +593,7 @@ export default function Sanidade() {
             </div>
             {podeEditarSanidadeCiclo && (
               <div className="sanidade-reg-novo">
-                <button className="btn btn-primary btn-sm" onClick={() => { resetFormSelecao(); setForm({ tipo:'Vacina', data: hojeISO() }); setModal(true) }}>
+                <button className="btn btn-primary btn-sm" onClick={abrirNovo}>
                   <i className="ti ti-plus" /> Novo procedimento
                 </button>
               </div>
@@ -404,7 +602,7 @@ export default function Sanidade() {
           <div ref={refReg}>
           {dadosFiltrados.length === 0
             ? <EmptyState icon="💉" title="Nenhum procedimento registrado neste ciclo"
-                action={podeEditarSanidadeCiclo ? <button className="btn btn-primary btn-sm" onClick={()=>{resetFormSelecao();setForm({tipo:'Vacina'});setModal(true)}}><i className="ti ti-plus"/>Registrar</button> : undefined}/>
+                action={podeEditarSanidadeCiclo ? <button className="btn btn-primary btn-sm" onClick={abrirNovo}><i className="ti ti-plus"/>Registrar</button> : undefined}/>
             : (
               <div className="table-wrap">
                 <table>
@@ -456,8 +654,78 @@ export default function Sanidade() {
         </div>
       )}
 
-      {/* ── Alertas ── */}
+      {/* ── Calendário de vacinação (Fase 7) — procedimentos com status='agendado'
+          (data futura, ainda não concluídos). Nunca aparecem em Registros, na
+          ficha do animal, em Alertas/Histórico nem em indicadores — só aqui e
+          no módulo Calendário, até o usuário confirmar via "Marcar como
+          concluído". ── */}
       {tab === 1 && (
+        <div>
+          <div className="sanidade-reg-header">
+            <span className="sanidade-reg-count">{dadosAgendados.length} agendado{dadosAgendados.length===1?'':'s'}</span>
+            {podeEditarSanidadeCiclo && (
+              <div className="sanidade-reg-novo">
+                <button className="btn btn-primary btn-sm" onClick={abrirNovo}>
+                  <i className="ti ti-plus" /> Novo agendamento
+                </button>
+              </div>
+            )}
+          </div>
+          {dadosAgendados.length === 0
+            ? <EmptyState icon="📅" title="Nenhuma vacinação agendada"
+                sub="Registre um procedimento com data futura para agendá-lo aqui."
+                action={podeEditarSanidadeCiclo ? <button className="btn btn-primary btn-sm" onClick={abrirNovo}><i className="ti ti-plus"/>Agendar</button> : undefined}/>
+            : (
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr><th>Data</th><th>Tipo</th><th>Procedimento</th><th>Grupo/Lote</th><th>Qt</th><th></th><th></th></tr>
+                  </thead>
+                  <tbody>
+                    {dadosAgendados.map(d => (
+                      <tr key={d.id}>
+                        <td>{fmtData(d.data)}</td>
+                        <td><Badge color={COR_TP[d.tipo] || 'gray'}>{d.tipo}</Badge></td>
+                        <td style={{ fontWeight:500 }}>
+                          {d.procedimento}
+                          {d.itens_previstos?.length > 0 && (
+                            <i className="ti ti-package" style={{ fontSize:12, color:'#9CA3AF', marginLeft:5 }}
+                              title={`Itens previstos (não baixados ainda): ${d.itens_previstos.map(p => {
+                                const item = estoqueItens.find(i => i.id === p.item_id)
+                                return item ? `${p.quantidade} ${item.unidade} de ${item.item}` : `${p.quantidade} de item excluído do estoque`
+                              }).join(', ')}`} />
+                          )}
+                        </td>
+                        <td style={{ fontSize:'.78rem', color:'#9CA3AF' }}>{d.lote_descricao}</td>
+                        <td>{d.quantidade || '—'}</td>
+                        <td><Badge color="amber">Agendado</Badge></td>
+                        <td style={{ whiteSpace:'nowrap' }}>
+                          {podeEditarSanidadeCiclo && (
+                            <>
+                              <button className="btn-icon" onClick={() => abrirEditarAgendamento(d)} title="Editar agendamento">
+                                <i className="ti ti-edit" style={{ fontSize:13 }} />
+                              </button>
+                              <button className="btn-icon" onClick={() => setConfirmConcluir(d)} title="Marcar como concluído">
+                                <i className="ti ti-check" style={{ fontSize:13, color:'#1E7A34' }} />
+                              </button>
+                              <button className="btn-icon" onClick={() => setConfirmDel(d)} title="Excluir">
+                                <i className="ti ti-trash" style={{ fontSize:13 }} />
+                              </button>
+                            </>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )
+          }
+        </div>
+      )}
+
+      {/* ── Alertas ── */}
+      {tab === 2 && (
         <div>
           <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:8 }}>
             <BotaoPDF contentRef={refAlertas} filename="sanidade-alertas" titulo="Sanidade: Alertas" />
@@ -468,30 +736,52 @@ export default function Sanidade() {
           )}
           {vencidos.map(d => (
             <AlertBox key={d.id} type="red"
-              title={`${d.procedimento} — vencido`}
-              body={`${d.lote_descricao} · Deveria ter sido aplicado em ${fmtData(d.proximo)} · ${diasDesde(d.proximo)} dias em atraso`}
+              title={d._origem === 'agendamento'
+                ? <>{d.procedimento} — agendamento vencido <Badge color="amber">Agendado</Badge></>
+                : `${d.procedimento} — vencido`}
+              body={d._origem === 'agendamento'
+                ? `${d.lote_descricao || 'Sem grupo/lote'} · Estava agendado para ${fmtData(d.data)} · ${diasDesde(d.data)} dias em atraso`
+                : `${d.lote_descricao} · Deveria ter sido aplicado em ${fmtData(d.proximo)} · ${diasDesde(d.proximo)} dias em atraso`}
               action={podeEditarSanidadeCiclo && (
-                <button className="btn btn-secondary btn-xs" disabled={concluindoId === d.id} onClick={() => concluirAlerta(d)}>
-                  <i className="ti ti-check" /> {concluindoId === d.id ? 'Concluindo...' : 'Marcar como concluído'}
-                </button>
+                d._origem === 'agendamento' ? (
+                  <div style={{ display:'flex', gap:6 }}>
+                    <button className="btn btn-secondary btn-xs" onClick={() => abrirEditarAgendamento(d)}><i className="ti ti-edit"/> Editar</button>
+                    <button className="btn btn-secondary btn-xs" onClick={() => setConfirmConcluir(d)}><i className="ti ti-check"/> Concluir</button>
+                  </div>
+                ) : (
+                  <button className="btn btn-secondary btn-xs" disabled={concluindoId === d.id} onClick={() => concluirAlerta(d)}>
+                    <i className="ti ti-check" /> {concluindoId === d.id ? 'Concluindo...' : 'Marcar como concluído'}
+                  </button>
+                )
               )}
             />
           ))}
           {proximos.map(d => (
             <AlertBox key={d.id} type="amber"
-              title={`${d.procedimento} — próximo`}
-              body={`${d.lote_descricao} · Previsto para ${fmtData(d.proximo)} · ${d.quantidade || ''} animais`}
+              title={d._origem === 'agendamento'
+                ? <>{d.procedimento} — agendado <Badge color="amber">Agendado</Badge></>
+                : `${d.procedimento} — próximo`}
+              body={d._origem === 'agendamento'
+                ? `${d.lote_descricao || 'Sem grupo/lote'} · Agendado para ${fmtData(d.data)} · ${d.quantidade || 0} animais`
+                : `${d.lote_descricao} · Previsto para ${fmtData(d.proximo)} · ${d.quantidade || ''} animais`}
               action={podeEditarSanidadeCiclo && (
-                <button className="btn btn-secondary btn-xs" disabled={concluindoId === d.id} onClick={() => concluirAlerta(d)}>
-                  <i className="ti ti-check" /> {concluindoId === d.id ? 'Concluindo...' : 'Marcar como concluído'}
-                </button>
+                d._origem === 'agendamento' ? (
+                  <div style={{ display:'flex', gap:6 }}>
+                    <button className="btn btn-secondary btn-xs" onClick={() => abrirEditarAgendamento(d)}><i className="ti ti-edit"/> Editar</button>
+                    <button className="btn btn-secondary btn-xs" onClick={() => setConfirmConcluir(d)}><i className="ti ti-check"/> Concluir</button>
+                  </div>
+                ) : (
+                  <button className="btn btn-secondary btn-xs" disabled={concluindoId === d.id} onClick={() => concluirAlerta(d)}>
+                    <i className="ti ti-check" /> {concluindoId === d.id ? 'Concluindo...' : 'Marcar como concluído'}
+                  </button>
+                )
               )}
             />
           ))}
           <div className="card" style={{ marginTop:12 }}>
             <div className="card-title"><i className="ti ti-calendar-event" /> Calendário sanitário — próximos 90 dias</div>
             {dados
-              .filter(d => d.proximo && !d.proximo_concluido_em)
+              .filter(d => sanidadeRealizada(d) && d.proximo && !d.proximo_concluido_em)
               .sort((a, b) => a.proximo.localeCompare(b.proximo))
               .slice(0, 8)
               .map(d => {
@@ -516,7 +806,7 @@ export default function Sanidade() {
       )}
 
       {/* ── Histórico ── */}
-      {tab === 2 && (
+      {tab === 3 && (
         <div>
           <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:8 }}>
             <BotaoPDF contentRef={refHist} filename="sanidade-historico" titulo="Sanidade: Histórico" />
@@ -524,7 +814,7 @@ export default function Sanidade() {
           <div ref={refHist}>
           <div className="grid-3" style={{ marginBottom:16 }}>
             {TIPOS.map(tp => {
-              const qt = dados.filter(d => d.tipo === tp).length
+              const qt = dados.filter(d => sanidadeRealizada(d) && d.tipo === tp).length
               return (
                 <div key={tp} className="kpi-card">
                   <div className="kpi-value">{qt}</div>
@@ -536,7 +826,7 @@ export default function Sanidade() {
           <div className="card">
             <div className="card-title"><i className="ti ti-list" /> Histórico completo por tipo</div>
             {TIPOS.map(tp => {
-              const lst = dados.filter(d => d.tipo === tp)
+              const lst = dados.filter(d => sanidadeRealizada(d) && d.tipo === tp)
               if (!lst.length) return null
               return (
                 <div key={tp} style={{ marginBottom:14 }}>
@@ -562,9 +852,11 @@ export default function Sanidade() {
         open={!!confirmDel}
         onClose={() => setConfirmDel(null)}
         onConfirm={() => excluir(confirmDel.id)}
-        title="Excluir procedimento"
+        title={confirmDel && sanidadeAgendada(confirmDel) ? 'Excluir agendamento' : 'Excluir procedimento'}
         message={(() => {
-          const movs = confirmDel ? (movsPorProcedimento[confirmDel.id] || []) : []
+          if (!confirmDel) return ''
+          if (sanidadeAgendada(confirmDel)) return 'Excluir este agendamento? Ele nunca baixou estoque nem afetou nada além da própria agenda — nada será revertido. Esta ação não pode ser desfeita.'
+          const movs = movsPorProcedimento[confirmDel.id] || []
           if (movs.length === 0) return 'Excluir este procedimento? Esta ação não pode ser desfeita.'
           const efeito = movs.map(m => `${parseFloat(m.quantidade).toFixed(1)} ${m.item?.unidade || ''} de ${m.item?.item || 'item'}`).join(', ')
           return `Isto vai devolver ${efeito} ao estoque, e apagar o procedimento e seus vínculos. Esta ação não pode ser desfeita.`
@@ -580,8 +872,31 @@ export default function Sanidade() {
         message="Alerta concluído. Deseja já registrar esta aplicação como um novo procedimento (com a data de hoje)? Você poderá selecionar o lote/animais e informar a próxima data, se houver."
       />
 
+      {/* Fase 7 — concluir um agendamento é uma confirmação curta com o
+          resumo, não um modal de edição (edição é uma ação separada). */}
+      <Confirm
+        open={!!confirmConcluir}
+        onClose={() => setConfirmConcluir(null)}
+        onConfirm={() => confirmarConclusao(confirmConcluir)}
+        title="Marcar vacinação como concluída"
+        message={confirmConcluir ? (() => {
+          const previstos = confirmConcluir.itens_previstos || []
+          const itensTxt = previstos.length > 0
+            ? ' Itens previstos: ' + previstos.map(p => {
+                const item = estoqueItens.find(i => i.id === p.item_id)
+                return item ? `${p.quantidade} ${item.unidade} de ${item.item}` : `${p.quantidade} de item excluído do estoque`
+              }).join(', ') + '.'
+            : ''
+          return `${fmtData(confirmConcluir.data)} · ${confirmConcluir.tipo} — ${confirmConcluir.procedimento} · ${confirmConcluir.quantidade || 0} animal(is)${confirmConcluir.lote_descricao ? ` (${confirmConcluir.lote_descricao})` : ''}.${itensTxt} Confirma que esta vacinação foi realizada?`
+        })() : ''}
+      />
+
       {/* ── Modal ── */}
-      <Modal open={modal} onClose={fecharModal} title={editandoId ? 'Editar procedimento sanitário' : 'Novo procedimento sanitário'} width={540}>
+      <Modal open={modal} onClose={fecharModal} title={
+        modalIntent === 'editar'             ? 'Editar procedimento sanitário' :
+        modalIntent === 'editar-agendamento' ? 'Editar agendamento' :
+        (criandoAgendamentoForm ? 'Novo agendamento' : 'Novo procedimento sanitário')
+      } width={540}>
         {!editandoId && (
           <>
             <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:10 }}>
@@ -618,7 +933,7 @@ export default function Sanidade() {
             </select>
           </Field>
           <Field label="Procedimento" required><input value={form.procedimento||''} onChange={e=>setForm(p=>({...p,procedimento:e.target.value}))} placeholder="ex: Ivermectina 1%"/></Field>
-          {!editandoId && (
+          {mostrarSelecaoAnimais && (
             <Field label={autoQtd !== null ? `Quantidade (auto: ${autoQtd} animais)` : 'Quantidade de animais'}>
               {autoQtd !== null
                 ? <input type="number" value={autoQtd} readOnly style={{ background:'#F0F9EC', color:'#1E55B0', fontWeight:600, cursor:'default' }} />
@@ -626,7 +941,7 @@ export default function Sanidade() {
               }
             </Field>
           )}
-          {!editandoId && (
+          {mostrarSelecaoAnimais && (
           <div style={{ gridColumn:'1 / -1' }}>
             <label style={{ fontSize:'.78rem', fontWeight:500, color:'#374151', display:'block', marginBottom:6 }}>Seleção de animais</label>
             <div className="pill-group" style={{ marginBottom:8 }}>
@@ -702,15 +1017,25 @@ export default function Sanidade() {
             )}
           </div>
           )}
-          {/* Bloco D6 — baixa de estoque opcional, só na criação (editar não
-              reabre isto, mesmo motivo de não reabrir a seleção de animais
-              acima: é um passo de CRIAÇÃO) e só pra quem tem permissão de
-              estoque também (sem ela, a seção nem existe — ver podeEditarEstoque). */}
-          {!editandoId && podeEditarEstoque && (
+          {/* Bloco D6 / Fase 7 — seção de estoque, em dois modos: baixa
+              IMEDIATA (criar um registro já REALIZADO, data hoje/passada —
+              baixa de verdade ao salvar) ou PREVISTO (criar/editar um
+              agendamento — só grava em itens_previstos, nunca baixa; a baixa
+              de verdade só acontece na confirmação de "Marcar como
+              concluído" — ver confirmarConclusao). Nunca aparece ao editar um
+              REALIZADO (mesmo motivo de não reabrir a seleção de animais
+              acima). Só pra quem tem permissão de estoque também. */}
+          {mostrarEstoqueForm && (
             <div style={{ gridColumn:'1 / -1' }}>
               <label style={{ fontSize:'.78rem', fontWeight:500, color:'#374151', display:'block', marginBottom:6 }}>
-                Itens do estoque utilizados <span style={{ fontWeight:400, color:'#9CA3AF' }}>(opcional)</span>
+                {modoEstoquePrevisto ? 'Itens de estoque previstos' : 'Itens do estoque utilizados'}{' '}
+                <span style={{ fontWeight:400, color:'#9CA3AF' }}>(opcional)</span>
               </label>
+              {modoEstoquePrevisto && (
+                <div style={{ fontSize:'.72rem', color:'#9CA3AF', marginBottom:8 }}>
+                  Isto não baixa nada agora — é só planejamento. A baixa de estoque acontece quando você marcar como concluído.
+                </div>
+              )}
               {itensEstoqueUsados.map((linha, idx) => {
                 const item = itensEstoqueDisponiveis.find(i => i.id === linha.item_id)
                 return (
@@ -758,7 +1083,9 @@ export default function Sanidade() {
         </div>
         <Field label="Observações"><input value={form.obs||''} onChange={e=>setForm(p=>({...p,obs:e.target.value}))} placeholder="opcional"/></Field>
         <div style={{ display:'flex', gap:8, marginTop:14 }}>
-          <button className="btn btn-primary" onClick={salvar} disabled={saving}>{saving?'Salvando...':<><i className="ti ti-check"/>Salvar</>}</button>
+          <button className="btn btn-primary" onClick={salvar} disabled={saving}>
+            {saving ? 'Salvando...' : <><i className="ti ti-check"/>{criandoAgendamentoForm ? 'Agendar' : 'Salvar'}</>}
+          </button>
           <button className="btn btn-secondary" onClick={fecharModal}>Cancelar</button>
         </div>
       </Modal>

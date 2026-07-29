@@ -1,6 +1,6 @@
 ﻿import { useState, useEffect, useRef } from 'react'
 import { db } from '../lib/supabase'
-import { fmtData, algumErro, calcLotesFEFO } from '../lib/helpers'
+import { fmtData, algumErro, calcLotesFEFO, sanidadeRealizada, sanidadeAgendada } from '../lib/helpers'
 import { hoje as hojeAgora } from '../lib/hoje'
 import { Loading, BotaoPDF, EmptyState, ErroCarregamento, SeletorCicloLocal } from '../components/UI'
 import { useCiclo } from '../lib/CicloContext'
@@ -170,9 +170,11 @@ export default function Calendario() {
         }
       }
 
-      // b. Próximos procedimentos sanitários (campo "proximo" preenchido)
+      // b. Próximos procedimentos sanitários (campo "proximo" preenchido) —
+      // Fase 7: só de procedimentos REALIZADOS (agendamento ainda não
+      // aconteceu, não faz sentido ter uma "próxima aplicação" dele).
       for (const proc of (rSanidade.data || [])) {
-        if (!proc.proximo || proc.proximo_concluido_em) continue
+        if (!sanidadeRealizada(proc) || !proc.proximo || proc.proximo_concluido_em) continue
         const dias = diasAte(proc.proximo)
         const titulo = [proc.tipo, proc.procedimento].filter(Boolean).join(' — ')
         evs.push({
@@ -180,6 +182,22 @@ export default function Calendario() {
           titulo:    titulo || 'Procedimento sanitário',
           descricao: `Realizado em ${fmtData(proc.data)}`,
           data: proc.proximo, dias
+        })
+      }
+
+      // b.2 Vacinações AGENDADAS (Fase 7) — procedimento com data futura,
+      // ainda não confirmado pelo usuário ("Marcar como concluído" em
+      // Sanidade). Mesmo array/mesma agregação de KPIs dos demais eventos —
+      // só uma origem de data diferente (proc.data, não proc.proximo).
+      for (const proc of (rSanidade.data || [])) {
+        if (!sanidadeAgendada(proc)) continue
+        const dias = diasAte(proc.data)
+        const titulo = [proc.tipo, proc.procedimento].filter(Boolean).join(' — ')
+        evs.push({
+          tipo: 'sanidade', icon: '📅',
+          titulo:    `Agendado: ${titulo || 'Procedimento sanitário'}`,
+          descricao: proc.lote_descricao || 'Vacinação agendada',
+          data: proc.data, dias
         })
       }
 

@@ -18,7 +18,8 @@ export default function SecaoCalendario({ item }) {
       <h4 style={H4}>O que aparece na agenda</h4>
       <ul style={UL}>
         <li><strong>🍼 Previsão de parto</strong> — uma por fêmea diagnosticada Prenha que ainda não pariu nem abortou naquele lote. A data é sempre a data da monta + 283 dias (fixo, a mesma estimativa usada em Reprodutivo) — não é o mesmo cálculo de janela de 260-300 dias usado para o aviso de gestação fora do padrão.</li>
-        <li><strong>💉 Retorno sanitário</strong> — um por procedimento de Sanidade que tem "Próxima aplicação" preenchida e ainda não foi marcado como concluído.</li>
+        <li><strong>💉 Retorno sanitário</strong> — um por procedimento de Sanidade JÁ REALIZADO que tem "Próxima aplicação" preenchida e ainda não foi marcado como concluído.</li>
+        <li><strong>📅 Vacinação agendada</strong> — um por procedimento de Sanidade com status "agendado" (data futura, criado na aba Calendário de vacinação de Sanidade e ainda não confirmado por lá) — a data do evento é a data agendada da vacinação, não uma "próxima aplicação". Some da agenda só quando você marcar como concluído ou excluir o agendamento em Sanidade.</li>
         <li><strong>📦 Vencimento de estoque</strong> — um por lote de entrada (mesmo lote/validade do FEFO, veja a seção Estoque) que ainda tem saldo positivo.</li>
         <li><strong>🔄 Pendências sem data — Repasse de Vazias</strong> — uma seção separada, sem prazo, listando toda fêmea ativa com situação reprodutiva "Vazia": um lembrete de quem precisa entrar no próximo lote de monta, não um evento com data.</li>
       </ul>

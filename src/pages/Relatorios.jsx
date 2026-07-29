@@ -1,6 +1,6 @@
 ﻿import { useState, useEffect } from 'react'
 import { db } from '../lib/supabase'
-import { calcCategoria, calcCategoriaRebanho, calcTaxaPrenhez, contarExpostas, contarPrenhas, fmtData, fmtMoeda, pct, ehMatriz, algumErro, somaFinita, valorPropLanc, CATEGORIAS_VALOR, gruposPorValor } from '../lib/helpers'
+import { calcCategoria, calcCategoriaRebanho, calcTaxaPrenhez, contarExpostas, contarPrenhas, fmtData, fmtMoeda, pct, ehMatriz, algumErro, somaFinita, valorPropLanc, CATEGORIAS_VALOR, gruposPorValor, sanidadeRealizada } from '../lib/helpers'
 import { Loading, Badge, AlertBox, toast, SeletorCicloLocal, ErroCarregamento } from '../components/UI'
 import { useFazenda } from '../lib/FazendaContext'
 import { useCicloLocal } from '../lib/useCicloLocal'
@@ -44,7 +44,9 @@ export default function Relatorios() {
       if (algumErro('[Relatorios]', base)) { setLoadError(true); return }
       const [ra, rs, rp, rcp, rpq] = base
       setAnimais(ra.data || [])
-      setSanidade(rs.data  || [])
+      // Fase 7 — agendamento (status='agendado') não conta no indicador "Proc.
+      // sanidade" nem em vencidos (ainda não aconteceu).
+      setSanidade((rs.data || []).filter(sanidadeRealizada))
       setProps(rp.data     || [])
       setCatPrecos(rcp.data|| [])
       setPiquetes(rpq.data || [])

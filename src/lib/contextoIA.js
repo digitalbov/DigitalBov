@@ -1,5 +1,5 @@
 import { db } from './supabase'
-import { calcCategoria } from './helpers'
+import { calcCategoria, sanidadeRealizada } from './helpers'
 import { hoje as hojeAgora } from './hoje'
 
 export async function coletarContexto() {
@@ -78,8 +78,10 @@ export async function coletarContexto() {
   }))
 
   // Sanidade — usa helper existente; coluna correta é "proximo" (não "proxima_data")
+  // Fase 7 — agendamento (status='agendado', data futura) não entra no
+  // contexto como se já tivesse acontecido.
   const { data: sanidadeRaw } = await db.sanidade.list()
-  const sanidade = (sanidadeRaw || []).slice(0, 20).map(s => ({
+  const sanidade = (sanidadeRaw || []).filter(sanidadeRealizada).slice(0, 20).map(s => ({
     tipo: s.tipo,
     procedimento: s.procedimento,
     data: s.data,

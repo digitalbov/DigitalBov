@@ -2,7 +2,7 @@
 import { useNavigate } from 'react-router-dom'
 import { usePermissoes } from '../lib/PermissoesContext'
 import { db } from '../lib/supabase'
-import { calcCategoria, calcCategoriaRebanho, idadeFormatada, fmtData, catCor, sitCor, repCor, sortBrinco, dataNaoFutura, algumErro, statusReprodutivoExibicao, statusReprodutivoCiclo, STATUS_CICLO_ANIMAL, paiEhMontaNaturalIndefinida, capitalizarPrimeira, capitalizarNome } from '../lib/helpers'
+import { calcCategoria, calcCategoriaRebanho, idadeFormatada, fmtData, catCor, sitCor, repCor, sortBrinco, dataNaoFutura, algumErro, statusReprodutivoExibicao, statusReprodutivoCiclo, STATUS_CICLO_ANIMAL, paiEhMontaNaturalIndefinida, capitalizarPrimeira, capitalizarNome, sanidadeRealizada } from '../lib/helpers'
 import { hojeISO } from '../lib/hoje'
 import { Loading, EmptyState, Modal, Field, MicButton, Badge, toast, BotaoPDF, ErroCarregamento } from '../components/UI'
 import { baixarModeloAnimais, lerPlanilhaAnimais, validarLinhas } from '../lib/importacaoAnimais'
@@ -365,10 +365,13 @@ export default function Animais() {
     loadTimeline(selected)
   }, [selected?.id])
 
-  // Carrega histórico sanitário quando muda o animal selecionado
+  // Carrega histórico sanitário quando muda o animal selecionado — Fase 7:
+  // agendamento (status='agendado') não aparece aqui, só depois de concluído.
   useEffect(() => {
     if (!selected?.id) { setHistSanidade([]); return }
-    db.sanidadeAnimais.listPorAnimal(selected.id).then(({ data }) => setHistSanidade(data || []))
+    db.sanidadeAnimais.listPorAnimal(selected.id).then(({ data }) =>
+      setHistSanidade((data || []).filter(h => sanidadeRealizada(h.procedimento)))
+    )
   }, [selected?.id])
 
   const loadAll = async () => {

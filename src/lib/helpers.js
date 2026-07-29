@@ -190,6 +190,20 @@ export function estimarDataNascimentoPorCategoria(categoria, dataRefISO) {
   return format(subMonths(parseISO(dataRefISO), meses), 'yyyy-MM-dd')
 }
 
+// ── Sanidade: agendado × realizado (Fase 7 — Calendário de vacinação) ──────
+// Procedimento sanitário com status='agendado' (data futura, ainda não
+// concluído pelo usuário) não deve contar em NADA até a confirmação: nem
+// ficha do animal, nem Registros/Alertas/Histórico, nem indicadores de
+// Relatórios, nem contexto do Assistente IA — só aparece na aba "Calendário
+// de vacinação" e no módulo Calendário. status ausente/undefined (linha
+// gravada antes da coluna existir, ou algum select que não trouxe a coluna)
+// é tratado como 'realizado' — a coluna nova nunca esconde histórico
+// existente. Uma função só, usada em todos os pontos de leitura, pra nunca
+// um deles esquecer o filtro (ver Sanidade.jsx/Animais.jsx/Calendario.jsx/
+// Relatorios.jsx/contextoIA.js).
+export const sanidadeRealizada = (p) => (p?.status || 'realizado') === 'realizado'
+export const sanidadeAgendada  = (p) => p?.status === 'agendado'
+
 // ── GMD ──────────────────────────────────────────────────────────────────────
 export const calcGMD = (pesagens) => {
   if (!pesagens || pesagens.length < 2) return null
