@@ -5,22 +5,18 @@ import { useConta } from '../lib/ContaContext'
 import { useFazenda } from '../lib/FazendaContext'
 import { useCiclo, statusCiclo } from '../lib/CicloContext'
 import { useCicloLocal } from '../lib/useCicloLocal'
-import { fmtData, diasDesde, calcCategoriaRebanho, algumErro, capitalizarPrimeira, sanidadeRealizada, sanidadeAgendada } from '../lib/helpers'
+import { fmtData, diasDesde, calcCategoriaRebanho, algumErro, capitalizarPrimeira, sanidadeRealizada, sanidadeAgendada, labelTipoSanidade } from '../lib/helpers'
 import { hoje as hojeAgora, hojeISO } from '../lib/hoje'
 import { validarSaldoEstoque, aplicarMovimentacaoEstoque, reverterCascata } from '../lib/estoqueFinanceiro'
 import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, AlertBox, BotaoPDF, Confirm, ErroCarregamento, BannerCicloEncerrado, SeletorCicloLocal } from '../components/UI'
 
 const TABS   = ['Registros','Calendário de vacinação','Alertas','Histórico']
+// TIPOS é o valor GRAVADO (procedimentos_sanitarios.tipo) — sempre singular,
+// nunca muda. COR_TP também é indexado por esse valor cru. O rótulo exibido
+// na tela é outra coisa (labelTipoSanidade/LABEL_TIPO_SANIDADE, helpers.js) —
+// nunca comparar nem indexar por rótulo, só pelo valor de TIPOS.
 const TIPOS  = ['Vacina','Vermifugação','Ectoparasita','Medicação','Exame']
 const COR_TP = { Vacina:'green', Vermifugação:'blue', Ectoparasita:'amber', Medicação:'purple', Exame:'gray' }
-
-const PLURAL_TIPOS = {
-  'Vacina':        'Vacinações',
-  'Vermifugação':  'Vermifugações',
-  'Ectoparasita':  'Ectoparasitações',
-  'Medicação':     'Medicações',
-  'Exame':         'Exames'
-}
 
 export default function Sanidade() {
   const refReg     = useRef(null)
@@ -519,7 +515,7 @@ export default function Sanidade() {
     const procs = ['aftosa','brucelose','ibr','bvd','raiva','carbúnculo','ivermectina','doramectina','carrapaticida','pen-strep']
     const pr = procs.find(p => t.includes(p))
     if (pr) setForm(p => ({ ...p, procedimento: pr.charAt(0).toUpperCase() + pr.slice(1) }))
-    toast(`Tipo: ${tipo}${nums ? ` · ${nums[0]} animais` : ''}`)
+    toast(`Tipo: ${labelTipoSanidade(tipo)}${nums ? ` · ${nums[0]} animais` : ''}`)
   }
 
   const hoje    = hojeAgora()
@@ -616,7 +612,7 @@ export default function Sanidade() {
                       return (
                         <tr key={d.id}>
                           <td>{fmtData(d.data)}</td>
-                          <td><Badge color={COR_TP[d.tipo] || 'gray'}>{d.tipo}</Badge></td>
+                          <td><Badge color={COR_TP[d.tipo] || 'gray'}>{labelTipoSanidade(d.tipo)}</Badge></td>
                           <td style={{ fontWeight:500 }}>
                             {d.procedimento}
                             {movsPorProcedimento[d.id]?.length > 0 && (
@@ -685,7 +681,7 @@ export default function Sanidade() {
                     {dadosAgendados.map(d => (
                       <tr key={d.id}>
                         <td>{fmtData(d.data)}</td>
-                        <td><Badge color={COR_TP[d.tipo] || 'gray'}>{d.tipo}</Badge></td>
+                        <td><Badge color={COR_TP[d.tipo] || 'gray'}>{labelTipoSanidade(d.tipo)}</Badge></td>
                         <td style={{ fontWeight:500 }}>
                           {d.procedimento}
                           {d.itens_previstos?.length > 0 && (
@@ -818,7 +814,7 @@ export default function Sanidade() {
               return (
                 <div key={tp} className="kpi-card">
                   <div className="kpi-value">{qt}</div>
-                  <div className="kpi-label">{PLURAL_TIPOS[tp] || tp}</div>
+                  <div className="kpi-label">{labelTipoSanidade(tp)}</div>
                 </div>
               )
             })}
@@ -831,7 +827,7 @@ export default function Sanidade() {
               return (
                 <div key={tp} style={{ marginBottom:14 }}>
                   <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:6 }}>
-                    <Badge color={COR_TP[tp] || 'gray'}>{tp}</Badge>
+                    <Badge color={COR_TP[tp] || 'gray'}>{labelTipoSanidade(tp)}</Badge>
                     <span style={{ fontSize:'.78rem', color:'#9CA3AF' }}>{lst.length} registros</span>
                   </div>
                   {lst.slice(0,5).map(d => (
@@ -887,7 +883,7 @@ export default function Sanidade() {
                 return item ? `${p.quantidade} ${item.unidade} de ${item.item}` : `${p.quantidade} de item excluído do estoque`
               }).join(', ') + '.'
             : ''
-          return `${fmtData(confirmConcluir.data)} · ${confirmConcluir.tipo} — ${confirmConcluir.procedimento} · ${confirmConcluir.quantidade || 0} animal(is)${confirmConcluir.lote_descricao ? ` (${confirmConcluir.lote_descricao})` : ''}.${itensTxt} Confirma que esta vacinação foi realizada?`
+          return `${fmtData(confirmConcluir.data)} · ${labelTipoSanidade(confirmConcluir.tipo)} — ${confirmConcluir.procedimento} · ${confirmConcluir.quantidade || 0} animal(is)${confirmConcluir.lote_descricao ? ` (${confirmConcluir.lote_descricao})` : ''}.${itensTxt} Confirma que esta vacinação foi realizada?`
         })() : ''}
       />
 
@@ -929,7 +925,7 @@ export default function Sanidade() {
           </Field>
           <Field label="Tipo" required>
             <select value={form.tipo||'Vacina'} onChange={e=>setForm(p=>({...p,tipo:e.target.value}))}>
-              {TIPOS.map(t => <option key={t}>{t}</option>)}
+              {TIPOS.map(t => <option key={t} value={t}>{labelTipoSanidade(t)}</option>)}
             </select>
           </Field>
           <Field label="Procedimento" required><input value={form.procedimento||''} onChange={e=>setForm(p=>({...p,procedimento:e.target.value}))} placeholder="ex: Ivermectina 1%"/></Field>

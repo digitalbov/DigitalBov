@@ -1,6 +1,9 @@
 import { useState } from 'react'
 import { Field, AlertBox, Badge } from '../../../components/UI'
+import { labelTipoSanidade } from '../../../lib/helpers'
 
+// Valor GRAVADO (procedimentos_sanitarios.tipo) — o rótulo exibido no
+// <select> vem de labelTipoSanidade (helpers.js), igual à tela real.
 const TIPOS_DEMO = ['Vacina', 'Vermifugação', 'Ectoparasita', 'Medicação', 'Exame']
 
 // ── Recriação do seletor "Por lote" / "Individual" (Sanidade.jsx) — mesmas
@@ -24,7 +27,7 @@ function DemoSelecaoProcedimento() {
       <div className="grid-form" style={{ marginBottom: 12 }}>
         <Field label="Tipo" required>
           <select value={tipo} onChange={e => setTipo(e.target.value)}>
-            {TIPOS_DEMO.map(t => <option key={t}>{t}</option>)}
+            {TIPOS_DEMO.map(t => <option key={t} value={t}>{labelTipoSanidade(t)}</option>)}
           </select>
         </Field>
         <Field label="Procedimento" required>
@@ -66,7 +69,7 @@ export default function SecaoSanidade({ item }) {
       <h4 style={{ fontSize: '.88rem', fontWeight: 700, color: '#1a1a1a', marginBottom: 8 }}>Passo a passo: registrar um procedimento</h4>
       <ol style={{ color: '#374151', fontSize: '.85rem', lineHeight: 1.8, marginBottom: 8, paddingLeft: 20 }}>
         <li>Clique em <strong>"Novo procedimento"</strong> (em Registros) ou <strong>"Novo agendamento"</strong> (em Calendário de vacinação — é o mesmo formulário).</li>
-        <li>Escolha o <strong>tipo</strong> (Vacina, Vermifugação, Ectoparasita, Medicação ou Exame), a <strong>data</strong> e descreva o <strong>procedimento</strong> (ex: "Ivermectina 1%"). <strong>Data futura vira agendamento automaticamente</strong> — vai para a aba Calendário de vacinação, não para Registros, mesmo que você tenha aberto o formulário por Registros.</li>
+        <li>Escolha o <strong>tipo</strong> (Vacinação, Vermífugos, Ectoparasitas, Medicação ou Exames), a <strong>data</strong> e descreva o <strong>procedimento</strong> (ex: "Ivermectina 1%"). <strong>Data futura vira agendamento automaticamente</strong> — vai para a aba Calendário de vacinação, não para Registros, mesmo que você tenha aberto o formulário por Registros.</li>
         <li>Escolha <strong>Por lote</strong> (marca lotes inteiros) ou <strong>Individual</strong> (marca animais um a um, com filtro por categoria/proprietário).</li>
         <li>A <strong>quantidade de animais</strong> é preenchida sozinha a partir da seleção — só conta quem já tinha nascido na data do procedimento.</li>
         <li>Se a data for hoje ou passada, você pode dar baixa em itens do estoque agora (veja abaixo) — num agendamento essa opção não aparece nem aqui nem ao editá-lo depois, porque a baixa só acontece no momento da conclusão (ver seção abaixo). Em ambos os casos dá pra definir a <strong>próxima aplicação</strong> (data do retorno).</li>

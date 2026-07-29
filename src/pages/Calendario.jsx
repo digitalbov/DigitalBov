@@ -1,6 +1,6 @@
 ﻿import { useState, useEffect, useRef } from 'react'
 import { db } from '../lib/supabase'
-import { fmtData, algumErro, calcLotesFEFO, sanidadeRealizada, sanidadeAgendada } from '../lib/helpers'
+import { fmtData, algumErro, calcLotesFEFO, sanidadeRealizada, sanidadeAgendada, labelTipoSanidade } from '../lib/helpers'
 import { hoje as hojeAgora } from '../lib/hoje'
 import { Loading, BotaoPDF, EmptyState, ErroCarregamento, SeletorCicloLocal } from '../components/UI'
 import { useCiclo } from '../lib/CicloContext'
@@ -176,7 +176,7 @@ export default function Calendario() {
       for (const proc of (rSanidade.data || [])) {
         if (!sanidadeRealizada(proc) || !proc.proximo || proc.proximo_concluido_em) continue
         const dias = diasAte(proc.proximo)
-        const titulo = [proc.tipo, proc.procedimento].filter(Boolean).join(' — ')
+        const titulo = [labelTipoSanidade(proc.tipo), proc.procedimento].filter(Boolean).join(' — ')
         evs.push({
           tipo: 'sanidade', icon: '💉',
           titulo:    titulo || 'Procedimento sanitário',
@@ -192,7 +192,7 @@ export default function Calendario() {
       for (const proc of (rSanidade.data || [])) {
         if (!sanidadeAgendada(proc)) continue
         const dias = diasAte(proc.data)
-        const titulo = [proc.tipo, proc.procedimento].filter(Boolean).join(' — ')
+        const titulo = [labelTipoSanidade(proc.tipo), proc.procedimento].filter(Boolean).join(' — ')
         evs.push({
           tipo: 'sanidade', icon: '📅',
           titulo:    `Agendado: ${titulo || 'Procedimento sanitário'}`,

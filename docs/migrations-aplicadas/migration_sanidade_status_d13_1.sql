@@ -9,13 +9,18 @@
 -- aba Calendario de vacinacao (Sanidade.jsx) e no modulo Calendario, ate o
 -- usuario confirmar via "Marcar como concluido" (ver
 -- pesagensParaGmd/sanidadeRealizada/sanidadeAgendada em helpers.js).
--- Aplicada diretamente no Supabase (fora deste arquivo) -- ver
--- docs/migrations-aplicadas/README.md sobre divergencia entre este repo e o
--- schema real; confira a definicao exata (incluindo o CHECK) no banco ao
--- vivo antes de reaplicar em outro ambiente.
+-- Texto exato aplicado diretamente no Supabase (fora deste arquivo).
 -- Execute no SQL Editor do Supabase.
 -- ================================================================
 
-ALTER TABLE public.procedimentos_sanitarios ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'realizado' CHECK (status IN ('realizado','agendado'));
+ALTER TABLE public.procedimentos_sanitarios
+  ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'realizado';
+
+ALTER TABLE public.procedimentos_sanitarios
+  DROP CONSTRAINT IF EXISTS procedimentos_sanitarios_status_check;
+
+ALTER TABLE public.procedimentos_sanitarios
+  ADD CONSTRAINT procedimentos_sanitarios_status_check
+  CHECK (status IN ('realizado','agendado'));
 
 SELECT 'procedimentos_sanitarios.status criada!' as resultado;

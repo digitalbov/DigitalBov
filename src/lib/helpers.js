@@ -204,6 +204,25 @@ export function estimarDataNascimentoPorCategoria(categoria, dataRefISO) {
 export const sanidadeRealizada = (p) => (p?.status || 'realizado') === 'realizado'
 export const sanidadeAgendada  = (p) => p?.status === 'agendado'
 
+// ── Sanidade: rótulo de exibição por tipo (Fase 11) ─────────────────────────
+// procedimentos_sanitarios.tipo continua gravando um dos 5 valores originais
+// (Vacina, Vermifugação, Ectoparasita, Medicação, Exame) — decisão explícita
+// de não migrar dado nenhum. Este mapa é SÓ EXIBIÇÃO: troca o texto mostrado
+// na tela, nunca o valor gravado nem o que filtros/comparações usam (esses
+// sempre comparam o valor cru — ver TIPOS em Sanidade.jsx). Um tipo fora do
+// mapa (dado antigo de antes de algum rótulo mudar, ou digitado por fora do
+// <select>) cai no fallback do valor original — nunca vira string vazia.
+// Único lugar com este de-para; usado em Sanidade.jsx, Calendario.jsx e
+// contextoIA.js — nenhum deles deve ter cópia própria.
+export const LABEL_TIPO_SANIDADE = {
+  'Vacina':        'Vacinação',
+  'Vermifugação':  'Vermífugos',
+  'Ectoparasita':  'Ectoparasitas',
+  'Medicação':     'Medicação',
+  'Exame':         'Exames',
+}
+export const labelTipoSanidade = (tipo) => LABEL_TIPO_SANIDADE[tipo] || tipo
+
 // ── GMD ──────────────────────────────────────────────────────────────────────
 export const calcGMD = (pesagens) => {
   if (!pesagens || pesagens.length < 2) return null

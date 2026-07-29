@@ -1,5 +1,5 @@
 import { db } from './supabase'
-import { calcCategoria, sanidadeRealizada } from './helpers'
+import { calcCategoria, sanidadeRealizada, labelTipoSanidade } from './helpers'
 import { hoje as hojeAgora } from './hoje'
 
 export async function coletarContexto() {
@@ -82,7 +82,7 @@ export async function coletarContexto() {
   // contexto como se já tivesse acontecido.
   const { data: sanidadeRaw } = await db.sanidade.list()
   const sanidade = (sanidadeRaw || []).filter(sanidadeRealizada).slice(0, 20).map(s => ({
-    tipo: s.tipo,
+    tipo: labelTipoSanidade(s.tipo),
     procedimento: s.procedimento,
     data: s.data,
     proxima: s.proximo
