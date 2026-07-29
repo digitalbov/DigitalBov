@@ -113,6 +113,28 @@ function PainelFiltroAnimais({ lotesSistema, proprietarios, categorias, filtroLo
   )
 }
 
+// Próximo brinco automático "SN-NN" REALMENTE livre (Fase 10 — etapa B).
+// brinco é único por FAZENDA (verificado ao vivo: duas fazendas da mesma
+// conta têm hoje, cada uma, seu próprio "SN-21" coexistindo sem erro — não é
+// único por conta nem por sistema, ao contrário do que um comentário anterior
+// aqui presumia). Contar só os partos deste ciclo (partosNasc.length+1) dá um
+// número "óbvio" que muitas vezes já está em uso por outro bezerro desta
+// mesma fazenda (de outro ciclo/sessão) — busca os brincos SN-* já usados
+// NESTA fazenda (T() escopa por conta_id+fazenda_id) e devolve o menor
+// número inteiro ainda livre. Preview e gravação usam a mesma busca, então
+// preview mostrado = número que será de fato salvo no caso comum (sem
+// corrida com outra aba/usuário entre a prévia e o clique).
+async function proximoBrincoSNLivre() {
+  const { data } = await db.animais.brincosComPrefixo('SN-')
+  const usados = new Set((data || []).map(a => {
+    const m = /^SN-(\d+)$/i.exec((a.brinco || '').trim())
+    return m ? parseInt(m[1], 10) : null
+  }).filter(n => n !== null))
+  let numero = 1
+  while (usados.has(numero)) numero++
+  return numero
+}
+
 export default function Reprodutivo() {
   const { podeEditar } = usePermissoes()
   const podeEditarReprod = podeEditar('reprodutivo')
@@ -210,8 +232,45 @@ export default function Reprodutivo() {
   const [filtroNasc,    setFiltroNasc]    = useState('todos')
   const [proprietarios, setProprietarios] = useState([])
   const [editParto,     setEditParto]     = useState(null)
+  // Brinco digitável no registro/edição de nascimento (Fase 10 — etapa B) —
+  // guardam o animal ENCONTRADO por db.animais.byBrinco (debounce 400ms) pro
+  // aviso inline + bloqueio no salvamento; null = livre (ou campo vazio).
+  const [brincoDupCreate, setBrincoDupCreate] = useState(null)
+  const [brincoDupEdit,   setBrincoDupEdit]   = useState(null)
+  // Prévia do "SN-NN" automático (Fase 10 — etapa B) — null enquanto carrega
+  // (placeholder mostra o cálculo ingênuo por partosNasc.length só até essa
+  // busca resolver, ver proximoBrincoSNLivre acima).
+  const [proximoBrincoAuto, setProximoBrincoAuto] = useState(null)
 
   useEffect(() => { loadAll() }, [])
+  // Debounce da checagem de duplicidade — dispara 400ms depois da última
+  // tecla, cancela se o valor mudar antes disso (clearTimeout no cleanup).
+  useEffect(() => {
+    const brinco = (form.brinco_bezerro || '').trim()
+    if (!brinco) { setBrincoDupCreate(null); return }
+    const t = setTimeout(async () => {
+      const { data } = await db.animais.byBrinco(brinco)
+      setBrincoDupCreate(data || null)
+    }, 400)
+    return () => clearTimeout(t)
+  }, [form.brinco_bezerro])
+  useEffect(() => {
+    const brinco = (editParto?.brinco_bezerro || '').trim()
+    if (!editParto || !brinco) { setBrincoDupEdit(null); return }
+    const t = setTimeout(async () => {
+      const { data } = await db.animais.byBrinco(brinco)
+      // Exclui o próprio bezerro sendo editado — senão o brinco atual dele
+      // sempre "bateria" como duplicado consigo mesmo.
+      setBrincoDupEdit(data && data.id !== editParto.bezerro_id ? data : null)
+    }, 400)
+    return () => clearTimeout(t)
+  }, [editParto?.brinco_bezerro, editParto?.bezerro_id])
+  useEffect(() => {
+    if (modal !== 'parto') { setProximoBrincoAuto(null); return }
+    let ativo = true
+    proximoBrincoSNLivre().then(n => { if (ativo) setProximoBrincoAuto(n) })
+    return () => { ativo = false }
+  }, [modal])
   useEffect(() => { if (cicloLocal) loadCicloScoped(cicloLocal.id) }, [cicloLocal?.id])
   useEffect(() => { setSelInsem([]); setFiltroPropLote(''); setDataDiagLote(hojeISO()); setDataDesmameLote(hojeISO()) }, [selLote?.id])
   // Diagnóstico temporário: abortos do lote aberto no detalhe.
@@ -874,6 +933,14 @@ export default function Reprodutivo() {
     if (!form.mae_brinco || !form.data_parto || !form.sexo_bezerro) {
       toast('Preencha mãe, data e sexo.', 'error'); return
     }
+    // Bloqueio client-side (checagem inline já rodou, debounce — ver
+    // useEffect acima) — a constraint UNIQUE de animais.brinco no banco é a
+    // rede de segurança real contra uma corrida rara (usuário clica salvar
+    // antes do debounce terminar); tratada mais abaixo se acontecer.
+    if (form.brinco_bezerro?.trim() && brincoDupCreate) {
+      toast(`Brinco ${form.brinco_bezerro.trim()} já está em uso por outro animal — escolha outro ou deixe em branco.`, 'error')
+      return
+    }
     if (!dataEhEditavel(form.data_parto)) {
       const c = cicloDaData(form.data_parto)
       toast(c
@@ -916,39 +983,75 @@ export default function Reprodutivo() {
     // chegar no setSaving(false), que só existia no fim do caminho de sucesso.
     setSaving(true)
     try {
-      // Numeração provisória (SN-01, SN-02...) baseada em partosNasc.length —
-      // mas brinco é ÚNICO EM TODO O SISTEMA (constraint animais.brinco), não
-      // só no ciclo atual, então esse número "óbvio" pode já estar em uso por
-      // um bezerro de outro ciclo/sessão (era o caso do "segundo registro
-      // trava": o primeiro pegava SN-01 certo, mas partosNasc só é recarregado
-      // DEPOIS do insert, então o segundo registro recalculava o mesmo SN-01
-      // antes do estado atualizar e colidia). Em vez de assumir que o número
-      // está livre, tenta inserir e, se colidir (23505 = unique_violation),
-      // avança pro próximo e tenta de novo.
+      // Fase 10 — etapa B: bezerro morto ao nascer (natimorto) ainda GANHA
+      // cadastro completo (mantém genealogia — mãe/pai/proprietário ficam
+      // registrados), só nasce com situacao='morto' e data_baixa = data do
+      // parto (mesmo dia — nunca esteve "ativo" no rebanho). sit_reprodutiva
+      // vira 'nao_se_aplica' pros dois sexos (nunca vai reproduzir, diferente
+      // do padrão fêmea-viva='vazia'). partos.natimorto=true é o que
+      // statusReprodutivoDetalhado (helpers.js) usa pra mostrar "Bezerro
+      // morto" na linha do tempo da mãe, e o que exclui este bezerro do
+      // card de desmame (ver comentário lá) — nunca entra em kg de desmame,
+      // mas entra normalmente na mortalidade de terneiros (calcLoteMetrics/
+      // Metas.jsx já contam por bezerro.situacao==='morto', sem mudança
+      // necessária nesses cálculos).
+      const situacaoBezerro = form.natimorto ? 'morto' : 'ativo'
+      const dataBaixaBezerro = form.natimorto ? form.data_parto : null
+      const sitReprodutivaBezerro = form.natimorto ? 'nao_se_aplica' : (form.sexo_bezerro === 'F' ? 'vazia' : 'nao_se_aplica')
+      const dadosBezerroBase = {
+        sexo: form.sexo_bezerro,
+        data_nascimento: form.data_parto,
+        raca: 'Angus', pelagem: 'Preto',
+        pai: form.touro_pai || '',
+        mae_brinco: mae.brinco,
+        mae_id: mae.id,
+        proprietario_id: mae.proprietario_id,
+        situacao: situacaoBezerro,
+        data_baixa: dataBaixaBezerro,
+        sit_reprodutiva: sitReprodutivaBezerro,
+      }
+
       let bezData = null
-      let numero = (partosNasc?.length || 0) + 1
       let ultimoErro = null
-      for (let tentativa = 0; tentativa < 20; tentativa++) {
-        const nBrinco = 'SN-' + String(numero).padStart(2, '0')
-        const { data, error } = await db.animais.insert({
-          brinco: nBrinco, sexo: form.sexo_bezerro,
-          data_nascimento: form.data_parto,
-          raca: 'Angus', pelagem: 'Preto',
-          pai: form.touro_pai || '',
-          mae_brinco: mae.brinco,
-          mae_id: mae.id,
-          proprietario_id: mae.proprietario_id,
-          situacao: 'ativo',
-          sit_reprodutiva: form.sexo_bezerro === 'F' ? 'vazia' : 'nao_se_aplica'
-        })
-        if (!error) { bezData = data; break }
-        ultimoErro = error
-        console.error(`[Reprodutivo] salvarParto: falha ao criar bezerro com brinco ${nBrinco} (tentativa ${tentativa + 1}/20):`, error)
-        if (error.code !== '23505') break // só insiste se for colisão de brinco; outro erro não some incrementando o número
-        numero++
+      const brincoManual = form.brinco_bezerro?.trim()
+
+      if (brincoManual) {
+        // Brinco digitado pelo usuário — já validado (sem duplicidade) antes
+        // de chegar aqui; uma única tentativa. Se colidir mesmo assim (corrida
+        // rara: outra aba/usuário cadastrou o mesmo brinco entre a checagem e
+        // este clique), a constraint UNIQUE do banco pega e avisamos específico.
+        const { data, error } = await db.animais.insert({ brinco: brincoManual, ...dadosBezerroBase })
+        if (error) {
+          ultimoErro = error
+          if (error.code === '23505') {
+            toast(`Brinco ${brincoManual} já está em uso por outro animal — escolha outro.`, 'error')
+          }
+        } else bezData = data
+      } else {
+        // Número de partida = mesmo cálculo da prévia (proximoBrincoSNLivre —
+        // busca os SN-* já usados NESTA fazenda e pega o menor livre), não
+        // partosNasc.length (esse contava só os partos DESTE ciclo e por isso
+        // gerava números já ocupados por bezerros de outros ciclos/sessões da
+        // mesma fazenda — na prática, na maioria das vezes colidia e gastava
+        // várias tentativas do laço abaixo à toa). Mesmo assim, sempre tenta
+        // inserir e avança se colidir (23505 = unique_violation): a prévia
+        // pode ficar desatualizada se outra aba/usuário cadastrar um SN-*
+        // entre a prévia e este clique.
+        let numero = proximoBrincoAuto || (await proximoBrincoSNLivre())
+        for (let tentativa = 0; tentativa < 20; tentativa++) {
+          const nBrinco = 'SN-' + String(numero).padStart(2, '0')
+          const { data, error } = await db.animais.insert({ brinco: nBrinco, ...dadosBezerroBase })
+          if (!error) { bezData = data; break }
+          ultimoErro = error
+          console.error(`[Reprodutivo] salvarParto: falha ao criar bezerro com brinco ${nBrinco} (tentativa ${tentativa + 1}/20):`, error)
+          if (error.code !== '23505') break // só insiste se for colisão de brinco; outro erro não some incrementando o número
+          numero++
+        }
       }
       if (!bezData) {
-        toast('Erro ao criar o bezerro: ' + (ultimoErro?.message || 'não foi possível gerar um brinco provisório livre.'), 'error')
+        if (!(brincoManual && ultimoErro?.code === '23505')) { // já avisado especificamente acima nesse caso
+          toast('Erro ao criar o bezerro: ' + (ultimoErro?.message || 'não foi possível gerar um brinco livre.'), 'error')
+        }
         return
       }
 
@@ -960,7 +1063,8 @@ export default function Reprodutivo() {
         data_parto: form.data_parto,
         ciclo_id: cicloDoParto.id,
         lote_inseminacao_id: form.lote_inseminacao_id || null,
-        observacoes: capitalizarPrimeira(form.obs) || ''
+        observacoes: capitalizarPrimeira(form.obs) || '',
+        natimorto: !!form.natimorto,
       })
       if (errParto) {
         console.error('[Reprodutivo] salvarParto: erro ao inserir parto (bezerro', bezData.brinco, 'já foi criado):', errParto)
@@ -999,14 +1103,16 @@ export default function Reprodutivo() {
       // mecanismo já usado no deep-link de "Monta natural — Lote X" (troca
       // cicloLocal, que por sua vez zera partosNasc via efeito abaixo e
       // recarrega quando a aba Nascimentos for aberta).
+      const rotuloEvento = form.natimorto ? 'Natimorto registrado!' : 'Nascimento registrado!'
+      const rotuloBrinco = brincoManual ? `Brinco: ${bezData.brinco}` : `Brinco provisório: ${bezData.brinco}`
       if (cicloDoParto?.id && cicloDoParto.id !== cicloLocal?.id) {
         setCicloLocal(cicloDoParto)
-        toast(`Nascimento registrado! Brinco provisório: ${bezData.brinco} — este parto é do ciclo ${cicloDoParto.nome}, mudando a visualização para esse ciclo.`)
+        toast(`${rotuloEvento} ${rotuloBrinco} — este parto é do ciclo ${cicloDoParto.nome}, mudando a visualização para esse ciclo.`)
       } else {
-        toast(`Nascimento registrado! Brinco provisório: ${bezData.brinco}`)
+        toast(`${rotuloEvento} ${rotuloBrinco}`)
         if (cicloLocal) loadPartosNasc(cicloLocal.id)
       }
-      setModal(null); setForm({})
+      setModal(null); setForm({}); setBrincoDupCreate(null)
       await loadAll()
     } catch (e) {
       console.error('[Reprodutivo] salvarParto: erro inesperado:', e)
@@ -1146,14 +1252,22 @@ export default function Reprodutivo() {
       data_parto: p.data_parto,
       sexo_bezerro: p.bezerro?.sexo || 'F',
       brinco_bezerro: p.bezerro?.brinco || '',
+      situacao_bezerro: p.bezerro?.situacao || 'ativo',
       observacoes: p.observacoes || ''
     })
+    setBrincoDupEdit(null)
   }
 
-  // Salva edição de nascimento (atualiza parto + bezerro)
+  // Salva edição de nascimento (atualiza parto + bezerro) — Fase 10 etapa B:
+  // agora valida duplicidade de brinco antes de gravar (o campo já existia
+  // no form, mas não bloqueava nada).
   const salvarEdicaoParto = async () => {
     if (!podeEditarReprodCiclo) return
     const ep = editParto
+    if (ep.brinco_bezerro?.trim() && brincoDupEdit) {
+      toast(`Brinco ${ep.brinco_bezerro.trim()} já está em uso por outro animal — escolha outro.`, 'error')
+      return
+    }
     if (!dataEhEditavel(ep.data_parto)) {
       const c = cicloDaData(ep.data_parto)
       toast(c
@@ -1165,17 +1279,19 @@ export default function Reprodutivo() {
     const { error: e1 } = await db.partos.update(ep.id, {
       data_parto: ep.data_parto, observacoes: capitalizarPrimeira(ep.observacoes)
     })
-    // atualiza o bezerro
+    // atualiza o bezerro — sit_reprodutiva só é recalculada por sexo se o
+    // bezerro está vivo; um natimorto/morto fica sempre 'nao_se_aplica'
+    // (nunca vai reproduzir), independente do sexo editado aqui.
     if (ep.bezerro_id) {
       await db.animais.update(ep.bezerro_id, {
         sexo: ep.sexo_bezerro, brinco: ep.brinco_bezerro,
         data_nascimento: ep.data_parto,
-        sit_reprodutiva: ep.sexo_bezerro === 'F' ? 'vazia' : 'nao_se_aplica'
+        sit_reprodutiva: ep.situacao_bezerro === 'morto' ? 'nao_se_aplica' : (ep.sexo_bezerro === 'F' ? 'vazia' : 'nao_se_aplica')
       })
     }
     if (e1) { toast('Erro ao salvar: '+e1.message, 'error'); return }
     toast('Nascimento atualizado.')
-    setEditParto(null); loadAll()
+    setEditParto(null); setBrincoDupEdit(null); loadAll()
     if (cicloLocal) loadPartosNasc(cicloLocal.id)
   }
 
@@ -1804,8 +1920,18 @@ export default function Reprodutivo() {
               // com a etapa atual desta vaca NESTE lote (helpers.js). "Atrasada"
               // não vem do helper (não fazia parte dos campos pedidos) — é só a
               // comparação da data prevista com hoje, calculada aqui na tela.
+              //
+              // BUG encontrado e corrigido (etapa B): usa `d` (o diagnóstico
+              // DESTE lote), não ins.animal?.sit_reprodutiva (o status GLOBAL
+              // atual da vaca) — uma vaca pode ter sido diagnosticada Vazia
+              // NESTE lote e, bem depois, reinseminada e diagnosticada Prenha
+              // em outro lote posterior; nesse caso sit_reprodutiva atual é
+              // 'prenha', mas ISSO NÃO É a gestação deste lote. Usar o status
+              // global fazia esta linha mostrar "prenha sem parto"/"perda
+              // presumida" (e esconder o botão Registrar nascimento, cujo
+              // gate usa `d` corretamente) numa vaca que aqui foi vazia.
               const detalheVaca = statusReprodutivoDetalhado(
-                { id: ins.animal_id, sit_reprodutiva: ins.animal?.sit_reprodutiva },
+                { id: ins.animal_id, sit_reprodutiva: d === 'P' ? 'prenha' : 'vazia' },
                 selLote.partos, selLote.data
               )
               const partoAtrasado = detalheVaca.etapa === 'prenha_sem_parto'
@@ -2007,8 +2133,11 @@ export default function Reprodutivo() {
               terneiro já é o gatilho do desmame — sem peso, o botão fica
               desabilitado e nada é gravado (ver salvarDesmame acima). Gate de
               PERMISSÃO (podeEditarReprod), não de ciclo — ver comentário em
-              salvarDesmame. */}
-          {selLote.partos?.length > 0 && (
+              salvarDesmame. Bezerros mortos/natimortos NUNCA aparecem aqui —
+              não faz sentido oferecer desmame pra quem não sobreviveu (o
+              status deles já aparece como "Bezerro morto" na linha do tempo,
+              na seção de Diagnóstico acima). */}
+          {selLote.partos?.filter(p => p.bezerro?.situacao !== 'morto').length > 0 && (
             <div className="card" style={{ marginTop:14 }}>
               <div className="card-title"><i className="ti ti-scale" /> Desmame dos terneiros deste lote</div>
               {podeEditarReprod && (
@@ -2020,7 +2149,7 @@ export default function Reprodutivo() {
                   </span>
                 </div>
               )}
-              {selLote.partos.map(p => {
+              {selLote.partos.filter(p => p.bezerro?.situacao !== 'morto').map(p => {
                 const desmamado = !!p.bezerro?.data_desmame
                 const pesoDesm  = (p.bezerro?.pesagens || []).find(ps => ps.tipo === 'desmama')
                 const fd = formDesmame[p.id] || {}
@@ -3043,6 +3172,43 @@ export default function Reprodutivo() {
           )
         })()}
 
+        {/* Brinco digitável (Fase 10 — etapa B): em branco = automático
+            (SN-XX, preview mostrado abaixo). Duplicidade checada com
+            debounce (useEffect no topo do componente) contra
+            db.animais.byBrinco — bloqueia o salvamento, não só avisa. */}
+        <div className="grid-form">
+          <Field label="Brinco do terneiro">
+            <input value={form.brinco_bezerro||''} onChange={e=>setForm(p=>({...p,brinco_bezerro:e.target.value}))}
+              placeholder={proximoBrincoAuto ? `Automático: SN-${String(proximoBrincoAuto).padStart(2,'0')}` : 'Automático: calculando...'} />
+            {form.brinco_bezerro?.trim() ? (
+              brincoDupCreate ? (
+                <div style={{ fontSize:'.72rem', color:'#DC2626', marginTop:4 }}>
+                  <i className="ti ti-alert-circle" style={{ fontSize:11 }} /> Já usado por {brincoDupCreate.brinco} ({brincoDupCreate.situacao}) — escolha outro.
+                </div>
+              ) : (
+                <div style={{ fontSize:'.72rem', color:'#166534', marginTop:4 }}>
+                  <i className="ti ti-check" style={{ fontSize:11 }} /> Disponível.
+                </div>
+              )
+            ) : (
+              <div style={{ fontSize:'.72rem', color:'#9CA3AF', marginTop:4 }}>
+                Em branco = gerado automaticamente: <strong>{proximoBrincoAuto ? `SN-${String(proximoBrincoAuto).padStart(2,'0')}` : 'calculando...'}</strong>
+              </div>
+            )}
+          </Field>
+          <Field label="Natimorto">
+            <label style={{ display:'flex', alignItems:'center', gap:8, marginTop:8, cursor:'pointer' }}>
+              <input type="checkbox" checked={!!form.natimorto} onChange={e=>setForm(p=>({...p,natimorto:e.target.checked}))} />
+              <span style={{ fontSize:'.85rem', color:'#374151' }}>Bezerro nascido morto</span>
+            </label>
+            {form.natimorto && (
+              <div style={{ fontSize:'.72rem', color:'#9CA3AF', marginTop:4 }}>
+                O animal é cadastrado (mantém a genealogia), mas já como morto — não entra nos índices de desmame,
+                só na mortalidade de terneiros.
+              </div>
+            )}
+          </Field>
+        </div>
         <div className="grid-form">
           <Field label="Peso ao nascer (kg)">
             <input type="number" min="0" step="0.1" value={form.peso_nascimento||''} onChange={e=>setForm(p=>({...p,peso_nascimento:e.target.value}))} placeholder="opcional" />
@@ -3053,8 +3219,10 @@ export default function Reprodutivo() {
         </div>
         <div className="modal-actions" style={{ marginTop:14 }}>
           {/* podeEditarReprod (permissão) — não podeEditarReprodCiclo, ver
-              comentário em salvarParto. */}
-          <button className="btn btn-primary" onClick={salvarParto} disabled={saving || !podeEditarReprod}>
+              comentário em salvarParto. Desabilitado também com brinco
+              duplicado — mesma checagem de salvarParto, só antecipada aqui
+              pra dar feedback visual antes mesmo do clique. */}
+          <button className="btn btn-primary" onClick={salvarParto} disabled={saving || !podeEditarReprod || !!brincoDupCreate}>
             {saving ? 'Registrando...' : <><i className="ti ti-check" /> Registrar e criar animal</>}
           </button>
           <button className="btn btn-secondary" onClick={()=>setModal(null)}>Cancelar</button>
@@ -3079,13 +3247,27 @@ export default function Reprodutivo() {
             <div className="grid-form">
               <Field label="Brinco do bezerro">
                 <input value={editParto.brinco_bezerro||''} onChange={e=>setEditParto(p=>({...p,brinco_bezerro:e.target.value}))} />
+                {/* Fase 10 — etapa B: mesma checagem de duplicidade do registro
+                    (debounce no useEffect do topo do componente) — o campo já
+                    existia aqui, mas não validava nada. */}
+                {editParto.brinco_bezerro?.trim() && (
+                  brincoDupEdit ? (
+                    <div style={{ fontSize:'.72rem', color:'#DC2626', marginTop:4 }}>
+                      <i className="ti ti-alert-circle" style={{ fontSize:11 }} /> Já usado por {brincoDupEdit.brinco} ({brincoDupEdit.situacao}) — escolha outro.
+                    </div>
+                  ) : (
+                    <div style={{ fontSize:'.72rem', color:'#166534', marginTop:4 }}>
+                      <i className="ti ti-check" style={{ fontSize:11 }} /> Disponível.
+                    </div>
+                  )
+                )}
               </Field>
             </div>
             <Field label="Observações">
               <textarea value={editParto.observacoes||''} onChange={e=>setEditParto(p=>({...p,observacoes:e.target.value}))} placeholder="opcional" />
             </Field>
             <div className="modal-actions" style={{ marginTop:14 }}>
-              <button className="btn btn-primary" onClick={salvarEdicaoParto}>
+              <button className="btn btn-primary" onClick={salvarEdicaoParto} disabled={!!brincoDupEdit}>
                 <i className="ti ti-check" /> Salvar
               </button>
               <button className="btn btn-secondary" onClick={()=>setEditParto(null)}>Cancelar</button>

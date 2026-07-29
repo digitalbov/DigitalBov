@@ -211,8 +211,19 @@ export default function SecaoReprodutivo({ item }) {
           tela Pesagens.
         </p>
         <p style={P}>
-          O <strong>brinco do bezerro não é digitado na hora</strong> — o sistema gera um provisório
-          (SN-01, SN-02...) e você troca pelo brinco definitivo depois, na edição do nascimento.
+          O <strong>brinco do bezerro</strong> pode ser digitado na hora do registro — deixe em branco e o
+          sistema gera um automático (SN-01, SN-02...), mostrando antes de salvar exatamente qual número vai
+          usar. Se você digitar um brinco já usado por outro animal <strong>desta fazenda</strong> (brinco é
+          único por fazenda, não por conta nem entre fazendas diferentes), aparece um aviso vermelho na hora e o
+          botão de salvar fica bloqueado até você trocar o brinco. A mesma checagem de duplicidade vale na
+          edição do nascimento.
+        </p>
+        <p style={P}>
+          Marque <strong>"Natimorto"</strong> quando o bezerro nasceu morto: o animal é criado normalmente
+          (mantém genealogia — mãe, pai, brinco, sexo), mas já com situação "morto" e data de baixa igual à
+          data do parto, e o parto fica marcado internamente como natimorto. Um bezerro natimorto entra na{' '}
+          <strong>mortalidade de terneiros</strong> (Metas → Perdas) e nunca aparece na oferta de desmame nem
+          conta no kg de desmame — ele nunca teve a chance de ser desmamado.
         </p>
         <h4 style={{ ...H4, fontSize: '.85rem' }}>Registrando um parto de uma safra de ciclo anterior</h4>
         <p style={P}>

@@ -78,6 +78,7 @@ export const db = {
     update:   (id, d) => escopo(T('animais').raw().update({ ...d, atualizado_em: new Date().toISOString() }).eq('id', id)).select().single(),
     delete:   (id)    => escopo(T('animais').raw().delete().eq('id', id)),
     byBrinco: (b)     => T('animais').select('*, proprietario:proprietarios(id,nome), lote:lotes(id,nome)').eq('brinco', b).maybeSingle(),
+    brincosComPrefixo: (prefixo) => T('animais').select('brinco').ilike('brinco', `${prefixo}%`),
     filhos:   (b)     => T('animais').select('*, proprietario:proprietarios(id,nome), lote:lotes(id,nome)').eq('mae_brinco', b).order('brinco'),
   },
 
@@ -197,11 +198,14 @@ export const db = {
     list:      (cicloId)    => T('partos').select('*, mae:animais!mae_id(brinco,proprietario_id,proprietario:proprietarios(id,nome)), bezerro:animais!bezerro_id(brinco,sexo)').eq('ciclo_id', cicloId).order('data_parto', { ascending: false }),
     // bezerro.data_desmame: usado por statusReprodutivoExibicao (helpers.js) pra
     // saber se o último parto da vaca já foi desmamado ("Lactante" na tela).
+    // natimorto/bezerro.situacao: mesma função usa pra NÃO mostrar "Lactante"
+    // quando o bezerro nasceu morto (Fase 10 — etapa B; sem isso, um natimorto
+    // nunca tem data_desmame preenchida e cairia como "Lactante" pra sempre).
     // bezerro_id: usado pelo cohort de GMD Terneiros (Metas.jsx/Rebanho.jsx) pra
     // ancorar na safra da monta (via lote_inseminacao_id) em vez do nascimento.
     // lote:tipo — usado por Metas.jsx pra separar intervalo_partos por modo
     // (IA/Natural/Consolidado, Fase 2 da monta natural) sem mudar o resto do select.
-    listAll:   ()           => T('partos').select('bezerro_id,mae_id,data_parto,ciclo_id,lote_inseminacao_id,mae:animais!mae_id(proprietario_id),bezerro:animais!bezerro_id(data_desmame),lote:lotes_inseminacao(tipo)').order('data_parto', { ascending: true }),
+    listAll:   ()           => T('partos').select('bezerro_id,mae_id,data_parto,ciclo_id,lote_inseminacao_id,natimorto,mae:animais!mae_id(proprietario_id),bezerro:animais!bezerro_id(data_desmame,situacao),lote:lotes_inseminacao(tipo)').order('data_parto', { ascending: true }),
     insert:    (data)       => T('partos').insertOne(data).select().single(),
     // bezerro: id/situacao/data_desmame/pesagens — usado por
     // statusReprodutivoDetalhado (Animais.jsx, ficha do animal) além dos

@@ -488,15 +488,19 @@ export const repCor = {
 // assim que o terneiro é desmamado (data_desmame preenchida) ou se a vaca for
 // reinseminada e diagnosticada prenha de novo (sit_reprodutiva vira 'prenha',
 // que tem prioridade sobre "lactante" — é a informação mais relevante nessa hora).
-// `partos` precisa ter mae_id e bezerro.data_desmame (ex: db.partos.listAll(),
-// ou selLote.partos no detalhe do lote).
+// Bezerro natimorto/morto NUNCA é "Lactante" (bug achado ao vivo na etapa B: um
+// natimorto nunca tem data_desmame preenchida — sem esta checagem, ficaria
+// "Lactante" pra sempre; a vaca cai de volta pro sit_reprodutiva real ('vazia')).
+// `partos` precisa ter mae_id, natimorto e bezerro.{data_desmame,situacao}
+// (ex: db.partos.listAll(), ou selLote.partos no detalhe do lote).
 export function statusReprodutivoExibicao(animal, partos) {
   if (!animal || animal.sit_reprodutiva !== 'vazia') return animal?.sit_reprodutiva ?? null
   const partosDaMae = (partos || [])
     .filter(p => p.mae_id === animal.id)
     .sort((a, b) => (b.data_parto || '').localeCompare(a.data_parto || ''))
   const ultimoParto = partosDaMae[0]
-  if (ultimoParto && !ultimoParto.bezerro?.data_desmame) return 'Lactante'
+  const morto = !!ultimoParto?.natimorto || ultimoParto?.bezerro?.situacao === 'morto'
+  if (ultimoParto && !morto && !ultimoParto.bezerro?.data_desmame) return 'Lactante'
   return animal.sit_reprodutiva
 }
 
