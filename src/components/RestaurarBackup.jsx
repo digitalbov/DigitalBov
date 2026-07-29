@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { AlertBox, Badge, Field, toast } from './UI'
+import { AlertBox, Badge, Field, toast, Confirm } from './UI'
 import { useConta } from '../lib/ContaContext'
 import { usePermissoes } from '../lib/PermissoesContext'
 import { importarBackup } from '../lib/importarBackup'
@@ -182,6 +182,10 @@ export default function RestaurarBackup() {
   const [importando, setImportando]           = useState(false)
   const [progresso, setProgresso]             = useState([]) // [{tabela, status, esperado, importado}]
   const [relatorioFinal, setRelatorioFinal]   = useState(null)
+  // Confirmação via <Confirm> do app em vez de window.confirm() nativo
+  // (padronização — ação de maior risco desta tela, texto diz exatamente o
+  // que vai ser criado/gravado antes do clique final).
+  const [confirmImportar, setConfirmImportar] = useState(null) // { nAnimais, nLancs }
 
   const onEscolherArquivo = (e) => {
     const file = e.target.files?.[0]
@@ -229,16 +233,17 @@ export default function RestaurarBackup() {
     })
   }
 
-  const iniciarImportacao = async () => {
+  const iniciarImportacao = () => {
     if (!ehAdmin || !payload) return
     if (!nomeFazendaNovo.trim()) { toast('Informe o nome da fazenda nova.', 'error'); return }
     if (!contaAtual?.id) { toast('Conta não identificada — recarregue a página.', 'error'); return }
     const nAnimais = payload.dados?.animais?.length ?? 0
     const nLancs   = payload.dados?.lancamentos_financeiros?.length ?? 0
-    if (!confirm(
-      `Isto vai CRIAR uma fazenda nova chamada "${nomeFazendaNovo.trim()}" nesta conta e gravar nela ${nAnimais} animais, ${nLancs} lançamentos financeiros e o restante dos dados do arquivo. Nenhuma fazenda existente é alterada. Confirma?`
-    )) return
+    setConfirmImportar({ nAnimais, nLancs })
+  }
 
+  const executarImportacao = async () => {
+    setConfirmImportar(null)
     setImportando(true)
     setRelatorioFinal(null)
     setProgresso([])
@@ -402,6 +407,14 @@ export default function RestaurarBackup() {
           )}
         </div>
       )}
+      <Confirm
+        open={!!confirmImportar}
+        onClose={() => setConfirmImportar(null)}
+        onConfirm={executarImportacao}
+        title="Importar backup para fazenda nova"
+        message={confirmImportar && `Isto vai CRIAR uma fazenda nova chamada "${nomeFazendaNovo.trim()}" nesta conta e gravar nela ${confirmImportar.nAnimais} animais, ${confirmImportar.nLancs} lançamentos financeiros e o restante dos dados do arquivo. Nenhuma fazenda existente é alterada. Confirmar?`}
+        danger
+      />
     </div>
   )
 }

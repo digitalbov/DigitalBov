@@ -363,6 +363,10 @@ export default function Animais() {
   // Seleção em lote (tabela desktop)
   const [selecionados,    setSelecionados]    = useState([])
   const [excluindoLote,   setExcluindoLote]   = useState(false)
+  // Confirmação via <Confirm> do app em vez de window.confirm() nativo
+  // (padronização — exclusão definitiva de animal(is), sem volta).
+  const [confirmExcluirAnimal,       setConfirmExcluirAnimal]       = useState(null) // animal
+  const [confirmExcluirSelecionados, setConfirmExcluirSelecionados] = useState(false)
 
   useEffect(() => { loadAll() }, [])
 
@@ -598,7 +602,13 @@ export default function Animais() {
       toast(`Não é possível excluir: o animal tem histórico (${motivos.join(', ')}). Use "vender" ou "marcar como morto" para dar baixa.`, 'error')
       return
     }
-    if (!confirm(`Excluir definitivamente o animal ${animal.brinco}? Esta ação não pode ser desfeita.`)) return
+    setConfirmExcluirAnimal(animal)
+  }
+
+  const executarExcluirAnimal = async () => {
+    const animal = confirmExcluirAnimal
+    setConfirmExcluirAnimal(null)
+    if (!animal) return
     const { error } = await db.animais.delete(animal.id)
     if (error) { toast('Erro ao excluir: ' + error.message, 'error'); return }
     toast('Animal excluído.')
@@ -615,10 +625,14 @@ export default function Animais() {
     setSelecionados(todosMarcados ? [] : filtered.map(a => a.id))
   }
 
-  const excluirSelecionados = async () => {
+  const excluirSelecionados = () => {
     if (!podeEditarAnimais) return
     if (selecionados.length === 0) return
-    if (!confirm(`Excluir definitivamente ${selecionados.length} animal(is) selecionado(s)? Esta ação não pode ser desfeita.`)) return
+    setConfirmExcluirSelecionados(true)
+  }
+
+  const executarExcluirSelecionados = async () => {
+    setConfirmExcluirSelecionados(false)
     setExcluindoLote(true)
     const animaisSel = animais.filter(a => selecionados.includes(a.id))
     const resultados  = await Promise.all(animaisSel.map(async a => ({ a, ...(await temVinculos(a.id)) })))
@@ -1425,6 +1439,22 @@ export default function Animais() {
           </div>
         )}
       </Modal>
+      <Confirm
+        open={!!confirmExcluirAnimal}
+        onClose={() => setConfirmExcluirAnimal(null)}
+        onConfirm={executarExcluirAnimal}
+        title="Excluir animal"
+        message={confirmExcluirAnimal && `Excluir definitivamente o animal ${confirmExcluirAnimal.brinco}? Esta ação não pode ser desfeita.`}
+        danger
+      />
+      <Confirm
+        open={confirmExcluirSelecionados}
+        onClose={() => setConfirmExcluirSelecionados(false)}
+        onConfirm={executarExcluirSelecionados}
+        title="Excluir animais selecionados"
+        message={`Excluir definitivamente ${selecionados.length} animal(is) selecionado(s)? Esta ação não pode ser desfeita.`}
+        danger
+      />
     </>
   )
 }

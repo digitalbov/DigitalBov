@@ -3,7 +3,7 @@ import { supabase, db } from '../lib/supabase'
 import { useConta } from '../lib/ContaContext'
 import { useFazenda } from '../lib/FazendaContext'
 import { usePermissoes } from '../lib/PermissoesContext'
-import { Loading, EmptyState, Modal, Field, toast, Badge } from '../components/UI'
+import { Loading, EmptyState, Modal, Field, toast, Badge, Confirm } from '../components/UI'
 import { fmtData } from '../lib/helpers'
 import { getDataSimulada, setDataSimulada, limparDataSimulada, hojeISO } from '../lib/hoje'
 
@@ -34,6 +34,11 @@ export default function Usuarios() {
   const [modalNovo, setModalNovo] = useState(false)
   const [novo, setNovo] = useState({ email:'', senha:'' })
   const [criando, setCriando] = useState(false)
+  // Confirmação via <Confirm> do app em vez de window.confirm() nativo
+  // (padronização — trocar fazenda descarta permissões não salvas; remover
+  // membro tira o acesso dele da conta, ambos precisam de confirmação clara).
+  const [confirmTrocarFazenda, setConfirmTrocarFazenda] = useState(null) // novoId
+  const [confirmRemoverOperador, setConfirmRemoverOperador] = useState(null) // m
 
   const carregar = useCallback(async () => {
     if (!contaAtual) return
@@ -68,7 +73,15 @@ export default function Usuarios() {
   }
 
   const mudarFazendaGestao = (novoId) => {
-    if (permsDirty && !confirm('Há alterações de permissões não salvas nesta fazenda. Trocar de fazenda e descartar as alterações?')) return
+    if (permsDirty) { setConfirmTrocarFazenda(novoId); return }
+    setFazendaGestaoSt(novoId)
+    carregarPermsFazenda(editando, novoId)
+  }
+
+  const executarTrocarFazenda = () => {
+    const novoId = confirmTrocarFazenda
+    setConfirmTrocarFazenda(null)
+    if (!novoId) return
     setFazendaGestaoSt(novoId)
     carregarPermsFazenda(editando, novoId)
   }
@@ -129,9 +142,15 @@ export default function Usuarios() {
     await carregar()
   }
 
-  const removerOperador = async (m) => {
+  const removerOperador = (m) => {
     if (m.papel === 'dono') return
-    if (!confirm(`Remover ${m.email} desta conta? Ele perde o acesso, mas a conta de login dele não é apagada.`)) return
+    setConfirmRemoverOperador(m)
+  }
+
+  const executarRemoverOperador = async () => {
+    const m = confirmRemoverOperador
+    setConfirmRemoverOperador(null)
+    if (!m) return
     const { error } = await db.contaMembros.removerMembro(contaAtual.id, m.usuario_id)
     if (error) { toast('Erro ao remover: ' + error.message, 'error'); return }
     toast('Operador removido da conta.')
@@ -358,6 +377,22 @@ export default function Usuarios() {
           <button className="btn btn-secondary btn-sm" onClick={() => setEditando(null)}>Fechar</button>
         </div>
       </Modal>
+      <Confirm
+        open={!!confirmTrocarFazenda}
+        onClose={() => setConfirmTrocarFazenda(null)}
+        onConfirm={executarTrocarFazenda}
+        title="Descartar alterações não salvas"
+        message="Há alterações de permissões não salvas nesta fazenda. Trocar de fazenda agora descarta essas alterações — elas não ficam salvas em nenhum lugar. Trocar mesmo assim?"
+        danger
+      />
+      <Confirm
+        open={!!confirmRemoverOperador}
+        onClose={() => setConfirmRemoverOperador(null)}
+        onConfirm={executarRemoverOperador}
+        title="Remover membro da conta"
+        message={confirmRemoverOperador && `Remover ${confirmRemoverOperador.email} desta conta? Ele perde acesso a TODAS as fazendas desta conta imediatamente. A conta de login dele (fora desta conta) não é apagada — pode ser adicionado de novo depois, se precisar.`}
+        danger
+      />
     </div>
   )
 }
