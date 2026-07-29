@@ -181,6 +181,15 @@ export default function Reprodutivo() {
   const [selLote,     setSelLote]    = useState(null)
   const [selInsem,    setSelInsem]   = useState([])
   const [removendoLote, setRemovendoLote] = useState(false)
+  // Confirmação da remoção em lote — trocado de window.confirm() nativo pro
+  // <Confirm> do app (Fase 10 — etapa D): confirm() nativo já travou uma sessão
+  // de testes (bloqueia a aba inteira até ser fechado manualmente).
+  const [confirmRemoverInsemLote, setConfirmRemoverInsemLote] = useState(false)
+  // Diagnóstico em lote (Fase 10 — etapa C): aplica Prenha/Vazia a várias vacas
+  // selecionadas de uma vez. confirmDiagLote guarda {diag, ids, ignorados} pro
+  // <Confirm> (ids já vem filtrado pros elegíveis — ver elegiveisDiagLote).
+  const [confirmDiagLote, setConfirmDiagLote] = useState(null)
+  const [aplicandoDiagLote, setAplicandoDiagLote] = useState(false)
   const [filtroPropLote, setFiltroPropLote] = useState('') // filtro visual dos animais dentro do detalhe do lote
   const [filtroPropIdx,  setFiltroPropIdx]  = useState('') // filtra o funil da aba Índices por proprietário
   // todosLotes/todosPartos cobrem TODOS os ciclos (necessário pro histórico da
@@ -232,6 +241,18 @@ export default function Reprodutivo() {
   const [filtroNasc,    setFiltroNasc]    = useState('todos')
   const [proprietarios, setProprietarios] = useState([])
   const [editParto,     setEditParto]     = useState(null)
+  // Filtros combináveis da aba Nascimentos (Fase 10 — etapa D) — além das
+  // pills de proprietário (filtroNasc, já existia). Todos em AND entre si;
+  // '' = sem filtro naquele campo. Opções derivadas de partosNasc (não de
+  // pFilt já filtrado), pra não sumir opção da lista conforme o usuário filtra.
+  const [filtroTouroNasc,    setFiltroTouroNasc]    = useState('')
+  const [filtroSexoNasc,     setFiltroSexoNasc]     = useState('')
+  const [filtroLoteNasc,     setFiltroLoteNasc]     = useState('')
+  const [filtroEstacaoNasc,  setFiltroEstacaoNasc]  = useState('')
+  // Confirmação de exclusão de nascimento — <Confirm> do app em vez de
+  // window.confirm() nativo (etapa D: o nativo travou uma sessão de testes,
+  // bloqueando a aba até ser fechado manualmente).
+  const [confirmExcluirParto, setConfirmExcluirParto] = useState(null)
   // Brinco digitável no registro/edição de nascimento (Fase 10 — etapa B) —
   // guardam o animal ENCONTRADO por db.animais.byBrinco (debounce 400ms) pro
   // aviso inline + bloqueio no salvamento; null = livre (ou campo vazio).
@@ -731,11 +752,18 @@ export default function Reprodutivo() {
       : [...new Set([...selInsem, ...insVisiveis.map(i => i.id)])])
   }
 
-  // Remover várias inseminações do lote de uma vez (com ou sem diagnóstico)
-  const removerInsemSelecionados = async () => {
+  // Remover várias inseminações do lote de uma vez (com ou sem diagnóstico) —
+  // confirmação via <Confirm> do app (setConfirmRemoverInsemLote), não mais
+  // window.confirm() nativo (etapa D: o nativo travava a aba até ser fechado
+  // manualmente, inconsistente com o resto do app).
+  const removerInsemSelecionados = () => {
     if (!podeEditarReprodCiclo) return
     if (selInsem.length === 0) return
-    if (!confirm(`Remover ${selInsem.length} animais do lote? (inclui animais já diagnosticados, se houver — o diagnóstico deles será perdido)`)) return
+    setConfirmRemoverInsemLote(true)
+  }
+
+  const executarRemoverInsemSelecionados = async () => {
+    setConfirmRemoverInsemLote(false)
     setRemovendoLote(true)
     const { error } = await db.inseminacoes.deleteVarios(selInsem)
     setRemovendoLote(false)
@@ -748,8 +776,10 @@ export default function Reprodutivo() {
   // Salvar diagnóstico. `dataDiagnostico` é a data REAL do exame (escolhida no
   // campo do topo da lista, ou editada depois) — não a data do clique. criado_em
   // (timestamp real de auditoria) não entra no payload, então o upsert nunca o
-  // sobrescreve.
-  const salvarDiag = async (loteId, animalId, diag, dataDiagnostico) => {
+  // sobrescreve. `recarregar=false` pula o loadAll(false) daqui — usado pelo
+  // diagnóstico em lote (etapa C), que chama isto N vezes em sequência e só
+  // recarrega uma vez no final (evita N reloads inúteis pra 1 ação do usuário).
+  const salvarDiag = async (loteId, animalId, diag, dataDiagnostico, recarregar = true) => {
     if (!podeEditarReprodCiclo) return false
     const lote = lotes.find(l => l.id === loteId)
     // Guarda ligada ao item 2: se a mãe já tem parto vinculado a ESTE lote, o
@@ -799,8 +829,54 @@ export default function Reprodutivo() {
     if (error) { toast('Erro ao salvar diagnóstico: ' + error.message, 'error'); return false }
     const a = animais.find(x => x.id === animalId)
     if (a) await db.animais.update(animalId, { sit_reprodutiva: diag === 'P' ? 'prenha' : 'vazia' })
-    await loadAll(false)
+    if (recarregar) await loadAll(false)
     return true
+  }
+
+  // Diagnóstico em lote (Fase 10 — etapa C): mesmo resultado (Prenha/Vazia)
+  // pra várias vacas de uma vez, reusando salvarDiag (mesmas validações por
+  // vaca: bloqueio se já tem parto/aborto neste lote, checagem de data) —
+  // ids já bloqueados são excluídos ANTES da confirmação, então o número
+  // mostrado ao usuário já é o que de fato vai ser alterado.
+  const elegiveisDiagLote = (ids) => {
+    const partosLote  = selLote?.partos  || []
+    const abortosLote = selLote?.abortos || []
+    return ids.filter(id => {
+      const ins = (selLote?.inseminacoes || []).find(i => i.id === id)
+      if (!ins) return false
+      const bloqueado = partosLote.some(p => p.mae_id === ins.animal_id)
+        || abortosLote.some(ab => ab.animal_id === ins.animal_id)
+      return !bloqueado
+    })
+  }
+
+  const pedirDiagLote = (diag) => {
+    if (!podeEditarReprodCiclo || !selLote) return
+    const elegiveis = elegiveisDiagLote(selInsem)
+    if (elegiveis.length === 0) {
+      toast('Todas as vacas selecionadas já têm parto ou aborto registrado neste lote — o diagnóstico delas não pode ser alterado.', 'error')
+      return
+    }
+    setConfirmDiagLote({ diag, ids: elegiveis, ignorados: selInsem.length - elegiveis.length })
+  }
+
+  const executarDiagLote = async () => {
+    if (!confirmDiagLote || !selLote) return
+    const { diag, ids } = confirmDiagLote
+    setConfirmDiagLote(null)
+    setAplicandoDiagLote(true)
+    let erros = 0
+    for (const id of ids) {
+      const ins = (selLote.inseminacoes || []).find(i => i.id === id)
+      if (!ins) { erros++; continue }
+      const ok = await salvarDiag(selLote.id, ins.animal_id, diag, dataDiagLote, false)
+      if (!ok) erros++
+    }
+    setAplicandoDiagLote(false)
+    setSelInsem([])
+    if (erros > 0) toast(`${ids.length - erros} de ${ids.length} marcada(s) como ${diag === 'P' ? 'Prenha' : 'Vazia'} — ${erros} falharam (confira e tente de novo).`, 'error')
+    else toast(`${ids.length} vaca(s) marcada(s) como ${diag === 'P' ? 'Prenha' : 'Vazia'}.`)
+    await loadAll(false)
   }
 
   // Abre modal pra editar só a DATA de um diagnóstico já registrado (mesmas
@@ -1134,13 +1210,21 @@ export default function Reprodutivo() {
     return false
   }
 
-  // Excluir nascimento (apaga parto + bezerro)
+  // Excluir nascimento (apaga parto + bezerro) — pede confirmação via
+  // <Confirm> (setConfirmExcluirParto), a exclusão de fato só roda em
+  // executarExcluirParto, no clique em "Confirmar".
   const excluirParto = async (p) => {
     if (!podeEditarReprodCiclo) return
     if (await bezerroTemHistorico(p.bezerro_id)) {
       toast('Não é possível excluir: o bezerro já tem histórico (pesagens/partos).', 'error'); return
     }
-    if (!confirm(`Excluir o nascimento do bezerro ${p.bezerro?.brinco||''}? O animal e o registro de parto serão removidos.`)) return
+    setConfirmExcluirParto(p)
+  }
+
+  const executarExcluirParto = async () => {
+    const p = confirmExcluirParto
+    setConfirmExcluirParto(null)
+    if (!p) return
     // apaga na ordem: pesagem de nascimento -> parto -> animal
     await db.partos.delete(p.id)
     if (p.bezerro_id) await db.animais.delete(p.bezerro_id)
@@ -1870,10 +1954,20 @@ export default function Reprodutivo() {
                 <span style={{ fontSize:'.85rem', color:'#7F1D1D', fontWeight:500 }}>
                   {selInsem.length} selecionado(s)
                 </span>
-                <button className="btn btn-sm" style={{ background:'#DC2626', color:'white' }}
-                  onClick={removerInsemSelecionados} disabled={removendoLote}>
-                  <i className="ti ti-trash" /> {removendoLote ? 'Removendo...' : 'Remover selecionados'}
-                </button>
+                <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+                  <button className="btn btn-sm" style={{ background:'#166534', color:'white' }}
+                    onClick={() => pedirDiagLote('P')} disabled={aplicandoDiagLote || removendoLote}>
+                    <i className="ti ti-check" /> Marcar Prenha
+                  </button>
+                  <button className="btn btn-sm" style={{ background:'#374151', color:'white' }}
+                    onClick={() => pedirDiagLote('V')} disabled={aplicandoDiagLote || removendoLote}>
+                    <i className="ti ti-x" /> Marcar Vazia
+                  </button>
+                  <button className="btn btn-sm" style={{ background:'#DC2626', color:'white' }}
+                    onClick={removerInsemSelecionados} disabled={removendoLote || aplicandoDiagLote}>
+                    <i className="ti ti-trash" /> {removendoLote ? 'Removendo...' : 'Remover selecionados'}
+                  </button>
+                </div>
               </div>
             )}
             {(() => {
@@ -2209,15 +2303,57 @@ export default function Reprodutivo() {
             message={confirmPerdaAlvo && `${confirmPerdaAlvo.brinco} — sem parto nem aborto registrado até ${PERDA_PRESUMIDA_DIAS_APOS_PREVISTO} dias após o parto previsto (${fmtData(confirmPerdaAlvo.dataPrevistaParto)}, da monta de ${fmtData(confirmPerdaAlvo.dataMonta)}). Confirmando: a situação reprodutiva dela vira "Vazia" (isso também muda a categoria dela no Valor de Mercado do Rebanho, de "Prenha" para "Vazia"), e uma nota é adicionada às observações do cadastro com as três datas (monta, previsto, confirmação de hoje). Confirmar?`}
             danger
           />
+          {/* Diagnóstico em lote (Fase 10 — etapa C) — mostra o número REAL de
+              vacas afetadas (já descontando as bloqueadas por parto/aborto,
+              ver elegiveisDiagLote) antes de gravar. */}
+          <Confirm
+            open={!!confirmDiagLote}
+            onClose={() => setConfirmDiagLote(null)}
+            onConfirm={executarDiagLote}
+            title={`Marcar ${confirmDiagLote?.diag === 'P' ? 'Prenha' : 'Vazia'} em lote`}
+            message={confirmDiagLote && `${confirmDiagLote.ids.length} vaca(s) serão marcadas como "${confirmDiagLote.diag === 'P' ? 'Prenha' : 'Vazia'}" (diagnóstico de ${fmtData(dataDiagLote)}).${confirmDiagLote.ignorados > 0 ? ` ${confirmDiagLote.ignorados} das selecionadas já têm parto ou aborto registrado neste lote e serão ignoradas.` : ''} Confirmar?`}
+          />
+          {/* Remoção em lote — <Confirm> do app em vez de window.confirm()
+              nativo (etapa D). */}
+          <Confirm
+            open={confirmRemoverInsemLote}
+            onClose={() => setConfirmRemoverInsemLote(false)}
+            onConfirm={executarRemoverInsemSelecionados}
+            title="Remover animais do lote"
+            message={`Remover ${selInsem.length} animal(is) do lote? Inclui animais já diagnosticados, se houver — o diagnóstico deles será perdido.`}
+            danger
+          />
           </div>{/* end refDiag */}
         </div>
       )}
 
       {/* ── Nascimentos ── */}
       {tab === 1 && (() => {
-        const pFilt = (partosNasc || []).filter(p =>
-          filtroNasc === 'todos' || p.mae?.proprietario_id === filtroNasc
-        )
+        // Touro sempre pelo lote VINCULADO ao parto (por ID, via
+        // partos.lote_inseminacao_id) — nunca "o lote mais recente com
+        // diagnóstico P para a mãe", que pode ser de outro ciclo.
+        const loteDoParto = (p) => todosLotes.find(l => l.id === p.lote_inseminacao_id) || null
+        // Opções dos filtros de touro/lote/estação (Fase 10 — etapa D) vêm de
+        // TODOS os partosNasc, não de pFilt já filtrado — senão a opção some
+        // da lista assim que outro filtro a exclui dos resultados visíveis.
+        const touroOpcoes = [...new Set((partosNasc || []).map(p => loteDoParto(p)?.touro).filter(Boolean))].sort()
+        const loteOpcoes = [...new Map((partosNasc || []).map(p => {
+          const l = loteDoParto(p)
+          return l ? [l.id, l] : null
+        }).filter(Boolean)).values()].sort((a, b) => (b.data || '').localeCompare(a.data || ''))
+        const estacaoOpcoes = [...new Map((partosNasc || []).map(p => {
+          const e = loteDoParto(p)?.estacao
+          return e ? [e.id, e] : null
+        }).filter(Boolean)).values()]
+        const pFilt = (partosNasc || []).filter(p => {
+          if (filtroNasc !== 'todos' && p.mae?.proprietario_id !== filtroNasc) return false
+          if (filtroSexoNasc && p.bezerro?.sexo !== filtroSexoNasc) return false
+          if (filtroLoteNasc && p.lote_inseminacao_id !== filtroLoteNasc) return false
+          const loteP = loteDoParto(p)
+          if (filtroTouroNasc && loteP?.touro !== filtroTouroNasc) return false
+          if (filtroEstacaoNasc && loteP?.estacao?.id !== filtroEstacaoNasc) return false
+          return true
+        })
         const nascMachos = pFilt.filter(p => p.bezerro?.sexo === 'M').length
         const nascFemeas = pFilt.filter(p => p.bezerro?.sexo === 'F').length
         return (
@@ -2258,7 +2394,43 @@ export default function Reprodutivo() {
                 })}
               </div>
 
-              {/* Linha 3 — KPI cards */}
+              {/* Linha 2b — filtros combináveis (Fase 10 — etapa D): touro, sexo,
+                  lote de inseminação e estação de monta, em AND entre si e com
+                  as pills de proprietário acima. */}
+              <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginBottom:12 }}>
+                <select value={filtroSexoNasc} onChange={e => setFiltroSexoNasc(e.target.value)}
+                  className="input" style={{ maxWidth:150 }}>
+                  <option value="">Todos os sexos</option>
+                  <option value="M">Macho ♂</option>
+                  <option value="F">Fêmea ♀</option>
+                </select>
+                <select value={filtroTouroNasc} onChange={e => setFiltroTouroNasc(e.target.value)}
+                  className="input" style={{ maxWidth:200 }}>
+                  <option value="">Todos os touros</option>
+                  {touroOpcoes.map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+                <select value={filtroLoteNasc} onChange={e => setFiltroLoteNasc(e.target.value)}
+                  className="input" style={{ maxWidth:260 }}>
+                  <option value="">Todos os lotes</option>
+                  {loteOpcoes.map(l => <option key={l.id} value={l.id}>Lote {l.numero} — {l.touro} ({fmtData(l.data)})</option>)}
+                </select>
+                <select value={filtroEstacaoNasc} onChange={e => setFiltroEstacaoNasc(e.target.value)}
+                  className="input" style={{ maxWidth:200 }}>
+                  <option value="">Todas as estações</option>
+                  {estacaoOpcoes.map(es => <option key={es.id} value={es.id}>{es.nome}</option>)}
+                </select>
+                {(filtroSexoNasc || filtroTouroNasc || filtroLoteNasc || filtroEstacaoNasc) && (
+                  <button className="btn btn-secondary btn-sm" onClick={() => {
+                    setFiltroSexoNasc(''); setFiltroTouroNasc(''); setFiltroLoteNasc(''); setFiltroEstacaoNasc('')
+                  }}>
+                    <i className="ti ti-x" /> Limpar filtros
+                  </button>
+                )}
+              </div>
+
+              {/* Linha 3 — KPI cards (só total/machos/fêmeas — os cards por
+                  proprietário foram removidos: redundantes com as pills de
+                  filtro acima, que já separam por proprietário). */}
               <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(128px, 1fr))', gap:10, marginBottom:14 }}>
                 <div style={{ background:'white', border:'.5px solid #E5E7EB', borderRadius:12, padding:'12px 14px', textAlign:'center' }}>
                   <div style={{ fontSize:'1.6rem', fontWeight:700, color:'#2B6CD9' }}>{pFilt.length}</div>
@@ -2278,19 +2450,6 @@ export default function Reprodutivo() {
                   <div style={{ fontSize:'1.5rem', fontWeight:700, color:'#1a1a1a' }}>♀ {nascFemeas}</div>
                   <div style={{ fontSize:'.72rem', color:'#6B7280', marginTop:2 }}>Fêmeas</div>
                 </div>
-                {proprietarios.map(prop => {
-                  const pProp = partosNasc.filter(p => p.mae?.proprietario_id === prop.id)
-                  if (pProp.length === 0) return null
-                  return (
-                    <div key={prop.id} style={{ background:'#F0F9EC', border:'.5px solid #BBF7D0', borderRadius:12, padding:'12px 14px' }}>
-                      <div style={{ fontSize:'.73rem', fontWeight:600, color:'#166534', marginBottom:3 }}>{prop.nome.split(' ')[0]}</div>
-                      <div style={{ fontSize:'1.3rem', fontWeight:700, color:'#2B6CD9' }}>{pProp.length} nasc.</div>
-                      <div style={{ fontSize:'.72rem', color:'#6B7280', marginTop:2 }}>
-                        ♂{pProp.filter(p => p.bezerro?.sexo==='M').length} ♀{pProp.filter(p => p.bezerro?.sexo==='F').length}
-                      </div>
-                    </div>
-                  )
-                })}
               </div>
 
               {/* Linha 4 — tabela filtrada */}
@@ -2304,26 +2463,40 @@ export default function Reprodutivo() {
                       </thead>
                       <tbody>
                         {pFilt.map(p => {
-                          // Touro sempre pelo lote VINCULADO ao parto (por ID, via
-                          // partos.lote_inseminacao_id) — nunca "o lote mais recente
-                          // com diagnóstico P para a mãe", que pode ser de outro ciclo.
-                          const loteDoP = todosLotes.find(l => l.id === p.lote_inseminacao_id) || null
+                          const loteDoP = loteDoParto(p)
                           const prevPartoLoteP = loteDoP?.data ? (() => {
                             const d = new Date(loteDoP.data + 'T12:00:00')
                             d.setDate(d.getDate() + GESTACAO_ANGUS_DIAS)
                             return d.toLocaleDateString('pt-BR')
                           })() : '—'
+                          // Brinco da mãe/terneiro clicáveis (Fase 10 — etapa D): abrem
+                          // a ficha do animal, mesmo padrão de navigate('/animais',
+                          // {state:{abrirAnimalId}}) já usado no card "Lactante".
                           return (
                           <tr key={p.id}>
                             <td style={{ whiteSpace:'nowrap' }}>{fmtData(p.data_parto)}</td>
-                            <td><strong>{p.mae?.brinco||'—'}</strong></td>
+                            <td>
+                              {p.mae_id ? (
+                                <button onClick={() => navigate('/animais', { state: { abrirAnimalId: p.mae_id } })}
+                                  style={{ background:'none', border:'none', padding:0, font:'inherit', fontWeight:700, color:'#2B6CD9', textDecoration:'underline', cursor:'pointer' }}>
+                                  {p.mae?.brinco || '—'}
+                                </button>
+                              ) : <strong>{p.mae?.brinco || '—'}</strong>}
+                            </td>
                             <td style={{ fontSize:'.82rem' }}>{p.mae?.proprietario?.nome?.split(' ')[0]||'—'}</td>
                             <td>
                               {p.bezerro?.sexo==='F'
                                 ? <span style={{ color:'#86198F', fontWeight:500 }}>♀ Fêmea</span>
                                 : <span style={{ color:'#1D4ED8', fontWeight:500 }}>♂ Macho</span>}
                             </td>
-                            <td><Badge color="gray">{p.bezerro?.brinco||'—'}</Badge></td>
+                            <td>
+                              {p.bezerro_id ? (
+                                <button onClick={() => navigate('/animais', { state: { abrirAnimalId: p.bezerro_id } })}
+                                  style={{ background:'none', border:'none', padding:0, cursor:'pointer' }}>
+                                  <Badge color="gray" style={{ textDecoration:'underline' }}>{p.bezerro?.brinco||'—'}</Badge>
+                                </button>
+                              ) : <Badge color="gray">{p.bezerro?.brinco||'—'}</Badge>}
+                            </td>
                             <td style={{ fontSize:'.82rem', color:'#6B7280' }}>{loteDoP?.touro || '—'}</td>
                             <td style={{ fontSize:'.78rem', color:'#9CA3AF', whiteSpace:'nowrap' }}>{prevPartoLoteP}</td>
                             <td style={{ whiteSpace:'nowrap' }}>
@@ -2350,6 +2523,16 @@ export default function Reprodutivo() {
               }
             </div>{/* end refNasc */}
             </>}
+            {/* Exclusão de nascimento — <Confirm> do app em vez de
+                window.confirm() nativo (etapa D). */}
+            <Confirm
+              open={!!confirmExcluirParto}
+              onClose={() => setConfirmExcluirParto(null)}
+              onConfirm={executarExcluirParto}
+              title="Excluir nascimento"
+              message={confirmExcluirParto && `Excluir o nascimento do bezerro ${confirmExcluirParto.bezerro?.brinco||''}? O animal e o registro de parto serão removidos.`}
+              danger
+            />
           </div>
         )
       })()}

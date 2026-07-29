@@ -137,6 +137,15 @@ export default function SecaoReprodutivo({ item }) {
           Depois que uma fêmea já tem parto ou aborto registrado <em>naquele lote</em>, o diagnóstico dela
           trava — o sistema avisa e não deixa mudar, para não desalinhar um evento já lançado.
         </p>
+        <p style={P}>
+          Para aplicar o <strong>mesmo resultado a várias vacas de uma vez</strong>, marque a caixinha de cada
+          uma (ou "Marcar/desmarcar todos", que respeita o filtro por proprietário ativo) e use os botões
+          <strong> "Marcar Prenha"</strong> / <strong>"Marcar Vazia"</strong> que aparecem na barra de seleção.
+          Uma confirmação mostra quantas vacas serão de fato afetadas — vacas selecionadas que já têm parto ou
+          aborto registrado neste lote são automaticamente excluídas da contagem (o diagnóstico delas continua
+          travado, mesma regra do clique individual). Todas usam a mesma <strong>data do diagnóstico</strong>
+          definida no topo do card.
+        </p>
       </div>
 
       <div id="reprodutivo-linha-tempo" style={{ scrollMarginTop: 90, marginTop: 18 }}>
@@ -242,6 +251,19 @@ export default function SecaoReprodutivo({ item }) {
         <AlertBox type="amber" icon="ti-calendar-repeat"
           title='Registrar um nascimento atrasado troca o ciclo exibido na tela'
           body='O parto sempre grava certo, no ciclo da SUA data real — mas se você está revisando um lote de uma safra antiga (seletor de ciclo no topo apontando pra ela) e registra um nascimento com a data de hoje, esse parto pertence ao ciclo de hoje, não ao ciclo que você estava vendo. Nesse caso o sistema troca sozinho o ciclo selecionado para o do parto (com aviso no toast), pra você já ver o registro novo direto na aba Nascimentos — sem isso, o parto ficaria certo no banco mas pareceria "sumido" da tela.' />
+        <h4 style={{ ...H4, fontSize: '.85rem' }}>Aba Nascimentos</h4>
+        <p style={P}>
+          Além das pills de proprietário, a lista tem <strong>quatro filtros combináveis</strong> (em conjunto
+          entre si e com a pill de proprietário ativa): sexo, touro, lote de inseminação e estação de monta.
+          As opções de cada filtro vêm de todos os nascimentos do ciclo — escolher um não faz as opções dos
+          outros desaparecerem. Os cards de resumo mostram só o <strong>total</strong> e a contagem de{' '}
+          <strong>machos/fêmeas</strong>; os cards por proprietário foram removidos por serem redundantes com as
+          pills de filtro logo acima, que já separam por proprietário.
+        </p>
+        <p style={P}>
+          O <strong>brinco da mãe e do terneiro</strong>, na tabela, são clicáveis — abrem o cadastro do animal
+          direto na tela Animais, mesmo atalho já usado na linha do tempo do lote.
+        </p>
       </div>
 
       <div id="reprodutivo-abortos" style={{ scrollMarginTop: 90 }}>
