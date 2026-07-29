@@ -65,22 +65,45 @@ async function capturarShot(el) {
   return { dataURL: canvas.toDataURL('image/png'), w: canvas.width, h: canvas.height }
 }
 
-export async function gerarPDFManualTexto(contentRef, filename, fazenda = '') {
+export async function gerarPDFManualTexto(contentRef, filename, fazenda = '', logoDataURL = null, indiceManual = []) {
   const root = contentRef?.current
   if (!root) return
 
   const writer = new PdfWriter({
     titulo: 'Manual do Sistema',
     fazenda,
+    logoDataURL,
     subtitulo: `Guia completo de uso do DigitalBov · gerado em ${new Date().toLocaleDateString('pt-BR')}`,
   })
+  // Conteúdo sempre começa numa página própria (nunca dividindo a página com
+  // a capa) — deixa a paginação previsível: capa = pág. 1, conteúdo começa
+  // na 2 (numeração registrada ANTES da inserção do Sumário — ver abaixo).
+  writer.addPage()
 
+  // Sumário (Fase 9) — só os 18 títulos de seção (nível 1) + as subseções
+  // que JÁ existem no índice lateral do manual (nível 2, indiceManual —
+  // MANUAL_INDICE em indice.js). Avaliei incluir TODO h4/h5 do DOM (94 ao
+  // todo, bem mais que os ~20 curados no índice lateral) e descartei: viraria
+  // 1-2 páginas de sumário desproporcionais ao conteúdo, com profundidade
+  // desigual entre seções (algumas com 13 subtítulos, a maioria com zero) —
+  // poluição, não navegação. O índice lateral já é a curadoria certa (só os
+  // módulos com abas internas relevantes o bastante pra merecer âncora
+  // própria), então reaproveitei ele em vez de inventar um critério novo.
+  const tocEntries = []
   const secoes = root.querySelectorAll(':scope > section')
   for (const secao of secoes) {
-    const nos = secao.querySelectorAll('.card-title, h2, h3, h4, h5, p, li, .alert, [data-pdf-shot]')
+    const itemIndice = indiceManual.find(i => i.id === secao.id)
+    const subsecoesMap = new Map((itemIndice?.subsecoes || []).map(s => [s.id, s.titulo]))
+    const nos = secao.querySelectorAll('.card-title, h2, h3, h4, h5, p, li, .alert, [data-pdf-shot], [id]')
     const contadorOl = new Map()
     for (const el of nos) {
+      // Âncora de subseção (ex: <div id="financeiro-lancamentos">) — só
+      // registra no sumário, nunca tenta desenhar (não é um nó de conteúdo).
+      if (el.id && subsecoesMap.has(el.id)) {
+        tocEntries.push({ level: 2, titulo: subsecoesMap.get(el.id), page: writer.paginaAtual() })
+      }
       if (el.matches('.card-title')) {
+        tocEntries.push({ level: 1, titulo: el.textContent.trim(), page: writer.paginaAtual() })
         writer.heading(el.textContent.trim(), 1)
       } else if (el.matches('h2, h3')) {
         writer.heading(el.textContent.trim(), 2)
@@ -110,6 +133,10 @@ export async function gerarPDFManualTexto(contentRef, filename, fazenda = '') {
     }
     writer.espaco(2)
   }
+
+  // Por último, DEPOIS de todo o conteúdo gerado (as páginas em tocEntries
+  // já são reais) — insere o Sumário logo após a capa, deslocando o resto.
+  writer.inserirSumario(tocEntries)
 
   writer.finalize('DigitalBov — Manual do Sistema')
   writer.save(filename)

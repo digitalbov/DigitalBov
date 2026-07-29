@@ -160,10 +160,14 @@ export default function Relatorios() {
     try {
       const fazenda = fazendaAtual?.nome || ''
       const cicloNome = cicloLocal?.nome
+      // Logo da fazenda (Fase 9) — mesmo carregador do Manual (pdfWriter.js),
+      // pronta ANTES de gerar (PdfWriter desenha a capa de forma síncrona).
+      const { carregarLogoFazenda } = await import('../lib/pdfWriter')
+      const logoDataURL = await carregarLogoFazenda(fazendaAtual?.foto_url || '')
       if (tab === 0) {
         const { gerarPDFRelatorioGeral } = await import('../lib/pdfRelatorios')
         gerarPDFRelatorioGeral({
-          fazenda, cicloNome,
+          fazenda, cicloNome, logoDataURL,
           kpisTopo: [
             { v: ativos.length,        l:'Animais ativos' },
             { v: matrizes.length,      l:'Matrizes' },
@@ -178,7 +182,7 @@ export default function Relatorios() {
       } else if (tab === 1) {
         const { gerarPDFRelatorioReprodutivo } = await import('../lib/pdfRelatorios')
         gerarPDFRelatorioReprodutivo({
-          fazenda, cicloNome,
+          fazenda, cicloNome, logoDataURL,
           lotesRows: lotes.map(l => {
             const ins = (l.inseminacoes||[]).filter(i => !filtroProp || i.animal?.proprietario_id === filtroProp)
             const prn = ins.filter(i=>i.diagnostico==='P').length
@@ -204,7 +208,7 @@ export default function Relatorios() {
       } else {
         const { gerarPDFRelatorioFinanceiro } = await import('../lib/pdfRelatorios')
         gerarPDFRelatorioFinanceiro({
-          fazenda, cicloNome,
+          fazenda, cicloNome, logoDataURL,
           kpisTopo: [
             { v:fmtMoeda(rec),  l:'Receitas',  cor:[30,85,176],  bg:[232,240,252] },
             { v:fmtMoeda(desp), l:'Despesas',  cor:[121,31,31],  bg:[252,235,235] },

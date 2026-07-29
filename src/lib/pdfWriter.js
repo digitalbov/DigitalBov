@@ -49,7 +49,7 @@ export function paraPdfTexto(s) {
 }
 
 export class PdfWriter {
-  constructor({ titulo, fazenda = '', subtitulo = '' } = {}) {
+  constructor({ titulo, fazenda = '', subtitulo = '', logoDataURL = null } = {}) {
     // compress:true liga a compressão Flate dos content streams do jsPDF —
     // sem isso (não é o padrão), cada rect/linha/preenchimento de tabela vira
     // texto PDF cru sem compactação nenhuma, o que sozinho já respondia pela
@@ -66,16 +66,25 @@ export class PdfWriter {
     this.rightEdge = this.pgW - this.marginX
     this.titulo = titulo
     this.fazenda = fazenda
+    this.logoDataURL = logoDataURL
     this.y = 20
     this._capa(subtitulo)
   }
 
   // Cabeçalho — só desenhado aqui, uma vez, na página 1 (nunca de novo em
   // addPage). É o que torna a "capa/abertura" possível sem repetir o
-  // cabeçalho nas 20+ páginas seguintes.
+  // cabeçalho nas 20+ páginas seguintes. Logo (Bloco D9/Fase 9), quando
+  // houver, entra ACIMA do nome da fazenda — já vem pronta (recorte circular
+  // + JPEG comprimido, ver carregarLogoFazenda abaixo), então é só desenhar;
+  // try/catch pra uma imagem corrompida nunca derrubar a geração inteira.
   _capa(subtitulo) {
     const pdf = this.pdf
     let y = 22
+    if (this.logoDataURL) {
+      const d = 24, logoY = 9
+      try { pdf.addImage(this.logoDataURL, 'JPEG', this.pgW / 2 - d / 2, logoY, d, d) } catch { /* segue sem logo */ }
+      y = logoY + d + 7
+    }
     if (this.fazenda) {
       pdf.setFont('GreatVibes', 'normal'); pdf.setFontSize(28); pdf.setTextColor(35, 35, 35)
       pdf.text(paraPdfTexto(this.fazenda), this.pgW / 2, y, { align: 'center' })
@@ -103,6 +112,13 @@ export class PdfWriter {
   addPage() {
     this.pdf.addPage()
     this.y = 20
+  }
+
+  // Número da página ONDE O CURSOR ESTÁ AGORA — usado pelo chamador (ex:
+  // pdfManual.js) pra registrar em que página cada seção/subseção começou,
+  // ANTES de qualquer inserção de sumário (ver inserirSumario abaixo).
+  paginaAtual() {
+    return this.pdf.internal.getNumberOfPages()
   }
 
   // level 1 = título de seção do manual/relatório; 2/3 = subtítulos internos.
@@ -307,6 +323,102 @@ export class PdfWriter {
     this.y += LINE_H
   }
 
+  // Sumário (Fase 9) — insere página(s) em branco logo após a capa (posição
+  // 2, 3...) com a lista de seções/subseções e o NÚMERO DE PÁGINA REAL de
+  // cada uma, clicável (link interno). `entries` já vem pronto do chamador
+  // (pdfManual.js), com `page` = número registrado DURANTE a geração do
+  // conteúdo, ou seja, ANTES desta inserção — como inserir N páginas de
+  // sumário empurra todo o conteúdo posterior N posições pra frente, a
+  // página FINAL de cada entrada só é conhecida aqui (page + N). Por isso a
+  // ordem importa: gerar todo o conteúdo primeiro (com heading() sendo
+  // chamado normalmente), e só depois chamar isto, por último, antes de finalize().
+  //
+  // Mecânica: jsPDF só permite ADICIONAR página no fim (addPage) ou mover
+  // uma existente (movePage) — não existe "inserir no meio" direto. O método
+  // `insertPage(antesDe)` do próprio jsPDF já embrulha os dois (addPage +
+  // movePage) e deixa o cursor na página nova — chamado em sequência
+  // (posição 2, depois 3, ...) empurra o conteúdo original inteiro pra
+  // frente de uma vez, sem precisar calcular deslocamento manualmente linha
+  // por linha.
+  //
+  // Pré-cálculo de quantas páginas o sumário ocupa: os títulos aqui são
+  // sempre curtos o bastante pra não quebrar linha (títulos de seção/
+  // subseção do manual, não texto livre), então a contagem de linhas por
+  // página é 100% determinística — sem isso, não daria pra saber o
+  // deslocamento ANTES de desenhar os números.
+  inserirSumario(entries, { titulo = 'Sumário' } = {}) {
+    if (!entries || entries.length === 0) return
+    const pdf = this.pdf
+    const rowH1 = 7.2, rowH2 = 5.6
+    const topPrimeira = 20 + 12 // título "Sumário" + linha + respiro
+    const topDemais = 20
+
+    let paginas = 1
+    let ySim = topPrimeira
+    for (const e of entries) {
+      const h = e.level === 1 ? rowH1 : rowH2
+      if (ySim + h > this.maxY) { paginas++; ySim = topDemais }
+      ySim += h
+    }
+
+    // Insere as N páginas em branco logo após a capa (posição 2, 3...) —
+    // cada insertPage já desloca o restante do documento e foca a nova página.
+    for (let i = 0; i < paginas; i++) pdf.insertPage(2 + i)
+
+    pdf.setPage(2)
+    let y = 20
+    pdf.setFont(undefined, 'bold'); pdf.setFontSize(15); pdf.setTextColor(...COR_TITULO)
+    pdf.text(paraPdfTexto(titulo), this.marginX, y)
+    y += 3
+    pdf.setDrawColor(...COR_BORDA)
+    pdf.line(this.marginX, y, this.rightEdge, y)
+    y += 9
+    let paginaDesenho = 2
+
+    for (const e of entries) {
+      const h = e.level === 1 ? rowH1 : rowH2
+      if (y + h > this.maxY) {
+        paginaDesenho++
+        pdf.setPage(paginaDesenho)
+        y = topDemais
+      }
+      const paginaFinal = e.page + paginas
+      const indent = e.level === 1 ? 0 : 7
+      const baseline = y + (e.level === 1 ? 4.6 : 4)
+      pdf.setFont(undefined, e.level === 1 ? 'bold' : 'normal')
+      pdf.setFontSize(e.level === 1 ? 10.3 : 9.2)
+      pdf.setTextColor(...(e.level === 1 ? COR_TITULO : COR_MUTED))
+      const texto = paraPdfTexto(e.titulo)
+      const textX = this.marginX + indent
+      pdf.text(texto, textX, baseline)
+      const numTxt = String(paginaFinal)
+      const numW = pdf.getTextWidth(numTxt)
+      pdf.setTextColor(...COR_MUTED)
+      pdf.text(numTxt, this.rightEdge, baseline, { align: 'right' })
+      // Pontilhado ligando o título ao número — só se sobrar espaço (títulos
+      // longos numa coluna estreita simplesmente não ganham pontilhado).
+      const textW = pdf.getTextWidth(texto)
+      const dotsX0 = textX + textW + 2
+      const dotsX1 = this.rightEdge - numW - 3
+      if (dotsX1 > dotsX0) {
+        pdf.setFont(undefined, 'normal'); pdf.setFontSize(9); pdf.setTextColor(...COR_BORDA)
+        const dotW = pdf.getTextWidth('.')
+        const nDots = Math.max(0, Math.floor((dotsX1 - dotsX0) / (dotW * 1.8)))
+        if (nDots > 0) pdf.text('.'.repeat(nDots), dotsX0, baseline)
+      }
+      // Link clicável cobrindo a linha inteira (não só o texto) — pula pra
+      // página de destino.
+      pdf.link(this.marginX, y, this.rightEdge - this.marginX, h, { pageNumber: paginaFinal })
+      y += h
+    }
+
+    // Devolve o cursor pra última página real do documento (a última página
+    // de conteúdo, agora deslocada +paginas posições) — finalize()/save()
+    // não dependem disso (finalize itera 1..total sozinho), mas deixa o
+    // estado do jsPDF coerente caso algo mais seja desenhado depois.
+    pdf.setPage(pdf.internal.getNumberOfPages())
+  }
+
   // Segunda passada: numeração de página (só sabemos o total no final) +
   // rodapé de texto simples em todas as páginas — sem nenhuma imagem.
   finalize(rodapeTexto) {
@@ -332,4 +444,51 @@ function normalizeSegments(segments) {
 function segmentsHaveText(segments) {
   const arr = Array.isArray(segments) ? segments : [{ text: String(segments) }]
   return arr.some(s => s?.text && s.text.trim())
+}
+
+// ── Logo da fazenda pra capa dos PDFs de texto real (Manual + 3 Relatórios,
+// Fase 9) ────────────────────────────────────────────────────────────────
+// Recorte circular (mesma técnica de pdf.js::carregarImgCircular, usada pelo
+// gerador antigo de captura de tela) — mas em JPEG comprimido, não PNG: o
+// logo é a única imagem "grande" que esses PDFs de texto real carregam, e
+// PNG sem perdas inflaria o arquivo à toa numa foto de fazenda (a foto tem
+// ruído/gradiente — não é ícone/arte plana, onde PNG venceria). Fundo branco
+// preenchido ANTES do recorte porque JPEG não tem canal alfa: sem isso, a
+// área fora do círculo saía preta em vez de transparente/branca. tamanhoMax
+// evita subir a resolução do upload original (normalmente bem maior que o
+// que cabe na capa) sem necessidade.
+// Nunca rejeita a Promise: sem foto_url, ou se a imagem falhar ao carregar
+// (URL quebrada, CORS), resolve null — a capa segue sem logo, sem travar a
+// geração do PDF.
+export function carregarLogoFazenda(url, tamanhoMax = 240) {
+  return new Promise((resolve) => {
+    if (!url) { resolve(null); return }
+    const img = new Image()
+    img.crossOrigin = 'anonymous'
+    img.onload = () => {
+      try {
+        const tamOriginal = Math.min(img.naturalWidth, img.naturalHeight)
+        const tam = Math.min(tamOriginal, tamanhoMax)
+        const sx = (img.naturalWidth - tamOriginal) / 2
+        const sy = (img.naturalHeight - tamOriginal) / 2
+        const c = document.createElement('canvas')
+        c.width = tam; c.height = tam
+        const ctx = c.getContext('2d')
+        ctx.fillStyle = '#ffffff'
+        ctx.fillRect(0, 0, tam, tam)
+        ctx.save()
+        ctx.beginPath()
+        ctx.arc(tam / 2, tam / 2, tam / 2, 0, Math.PI * 2)
+        ctx.closePath()
+        ctx.clip()
+        ctx.drawImage(img, sx, sy, tamOriginal, tamOriginal, 0, 0, tam, tam)
+        ctx.restore()
+        resolve(c.toDataURL('image/jpeg', 0.82))
+      } catch {
+        resolve(null)
+      }
+    }
+    img.onerror = () => resolve(null)
+    img.src = url
+  })
 }

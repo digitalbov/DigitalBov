@@ -24,9 +24,9 @@ function subtitulo(cicloNome) {
 export function gerarPDFRelatorioGeral(dados) {
   const {
     fazenda, cicloNome, kpisTopo, catMap, totalAtivos, indices,
-    valorRows, propsSelecionadas, valorTotal, vencSan, ativos, inativos, filename,
+    valorRows, propsSelecionadas, valorTotal, vencSan, ativos, inativos, filename, logoDataURL,
   } = dados
-  const writer = new PdfWriter({ titulo: 'Relatório Geral', fazenda, subtitulo: subtitulo(cicloNome) })
+  const writer = new PdfWriter({ titulo: 'Relatório Geral', fazenda, subtitulo: subtitulo(cicloNome), logoDataURL })
 
   writer.kpis(kpisTopo)
 
@@ -82,8 +82,8 @@ export function gerarPDFRelatorioGeral(dados) {
 }
 
 export function gerarPDFRelatorioReprodutivo(dados) {
-  const { fazenda, cicloNome, lotesRows, kpiIns, kpiPrn, txPrenhez, nascKpis, partosRows, indicesReprod, filename } = dados
-  const writer = new PdfWriter({ titulo: 'Painel Reprodutivo', fazenda, subtitulo: subtitulo(cicloNome) })
+  const { fazenda, cicloNome, lotesRows, kpiIns, kpiPrn, txPrenhez, nascKpis, partosRows, indicesReprod, filename, logoDataURL } = dados
+  const writer = new PdfWriter({ titulo: 'Painel Reprodutivo', fazenda, subtitulo: subtitulo(cicloNome), logoDataURL })
 
   writer.heading('Lotes de inseminação', 2)
   if (lotesRows.length === 0) {
@@ -125,8 +125,8 @@ export function gerarPDFRelatorioReprodutivo(dados) {
 }
 
 export function gerarPDFRelatorioFinanceiro(dados) {
-  const { fazenda, cicloNome, kpisTopo, receitasGrupo, despesasGrupo, indicadores, filename } = dados
-  const writer = new PdfWriter({ titulo: 'Gestão Financeira', fazenda, subtitulo: subtitulo(cicloNome) })
+  const { fazenda, cicloNome, kpisTopo, receitasGrupo, despesasGrupo, indicadores, filename, logoDataURL } = dados
+  const writer = new PdfWriter({ titulo: 'Gestão Financeira', fazenda, subtitulo: subtitulo(cicloNome), logoDataURL })
 
   writer.kpis(kpisTopo, { perRow: 3 })
 

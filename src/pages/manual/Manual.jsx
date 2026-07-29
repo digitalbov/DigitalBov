@@ -41,11 +41,15 @@ export default function Manual() {
 
   // PDF com texto real (não captura de tela) — ver pdfManual.js. Import
   // dinâmico só pra não engordar o bundle inicial com jsPDF/html2canvas.
+  // Logo da fazenda (Fase 9) carregada ANTES de gerar — precisa estar pronta
+  // (dataURL) antes do PdfWriter desenhar a capa, que é síncrono.
   const gerarPDF = async () => {
     setGerando(true)
     try {
       const { gerarPDFManualTexto } = await import('../../lib/pdfManual')
-      await gerarPDFManualTexto(contentRef, 'manual-digitalbov', fazendaAtual?.nome || '')
+      const { carregarLogoFazenda } = await import('../../lib/pdfWriter')
+      const logoDataURL = await carregarLogoFazenda(fazendaAtual?.foto_url || '')
+      await gerarPDFManualTexto(contentRef, 'manual-digitalbov', fazendaAtual?.nome || '', logoDataURL, MANUAL_INDICE)
     } catch (e) {
       console.error(e)
       toast('Erro ao gerar PDF: ' + e.message, 'error')
