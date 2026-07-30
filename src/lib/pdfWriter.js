@@ -444,35 +444,6 @@ export class PdfWriter {
     pdf.setPage(pdf.internal.getNumberOfPages())
   }
 
-  // Bloco de assinatura (Fase 8, Etapa F) — uma linha por nome + "Data: ___/
-  // ___/___" logo abaixo, desenhado onde o cursor estiver (chamador decide
-  // quando: normalmente por último, antes de finalize()). Sem nomes, não
-  // desenha nada (nunca um bloco vazio "Assinaturas" sem ninguém pra assinar).
-  blocoAssinatura(nomes) {
-    if (!nomes || nomes.length === 0) return
-    this.heading('Assinaturas', this.numerarSecoes ? 1 : 2)
-    const larguraLinha = 70
-    const gapX = 12
-    const porLinha = Math.max(1, Math.floor((this.rightEdge - this.marginX + gapX) / (larguraLinha + gapX)))
-    const alturaBloco = 22
-    nomes.forEach((nome, i) => {
-      const col = i % porLinha
-      const linha = Math.floor(i / porLinha)
-      if (col === 0) this.ensureSpace(alturaBloco)
-      const x = this.marginX + col * (larguraLinha + gapX)
-      const y = this.y + linha * alturaBloco
-      this.pdf.setDrawColor(...COR_TEXTO)
-      this.pdf.line(x, y + 14, x + larguraLinha, y + 14)
-      this.pdf.setFont(undefined, 'normal'); this.pdf.setFontSize(9)
-      this.pdf.setTextColor(...COR_TEXTO)
-      this.pdf.text(paraPdfTexto(nome), x, y + 18, { maxWidth: larguraLinha })
-      this.pdf.setFontSize(7.5); this.pdf.setTextColor(...COR_MUTED)
-      this.pdf.text('Data: ___/___/______', x, y + 22)
-    })
-    const linhas = Math.ceil(nomes.length / porLinha)
-    this.y += linhas * alturaBloco + 4
-  }
-
   // Segunda passada: numeração de página (só sabemos o total no final) +
   // rodapé de texto simples em todas as páginas — sem nenhuma imagem.
   finalize(rodapeTexto) {

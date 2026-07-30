@@ -22,40 +22,31 @@ function subtitulo(cicloNome) {
 }
 
 // Fase 8 (Etapa F) — estilo formal do relatório de fechamento: capa rica
-// (período + proprietários abaixo do subtítulo), seções numeradas (nível 1,
-// em vez do nível 2 "subtítulo" que os 3 relatórios usavam antes), sumário
-// (mesmo inserirSumario que o Manual já usa) e bloco de assinatura no fim.
-// `criarWriter` monta o writer + a função `h()` que registra cada heading no
-// sumário automaticamente — nenhum dos 3 geradores abaixo monta isso à mão.
+// (período + proprietários abaixo do subtítulo) e seções numeradas (nível 1,
+// em vez do nível 2 "subtítulo" que os 3 relatórios usavam antes).
+// `criarWriter` monta o writer + a função `h()` que os 3 geradores abaixo
+// usam pra desenhar cada heading.
 function criarWriter({ titulo, fazenda, cicloNome, periodoTxt, propsTxt, logoDataURL }) {
   const linhasCapa = [periodoTxt, propsTxt].filter(Boolean)
   const writer = new PdfWriter({
     titulo, fazenda, subtitulo: subtitulo(cicloNome), linhasCapa, logoDataURL, numerarSecoes: true,
   })
-  const tocEntries = []
-  const h = (text, level = 1) => {
-    const pagina = writer.paginaAtual()
-    const textoFinal = writer.heading(text, level)
-    if (level === 1) tocEntries.push({ level: 1, titulo: textoFinal, page: pagina })
-    return textoFinal
-  }
-  return { writer, h, tocEntries }
+  const h = (text, level = 1) => writer.heading(text, level)
+  return { writer, h }
 }
 
-// Chamado por último, antes de save() — insere o sumário (desloca o
-// documento todo +N páginas) e desenha o bloco de assinatura na página final.
-function finalizarDocumento(writer, tocEntries, nomesAssinatura, rodapeTexto) {
-  writer.inserirSumario(tocEntries)
-  writer.blocoAssinatura(nomesAssinatura)
+// Chamado por último, antes de save() — sem sumário nem bloco de assinatura
+// (Fase 14): esses relatórios ficam com capa rica + seções numeradas + rodapé.
+function finalizarDocumento(writer, rodapeTexto) {
   writer.finalize(rodapeTexto)
 }
 
 export function gerarPDFRelatorioGeral(dados) {
   const {
-    fazenda, cicloNome, periodoTxt, propsTxt, nomesAssinatura, kpisTopo, catMap, totalAtivos, indices,
+    fazenda, cicloNome, periodoTxt, propsTxt, kpisTopo, catMap, totalAtivos, indices,
     valorRows, propsSelecionadas, valorTotal, vencSan, ativos, inativos, filename, logoDataURL,
   } = dados
-  const { writer, h, tocEntries } = criarWriter({ titulo: 'Relatório Geral', fazenda, cicloNome, periodoTxt, propsTxt, logoDataURL })
+  const { writer, h } = criarWriter({ titulo: 'Relatório Geral', fazenda, cicloNome, periodoTxt, propsTxt, logoDataURL })
 
   writer.kpis(kpisTopo)
 
@@ -106,7 +97,7 @@ export function gerarPDFRelatorioGeral(dados) {
   writer.alertBox('green', 'Sistema operacional',
     `${ativos} animais ativos · ${inativos} inativos no histórico · Ciclo ${cicloNome} em andamento`)
 
-  finalizarDocumento(writer, tocEntries, nomesAssinatura, 'DigitalBov — Relatório Geral')
+  finalizarDocumento(writer, 'DigitalBov — Relatório Geral')
   writer.save(filename)
 }
 
@@ -114,10 +105,10 @@ const idxPct = v => v != null ? `${v}%` : '—'
 
 export function gerarPDFRelatorioReprodutivo(dados) {
   const {
-    fazenda, cicloNome, periodoTxt, propsTxt, nomesAssinatura, lotesRows, kpiIns, kpiPrn, txPrenhez, nascKpis, partosRows, indicesReprod,
+    fazenda, cicloNome, periodoTxt, propsTxt, lotesRows, kpiIns, kpiPrn, txPrenhez, nascKpis, partosRows, indicesReprod,
     mostrarEstacoes, gruposEstacaoRows, consolidadoIdxRow, filename, logoDataURL,
   } = dados
-  const { writer, h, tocEntries } = criarWriter({ titulo: 'Painel Reprodutivo', fazenda, cicloNome, periodoTxt, propsTxt, logoDataURL })
+  const { writer, h } = criarWriter({ titulo: 'Painel Reprodutivo', fazenda, cicloNome, periodoTxt, propsTxt, logoDataURL })
 
   h('Lotes de inseminação', 1)
   if (lotesRows.length === 0) {
@@ -194,16 +185,16 @@ export function gerarPDFRelatorioReprodutivo(dados) {
     writer.table(headers, rows, { larguras: [0.18, 0.09, 0.09, 0.11, 0.09, 0.11, 0.11, 0.11, 0.11] })
   }
 
-  finalizarDocumento(writer, tocEntries, nomesAssinatura, 'DigitalBov — Painel Reprodutivo')
+  finalizarDocumento(writer, 'DigitalBov — Painel Reprodutivo')
   writer.save(filename)
 }
 
 export function gerarPDFRelatorioFinanceiro(dados) {
   const {
-    fazenda, cicloNome, periodoTxt, propsTxt, nomesAssinatura, kpisTopo, receitasGrupo, despesasGrupo,
+    fazenda, cicloNome, periodoTxt, propsTxt, kpisTopo, receitasGrupo, despesasGrupo,
     indicadores, resultadoPorProp, filename, logoDataURL,
   } = dados
-  const { writer, h, tocEntries } = criarWriter({ titulo: 'Gestão Financeira', fazenda, cicloNome, periodoTxt, propsTxt, logoDataURL })
+  const { writer, h } = criarWriter({ titulo: 'Gestão Financeira', fazenda, cicloNome, periodoTxt, propsTxt, logoDataURL })
 
   writer.kpis(kpisTopo, { perRow: 3 })
 
@@ -236,7 +227,7 @@ export function gerarPDFRelatorioFinanceiro(dados) {
   h('Indicadores de rentabilidade', 1)
   indicadores.forEach(item => linhaIndice(writer, { ...item, ok: item.ok }))
 
-  finalizarDocumento(writer, tocEntries, nomesAssinatura, 'DigitalBov — Gestão Financeira')
+  finalizarDocumento(writer, 'DigitalBov — Gestão Financeira')
   writer.save(filename)
 }
 

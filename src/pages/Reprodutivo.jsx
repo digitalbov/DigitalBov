@@ -15,7 +15,7 @@ import {
 import { hoje as hojeAgora, hojeISO } from '../lib/hoje'
 import { registrarDesmame, desfazerDesmame } from '../lib/reprodutivoDesmame'
 import { confirmarPerdaPresumida } from '../lib/perdaGestacionalPresumida'
-import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, AlertBox, BotaoPDF, ErroCarregamento, BannerCicloEncerrado, SeletorCicloLocal, Confirm } from '../components/UI'
+import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, AlertBox, BotaoPDF, ErroCarregamento, BadgeSomenteLeitura, SeletorCicloLocal, Confirm } from '../components/UI'
 import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer
@@ -1758,18 +1758,32 @@ export default function Reprodutivo() {
     return d
   })() : null
 
+  // Botão único de PDF ao lado das abas (Fase 14) — o alvo troca conforme a
+  // aba ativa; dentro da aba 0 (Lotes), troca também entre a lista de lotes
+  // (refLotes) e o diagnóstico do lote aberto (refDiag), já que são duas
+  // telas de conteúdo bem diferentes sob a mesma aba.
+  const pdfAtual = tab === 0
+    ? (selLote
+        ? { ref: refDiag, filename:'reprodutivo-diagnostico', titulo:'Reprodutivo: Diagnóstico do Lote' }
+        : { ref: refLotes, filename:'reprodutivo-lotes', titulo:'Reprodutivo: Lotes / Montas' })
+    : tab === 1
+      ? { ref: refNasc, filename:'reprodutivo-nascimentos', titulo:'Reprodutivo: Nascimentos' }
+      : { ref: refIndices, filename:'reprodutivo-indices', titulo:'Reprodutivo: Índices' }
+
   return (
     <div>
-      <div style={{ marginBottom:14 }}>
+      <div style={{ display:'flex', justifyContent:'flex-end', alignItems:'center', flexWrap:'wrap', gap:8, marginBottom:14 }}>
+        <BadgeSomenteLeitura ciclo={cicloLocal} />
         <SeletorCicloLocal cicloLocal={cicloLocal} setCicloLocal={setCicloLocal} ciclos={ciclos} />
       </div>
 
-      <BannerCicloEncerrado ciclo={cicloLocal} />
-
-      <div className="tabs-bar">
-        {TABS.map((t,i) => (
-          <button key={t} className={`tab-btn ${tab===i?'active':''}`} onClick={() => { setTab(i); setSelLote(null) }}>{t}</button>
-        ))}
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:8, marginBottom:16, borderBottom:'.5px solid var(--gray-200)' }}>
+        <div className="tabs-bar" style={{ flex:1, minWidth:0, marginBottom:0, border:'none' }}>
+          {TABS.map((t,i) => (
+            <button key={t} className={`tab-btn ${tab===i?'active':''}`} onClick={() => { setTab(i); setSelLote(null) }}>{t}</button>
+          ))}
+        </div>
+        <BotaoPDF contentRef={pdfAtual.ref} filename={pdfAtual.filename} titulo={pdfAtual.titulo} />
       </div>
 
       {/* ── Lotes ── */}
@@ -1869,7 +1883,6 @@ export default function Reprodutivo() {
                       <i className="ti ti-plus" /> Nova monta natural
                     </button>
                   )}
-                  <BotaoPDF contentRef={refLotes} filename="reprodutivo-lotes" titulo="Reprodutivo: Lotes / Montas" />
                 </div>
               </div>
               <div ref={refLotes}>
@@ -1953,7 +1966,6 @@ export default function Reprodutivo() {
                 <i className="ti ti-plus" /> Adicionar animais
               </button>
             )}
-            <BotaoPDF contentRef={refDiag} filename="reprodutivo-diagnostico" titulo="Reprodutivo: Diagnóstico do Lote" />
           </div>
           {selLote.lote_touros?.length > 0 && (
             <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap', marginBottom:14 }}>
@@ -2549,7 +2561,6 @@ export default function Reprodutivo() {
                     <i className="ti ti-plus" /> Registrar nascimento
                   </button>
                 )}
-                <BotaoPDF contentRef={refNasc} filename="reprodutivo-nascimentos" titulo="Reprodutivo: Nascimentos" />
               </div>
             </div>
 
@@ -2756,7 +2767,6 @@ export default function Reprodutivo() {
                 )
               })}
             </div>
-            <BotaoPDF contentRef={refIndices} filename="reprodutivo-indices" titulo="Reprodutivo: Índices" />
           </div>
           {loadingIdx ? <Loading /> : <>
           <div ref={refIndices}>

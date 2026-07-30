@@ -62,7 +62,7 @@ export default function SecaoPrimeirosPassos({ item }) {
       <h4 style={{ fontSize: '.88rem', fontWeight: 700, color: '#1a1a1a', marginBottom: 8 }}>Como o sistema é organizado: Conta → Fazenda → Ciclo</h4>
       <ul style={{ color: '#374151', fontSize: '.85rem', lineHeight: 1.8, marginBottom: 18, paddingLeft: 20 }}>
         <li><strong>Conta</strong> — é o seu contrato com o DigitalBov. Pode ter uma ou várias fazendas dentro, e uma ou várias pessoas com acesso (dono, administradores, operadores).</li>
-        <li><strong>Fazenda</strong> — uma propriedade cadastrada dentro da conta. Se você toca mais de uma fazenda, todas aparecem no seletor "Trocar fazenda" no menu lateral, e cada uma tem seu próprio rebanho, financeiro e índices — nada se mistura entre elas.</li>
+        <li><strong>Fazenda</strong> — uma propriedade cadastrada dentro da conta. Se você toca mais de uma fazenda, todas aparecem no seletor de fazenda na faixa superior da tela (ao lado do nome do módulo), e cada uma tem seu próprio rebanho, financeiro e índices — nada se mistura entre elas.</li>
         <li><strong>Ciclo</strong> — o "ano" de gestão de cada fazenda, sempre de <strong>1º de julho a 30 de junho</strong> do ano seguinte (ex: ciclo 2026/27 vai de 01/07/2026 a 30/06/2027). Praticamente tudo no sistema — lançamentos financeiros, índices de Metas, relatórios — é organizado por ciclo.</li>
       </ul>
 

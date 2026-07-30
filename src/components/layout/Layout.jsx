@@ -2,6 +2,7 @@ import { useState, Suspense } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
 import Sidebar from './Sidebar'
 import BottomNav from './BottomNav'
+import SeletoresTopo from './SeletoresTopo'
 import { Loading, Modal } from '../UI'
 import ErrorBoundary from '../ErrorBoundary'
 import { hoje as hojeAgora, hojeISO, getDataSimulada, setDataSimulada, limparDataSimulada } from '../../lib/hoje'
@@ -174,7 +175,7 @@ export default function Layout({ user, perfil }) {
         <div className="main-content">
           {/* Page header */}
           <header className="page-header">
-            <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+            <div style={{ display:'flex', alignItems:'center', gap:10, minWidth:0, flex:1 }}>
               <button
                 className="hamburger-btn"
                 onClick={() => setSidebarOpen(o => !o)}
@@ -182,12 +183,16 @@ export default function Layout({ user, perfil }) {
               >
                 <i className="ti ti-menu-2" />
               </button>
-              <div>
+              <div style={{ minWidth:0, flexShrink:1 }}>
                 <div className="page-title">{page.title}</div>
                 <div className="page-subtitle">{page.sub}</div>
               </div>
+              {/* Barra sombreada — separa o texto do módulo dos seletores de
+                  fazenda/ciclo (Fase 14, movidos aqui da sidebar). */}
+              <div className="header-divider" />
+              <SeletoresTopo />
             </div>
-            <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+            <div style={{ display:'flex', alignItems:'center', gap:12, flexShrink:0 }}>
               <div className="page-date" style={{
                 fontSize:'.78rem', color:'#9CA3AF',
                 display:'flex', alignItems:'center', gap:5

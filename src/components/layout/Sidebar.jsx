@@ -1,11 +1,9 @@
 ﻿import { useState, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { auth, supabase } from '../../lib/supabase'
+import { auth } from '../../lib/supabase'
 import { useFazenda } from '../../lib/FazendaContext'
 import { useConta } from '../../lib/ContaContext'
-import { useCiclo, statusCiclo, STATUS_CICLO_LABEL } from '../../lib/CicloContext'
 import { usePermissoes } from '../../lib/PermissoesContext'
-import OnboardingWizard from '../OnboardingWizard'
 import Tutorial from '../Tutorial'
 
 // Módulos com permissão gerenciável (mesma lista de Usuarios.jsx). Itens fora
@@ -28,7 +26,7 @@ const NAV = [
   { path: '/metas',        icon: 'ti-target',           label: 'Metas e Indicadores' },
   { path: '/rebanho',      icon: 'ti-chart-line',       label: 'Controle de Rebanho' },
   { path: '/calendario',   icon: 'ti-calendar-event',   label: 'Calendário' },
-  { path: '/comparativo',  icon: 'ti-chart-bar',        label: 'Comparativo de Fazendas', condicao: 'comparativo', badgeNovo: true },
+  { path: '/comparativo',  icon: 'ti-chart-bar',        label: 'Comparativo de Fazendas', condicao: 'comparativo' },
   { path: '/relatorios',   icon: 'ti-file-text',        label: 'Relatório de Fechamento' },
   { path: '/assistente',  icon: 'ti-message-chatbot',  label: 'Assistente IA', destaque: true },
 
@@ -50,17 +48,10 @@ const NAV = [
 export default function Sidebar({ user, perfil, mobileOpen, onClose }) {
   const navigate  = useNavigate()
   const location  = useLocation()
-  const { fazendas, fazendaAtual, setFazendaAtual, carregarFazendas } = useFazenda()
+  const { fazendas } = useFazenda()
   const { contas, contaAtual, setContaAtual } = useConta()
-  const { ciclos, cicloSelecionado, setCicloSelecionado, statusCicloSelecionado } = useCiclo()
   const { podeVer, ehAdmin } = usePermissoes()
-  const [seletorAberto, setSeletorAberto] = useState(false)
   const [seletorContaAberto, setSeletorContaAberto] = useState(false)
-  const [seletorCicloAberto, setSeletorCicloAberto] = useState(false)
-  const [modalNova, setModalNova] = useState(false)
-  const [novaForm, setNovaForm] = useState({ nome:'', localizacao:'' })
-  const [salvandoNova, setSalvandoNova] = useState(false)
-  const [wizardFazendaId, setWizardFazendaId] = useState(null)
   const [tutorialAberto, setTutorialAberto] = useState(false)
   // Sidebar recolhida (desktop) — persistida em localStorage, mesmo mecanismo
   // já usado no app pra preferência de UI (ver digitalbov_tutorial_visto
@@ -85,13 +76,6 @@ export default function Sidebar({ user, perfil, mobileOpen, onClose }) {
 
   const handleNav = (path) => { navigate(path); onClose?.() }
 
-  const handleSelectFazenda = (f) => {
-    setFazendaAtual(f)
-    setSeletorAberto(false)
-    navigate(location.pathname, { replace: true })
-    window.location.reload()
-  }
-
   const handleSelectConta = (c) => {
     setContaAtual(c)
     setSeletorContaAberto(false)
@@ -99,32 +83,6 @@ export default function Sidebar({ user, perfil, mobileOpen, onClose }) {
     localStorage.removeItem('fazenda_atual_id')
     navigate('/', { replace: true })
     window.location.reload()
-  }
-
-  const criarFazenda = async () => {
-    // Criar fazenda é ação estrutural da conta — exige admin/dono. O botão já
-    // fica escondido pra quem não é, mas o handler também valida (esconder
-    // no front não protege nada por si só).
-    if (!ehAdmin) return
-    if (!novaForm.nome) return
-    if (!contaAtual) { alert('Conta não carregada. Recarregue a página.'); return }
-    setSalvandoNova(true)
-    const { data, error } = await supabase.rpc('criar_fazenda', {
-      p_conta_id: contaAtual.id,
-      p_nome: novaForm.nome,
-      p_localizacao: novaForm.localizacao || null
-    })
-    setSalvandoNova(false)
-    if (error || !data) {
-      alert('Não foi possível criar a fazenda: ' + (error?.message || 'erro desconhecido'))
-      return
-    }
-    await carregarFazendas()
-    setFazendaAtual(data)
-    setModalNova(false)
-    setNovaForm({ nome:'', localizacao:'' })
-    setSeletorAberto(false)
-    setWizardFazendaId(data.id)
   }
 
   const mostrarComparativo = fazendas.length >= 2
@@ -226,127 +184,6 @@ export default function Sidebar({ user, perfil, mobileOpen, onClose }) {
           </div>
         )}
 
-        {/* Seletor de Fazenda */}
-        {fazendaAtual && (
-          <div className="sidebar-selector" style={{ padding:'6px 12px', marginBottom:4, position:'relative' }}>
-            <button
-              onClick={() => setSeletorAberto(o => !o)}
-              style={{
-                width:'100%', background:'rgba(255,255,255,.1)', border:'1px solid rgba(255,255,255,.18)',
-                borderRadius:10, padding:'8px 10px', cursor:'pointer', color:'white', minHeight:44,
-                display:'flex', alignItems:'center', gap:8, fontFamily:'inherit', textAlign:'left'
-              }}
-            >
-              <i className="ti ti-home-2" style={{ fontSize:14, flexShrink:0 }} />
-              <div style={{ flex:1, minWidth:0 }}>
-                <div style={{ fontSize:'.78rem', fontWeight:600, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
-                  {fazendaAtual.nome}
-                </div>
-                <div style={{ fontSize:'.65rem', color:'rgba(255,255,255,.55)', marginTop:1 }}>
-                    Trocar fazenda
-                  </div>
-              </div>
-              <i className={`ti ti-chevron-${seletorAberto?'up':'down'}`} style={{ fontSize:12, flexShrink:0 }} />
-            </button>
-
-            {seletorAberto && (
-              <div style={{
-                position:'absolute', top:'100%', left:12, right:12, zIndex:100,
-                background:'white', borderRadius:10, boxShadow:'0 8px 24px rgba(0,0,0,.18)',
-                border:'1px solid #E5E7EB', overflow:'hidden', marginTop:4
-              }}>
-                {fazendas.map(f => (
-                  <button
-                    key={f.id}
-                    onClick={() => handleSelectFazenda(f)}
-                    style={{
-                      width:'100%', padding:'10px 14px', background: f.id===fazendaAtual.id ? '#E8F0FC' : 'white',
-                      border:'none', cursor:'pointer', textAlign:'left', fontFamily:'inherit',
-                      borderBottom:'1px solid #F3F4F6', display:'flex', alignItems:'center', gap:8
-                    }}
-                  >
-                    <i className="ti ti-home-2" style={{ color:'#2B6CD9', fontSize:14 }} />
-                    <div>
-                      <div style={{ fontSize:'.83rem', fontWeight:f.id===fazendaAtual.id?600:400, color:'#111827' }}>{f.nome}</div>
-                      {f.localizacao && <div style={{ fontSize:'.72rem', color:'#9CA3AF' }}>{f.localizacao}</div>}
-                    </div>
-                    {f.id===fazendaAtual.id && <i className="ti ti-check" style={{ marginLeft:'auto', color:'#2B6CD9', fontSize:14 }} />}
-                  </button>
-                ))}
-                {ehAdmin && (
-                  <button
-                    onClick={() => { setModalNova(true); setSeletorAberto(false) }}
-                    style={{
-                      width:'100%', padding:'10px 14px', background:'white', border:'none',
-                      cursor:'pointer', textAlign:'left', fontFamily:'inherit',
-                      display:'flex', alignItems:'center', gap:8, color:'#2B6CD9', fontWeight:600
-                    }}
-                  >
-                    <i className="ti ti-plus" style={{ fontSize:14 }} />
-                    <span style={{ fontSize:'.83rem' }}>Nova fazenda</span>
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Seletor de Ciclo */}
-        {cicloSelecionado && (
-          <div className="sidebar-selector" style={{ padding:'6px 12px', marginBottom:8, position:'relative' }}>
-            <button
-              onClick={() => setSeletorCicloAberto(o => !o)}
-              style={{
-                width:'100%', background:'rgba(255,255,255,.06)', border:'1px solid rgba(255,255,255,.14)',
-                borderRadius:10, padding:'8px 10px', cursor:'pointer', color:'white', minHeight:44,
-                display:'flex', alignItems:'center', gap:8, fontFamily:'inherit', textAlign:'left'
-              }}
-            >
-              <i className="ti ti-calendar-event" style={{ fontSize:14, flexShrink:0 }} />
-              <div style={{ flex:1, minWidth:0 }}>
-                <div style={{ fontSize:'.65rem', color:'rgba(255,255,255,.55)' }}>
-                  Ciclo
-                </div>
-                <div style={{ fontSize:'.78rem', fontWeight:600, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
-                  {cicloSelecionado.nome} ({STATUS_CICLO_LABEL[statusCicloSelecionado]})
-                </div>
-              </div>
-              <i className={`ti ti-chevron-${seletorCicloAberto?'up':'down'}`} style={{ fontSize:12, flexShrink:0 }} />
-            </button>
-
-            {seletorCicloAberto && (
-              <div style={{
-                position:'absolute', top:'100%', left:12, right:12, zIndex:100,
-                background:'white', borderRadius:10, boxShadow:'0 8px 24px rgba(0,0,0,.18)',
-                border:'1px solid #E5E7EB', overflow:'hidden', marginTop:4, maxHeight:280, overflowY:'auto'
-              }}>
-                {ciclos.map(c => {
-                  const st = statusCiclo(c)
-                  return (
-                    <button
-                      key={c.id}
-                      onClick={() => { setCicloSelecionado(c); setSeletorCicloAberto(false) }}
-                      style={{
-                        width:'100%', padding:'10px 14px', background: c.id===cicloSelecionado.id ? '#E8F0FC' : 'white',
-                        border:'none', cursor:'pointer', textAlign:'left', fontFamily:'inherit',
-                        borderBottom:'1px solid #F3F4F6', display:'flex', alignItems:'center', gap:8
-                      }}
-                    >
-                      <i className="ti ti-calendar-event" style={{ color:'#2B6CD9', fontSize:14 }} />
-                      <div>
-                        <div style={{ fontSize:'.83rem', fontWeight:c.id===cicloSelecionado.id?600:400, color:'#111827' }}>
-                          {c.nome} <span style={{ fontSize:'.7rem', color:'#6B7280', fontWeight:400 }}>({STATUS_CICLO_LABEL[st]})</span>
-                        </div>
-                      </div>
-                      {c.id===cicloSelecionado.id && <i className="ti ti-check" style={{ marginLeft:'auto', color:'#2B6CD9', fontSize:14 }} />}
-                    </button>
-                  )
-                })}
-              </div>
-            )}
-          </div>
-        )}
-
         {/* Navigation */}
         <nav className="sidebar-nav">
           {navVisivel.map((item, i) => {
@@ -379,13 +216,6 @@ export default function Sidebar({ user, perfil, mobileOpen, onClose }) {
                     borderRadius:6, padding:'1px 6px'
                   }}>IA</span>
                 )}
-                {item.badgeNovo && (
-                  <span className="nav-item-badge" style={{
-                    marginLeft:'auto', fontSize:'.64rem', fontWeight:700,
-                    background:'rgba(99,135,206,.25)', color:'#93C5FD',
-                    borderRadius:6, padding:'1px 6px'
-                  }}>NOVO</span>
-                )}
               </button>
             )
           })}
@@ -411,34 +241,6 @@ export default function Sidebar({ user, perfil, mobileOpen, onClose }) {
             <span className="nav-item-label">Sair</span>
           </button>
         </div>
-        {modalNova && (
-          <div onClick={() => setModalNova(false)} style={{
-            position:'fixed', inset:0, background:'rgba(0,0,0,.5)', zIndex:300,
-            display:'flex', alignItems:'center', justifyContent:'center', padding:20
-          }}>
-            <div onClick={e => e.stopPropagation()} style={{
-              background:'white', borderRadius:14, padding:'28px 26px', maxWidth:380, width:'100%'
-            }}>
-              <h3 style={{ fontSize:'1.1rem', fontWeight:700, color:'#2B6CD9', marginBottom:16 }}>Nova fazenda</h3>
-              <div style={{ marginBottom:14 }}>
-                <label style={{ fontSize:'.8rem', fontWeight:600, color:'#374151', display:'block', marginBottom:6 }}>Nome da fazenda *</label>
-                <input className="input" style={{ width:'100%' }} placeholder="ex: Fazenda Nova"
-                  value={novaForm.nome} onChange={e => setNovaForm(p => ({...p, nome:e.target.value}))} />
-              </div>
-              <div style={{ marginBottom:20 }}>
-                <label style={{ fontSize:'.8rem', fontWeight:600, color:'#374151', display:'block', marginBottom:6 }}>Localização</label>
-                <input className="input" style={{ width:'100%' }} placeholder="ex: Viamão, RS"
-                  value={novaForm.localizacao} onChange={e => setNovaForm(p => ({...p, localizacao:e.target.value}))} />
-              </div>
-              <div style={{ display:'flex', gap:10 }}>
-                <button className="btn" style={{ flex:1 }} onClick={() => setModalNova(false)}>Cancelar</button>
-                <button className="btn btn-primary" style={{ flex:1 }} onClick={criarFazenda} disabled={salvandoNova || !novaForm.nome}>
-                  {salvandoNova ? 'Criando...' : 'Criar'}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
         </div>{/* end sidebar-scroll */}
 
         {/* Recolher/expandir — seta discreta na borda direita da sidebar.
@@ -455,12 +257,6 @@ export default function Sidebar({ user, perfil, mobileOpen, onClose }) {
           <i className={`ti ti-chevron-${collapsed ? 'right' : 'left'}`} />
         </button>
       </aside>
-      {wizardFazendaId && (
-        <OnboardingWizard
-          fazendaId={wizardFazendaId}
-          onClose={() => { setWizardFazendaId(null); window.location.reload() }}
-        />
-      )}
       {tutorialAberto && (
         <Tutorial
           onClose={() => setTutorialAberto(false)}

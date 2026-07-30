@@ -7,7 +7,7 @@ import { useCiclo, statusCiclo } from '../lib/CicloContext'
 import { useCicloLocal } from '../lib/useCicloLocal'
 import { fmtData, fmtMoeda, numeroPositivo, algumErro, calcLotesFEFO, diasAteValidade, CATS_ESTOQUE, GRUPO_SUGERIDO_POR_CATEGORIA, capitalizarPrimeira, capitalizarNome } from '../lib/helpers'
 import { hojeISO } from '../lib/hoje'
-import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, AlertBox, BotaoPDF, Confirm, ErroCarregamento, BannerCicloEncerrado, SeletorCicloLocal } from '../components/UI'
+import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, AlertBox, BotaoPDF, Confirm, ErroCarregamento, BadgeSomenteLeitura, SeletorCicloLocal } from '../components/UI'
 import { validarSaldoEstoque, aplicarMovimentacaoEstoque, reverterCascata, criarLancamentoRateado, carregarGruposExtras, gruposDisponiveis, comGrupoExtra } from '../lib/estoqueFinanceiro'
 import RateioProprietarios from '../components/RateioProprietarios'
 import GrupoSelect from '../components/GrupoSelect'
@@ -444,25 +444,34 @@ export default function Estoque() {
   if (loading) return <Loading />
   if (loadError) return <ErroCarregamento onRetry={loadAll} />
 
+  // Botão único de PDF ao lado das abas (Fase 14)
+  const pdfAtual = tab === 0 ? { ref: refInv,     filename:'estoque-inventario',     titulo:'Estoque: Inventário' }
+    : tab === 1 ? { ref: refMov,     filename:'estoque-movimentacoes', titulo:'Estoque: Movimentações' }
+    : { ref: refAlertas, filename:'estoque-alertas',       titulo:'Estoque: Alertas' }
+
   return (
     <div>
-      <div style={{ marginBottom:14 }}>
+      <div style={{ display:'flex', justifyContent:'flex-end', alignItems:'center', flexWrap:'wrap', gap:8, marginBottom:14 }}>
+        <BadgeSomenteLeitura ciclo={cicloLocal} />
         <SeletorCicloLocal cicloLocal={cicloLocal} setCicloLocal={setCicloLocal} ciclos={ciclos} />
       </div>
 
-      <div className="tabs-bar">
-        {TABS.map((t, i) => (
-          <button key={t} className={`tab-btn ${tab === i ? 'active' : ''}`} onClick={() => setTab(i)}>
-            {t}
-            {t === 'Alertas' && totalAlertas > 0 && (
-              <span style={{
-                background: '#E24B4A', color: 'white',
-                borderRadius: 10, padding: '0px 5px',
-                fontSize: '.68rem', marginLeft: 5
-              }}>{totalAlertas}</span>
-            )}
-          </button>
-        ))}
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:8, marginBottom:16, borderBottom:'.5px solid var(--gray-200)' }}>
+        <div className="tabs-bar" style={{ flex:1, minWidth:0, marginBottom:0, border:'none' }}>
+          {TABS.map((t, i) => (
+            <button key={t} className={`tab-btn ${tab === i ? 'active' : ''}`} onClick={() => setTab(i)}>
+              {t}
+              {t === 'Alertas' && totalAlertas > 0 && (
+                <span style={{
+                  background: '#E24B4A', color: 'white',
+                  borderRadius: 10, padding: '0px 5px',
+                  fontSize: '.68rem', marginLeft: 5
+                }}>{totalAlertas}</span>
+              )}
+            </button>
+          ))}
+        </div>
+        <BotaoPDF contentRef={pdfAtual.ref} filename={pdfAtual.filename} titulo={pdfAtual.titulo} />
       </div>
 
       {/* ── Inventário ── */}
@@ -474,14 +483,11 @@ export default function Estoque() {
               {baixo.length > 0 && <span style={{ color: '#791F1F', fontWeight: 500 }}> · {baixo.length} abaixo do mínimo</span>}
               {alertasValidade.length > 0 && <span style={{ color: '#633806', fontWeight: 500 }}> · {alertasValidade.length} lote{alertasValidade.length !== 1 ? 's' : ''} vencendo</span>}
             </span>
-            <div style={{ display: 'flex', gap: 8 }}>
-              {podeEditarEstoque && (
-                <button className="btn btn-primary btn-sm" onClick={() => { setForm({ categoria: 'Medicamento', itemMovGrupo: GRUPO_SUGERIDO_POR_CATEGORIA['Medicamento'], rateios: rateiosVazios() }); setModal('item') }}>
-                  <i className="ti ti-plus" /> Novo item
-                </button>
-              )}
-              <BotaoPDF contentRef={refInv} filename="estoque-inventario" titulo="Estoque: Inventário" />
-            </div>
+            {podeEditarEstoque && (
+              <button className="btn btn-primary btn-sm" onClick={() => { setForm({ categoria: 'Medicamento', itemMovGrupo: GRUPO_SUGERIDO_POR_CATEGORIA['Medicamento'], rateios: rateiosVazios() }); setModal('item') }}>
+                <i className="ti ti-plus" /> Novo item
+              </button>
+            )}
           </div>
 
           <div ref={refInv}>
@@ -572,17 +578,13 @@ export default function Estoque() {
       {/* ── Movimentar ── */}
       {tab === 1 && (
         <div>
-          <BannerCicloEncerrado ciclo={cicloLocal} />
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
             <span style={{ fontSize: '.85rem', color: '#6B7280' }}>{movsFiltrados.length} movimentações neste ciclo</span>
-            <div style={{ display: 'flex', gap: 8 }}>
-              {podeEditarMovCiclo && (
-                <button className="btn btn-primary btn-sm" onClick={() => { setForm({ tipo: 'S', data: hojeISO(), rateios: rateiosVazios() }); setModal('mov') }}>
-                  <i className="ti ti-plus" /> Movimentar
-                </button>
-              )}
-              <BotaoPDF contentRef={refMov} filename="estoque-movimentacoes" titulo="Estoque: Movimentações" />
-            </div>
+            {podeEditarMovCiclo && (
+              <button className="btn btn-primary btn-sm" onClick={() => { setForm({ tipo: 'S', data: hojeISO(), rateios: rateiosVazios() }); setModal('mov') }}>
+                <i className="ti ti-plus" /> Movimentar
+              </button>
+            )}
           </div>
           <div ref={refMov}>
             {movsFiltrados.length === 0
@@ -630,9 +632,6 @@ export default function Estoque() {
       {/* ── Alertas ── */}
       {tab === 2 && (
         <div>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
-            <BotaoPDF contentRef={refAlertas} filename="estoque-alertas" titulo="Estoque: Alertas" />
-          </div>
           <div ref={refAlertas}>
 
             {/* Estoque baixo */}

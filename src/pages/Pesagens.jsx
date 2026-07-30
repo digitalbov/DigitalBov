@@ -6,7 +6,7 @@ import { useCicloLocal } from '../lib/useCicloLocal'
 import { fmtData, calcGMD, fmtPeso, numeroPositivo, dataNaoFutura, calcCategoria, calcCategoriaRebanho, mesesDeVida, algumErro, capitalizarPrimeira } from '../lib/helpers'
 import { hoje as hojeAgora, hojeISO } from '../lib/hoje'
 import { registrarDesmame as gravarDesmame, desfazerDesmame } from '../lib/reprodutivoDesmame'
-import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, IndexCard, BotaoPDF, Confirm, ErroCarregamento, BannerCicloEncerrado, SeletorCicloLocal } from '../components/UI'
+import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, IndexCard, BotaoPDF, Confirm, ErroCarregamento, BadgeSomenteLeitura, SeletorCicloLocal } from '../components/UI'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 
 const TABS  = ['Registrar','Por Animal','Por Lote','Por Categoria','Desempenho','Projeção','Desmame']
@@ -363,18 +363,30 @@ export default function Pesagens() {
   if (loading) return <Loading />
   if (loadError) return <ErroCarregamento onRetry={loadAll} />
 
+  // Botão único de PDF ao lado das abas (Fase 14) — "Desmame" (tab 6) não
+  // tem exportação própria.
+  const pdfAtual = tab === 0 ? { ref: refReg,    filename:'pesagens-lista',      titulo:'Pesagens: Registros' }
+    : tab === 1 ? { ref: refAnimal, filename:'pesagens-animal',     titulo:'Pesagens: Por Animal' }
+    : tab === 2 ? { ref: refLote,   filename:'pesagens-lote',       titulo:'Pesagens: Por Lote' }
+    : tab === 3 ? { ref: refCat,    filename:'pesagens-categoria',  titulo:'Pesagens: Por Categoria' }
+    : tab === 4 ? { ref: refDesemp, filename:'pesagens-desempenho', titulo:'Pesagens: Desempenho' }
+    : tab === 5 ? { ref: refProj,   filename:'projecao-peso',       titulo:'Pesagens: Projeção de Peso' }
+    : null
+
   return (
     <div>
-      <div style={{ marginBottom:14 }}>
+      <div style={{ display:'flex', justifyContent:'flex-end', alignItems:'center', flexWrap:'wrap', gap:8, marginBottom:14 }}>
+        <BadgeSomenteLeitura ciclo={cicloLocal} />
         <SeletorCicloLocal cicloLocal={cicloLocal} setCicloLocal={setCicloLocal} ciclos={ciclos} />
       </div>
 
-      <BannerCicloEncerrado ciclo={cicloLocal} />
-
-      <div className="tabs-bar">
-        {TABS.map((t,i) => (
-          <button key={t} className={`tab-btn ${tab===i?'active':''}`} onClick={()=>setTab(i)}>{t}</button>
-        ))}
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:8, marginBottom:16, borderBottom:'.5px solid var(--gray-200)' }}>
+        <div className="tabs-bar" style={{ flex:1, minWidth:0, marginBottom:0, border:'none' }}>
+          {TABS.map((t,i) => (
+            <button key={t} className={`tab-btn ${tab===i?'active':''}`} onClick={()=>setTab(i)}>{t}</button>
+          ))}
+        </div>
+        {pdfAtual && <BotaoPDF contentRef={pdfAtual.ref} filename={pdfAtual.filename} titulo={pdfAtual.titulo} />}
       </div>
 
       {/* ── Registrar ── */}
@@ -388,7 +400,6 @@ export default function Pesagens() {
                   <i className="ti ti-plus" /> Registrar pesagem
                 </button>
               )}
-              <BotaoPDF contentRef={refReg} filename="pesagens-lista" titulo="Pesagens: Registros" />
             </div>
           </div>
           <div ref={refReg}>
@@ -431,9 +442,6 @@ export default function Pesagens() {
       {/* ── Por Animal ── */}
       {tab === 1 && (
         <div>
-          <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:8 }}>
-            <BotaoPDF contentRef={refAnimal} filename="pesagens-animal" titulo="Pesagens: Por Animal" />
-          </div>
           <div ref={refAnimal}>
           <div style={{ marginBottom:14, display:'flex', gap:14, flexWrap:'wrap', alignItems:'flex-end' }}>
             <div>
@@ -502,9 +510,6 @@ export default function Pesagens() {
       {/* ── Por Lote ── */}
       {tab === 2 && (
         <div>
-          <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:8 }}>
-            <BotaoPDF contentRef={refLote} filename="pesagens-lote" titulo="Pesagens: Por Lote" />
-          </div>
           <div ref={refLote}>
           <div style={{ marginBottom:14 }}>
             <label style={{ marginBottom:6 }}>Selecione o lote</label>
@@ -537,9 +542,6 @@ export default function Pesagens() {
       {/* ── Por Categoria ── */}
       {tab === 3 && (
         <div>
-          <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:8 }}>
-            <BotaoPDF contentRef={refCat} filename="pesagens-categoria" titulo="Pesagens: Por Categoria" />
-          </div>
           <div ref={refCat}>
           <div style={{ marginBottom:14 }}>
             <label style={{ marginBottom:6 }}>Selecione a categoria</label>
@@ -572,9 +574,6 @@ export default function Pesagens() {
       {/* ── Desempenho ── */}
       {tab === 4 && (
         <div>
-          <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:8 }}>
-            <BotaoPDF contentRef={refDesemp} filename="pesagens-desempenho" titulo="Pesagens: Desempenho" />
-          </div>
           <div ref={refDesemp}>
           <div className="grid-3" style={{ marginBottom:14 }}>
             <IndexCard value={mediaGMD} label="GMD médio kg/dia" meta="≥0,80" ok={parseFloat(mediaGMD)>=0.8}/>
@@ -668,7 +667,6 @@ export default function Pesagens() {
                   </span>
                 )}
               </div>
-              <BotaoPDF contentRef={refProj} filename="projecao-peso" titulo="Pesagens: Projeção de Peso" />
             </div>
 
             <div ref={refProj}>

@@ -265,7 +265,7 @@ export default function Calendario() {
 
   return (
     <div>
-      <div style={{ marginBottom:14 }}>
+      <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:14 }}>
         <SeletorCicloLocal cicloLocal={cicloLocal} setCicloLocal={setCicloLocal} ciclos={ciclos} />
       </div>
 

@@ -6,7 +6,7 @@ import { validarSaldoEstoque, aplicarMovimentacaoEstoque, reverterCascata, busca
 import RateioProprietarios from '../components/RateioProprietarios'
 import GrupoSelect from '../components/GrupoSelect'
 import { hoje as hojeAgora, hojeISO } from '../lib/hoje'
-import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, AlertBox, BotaoPDF, ErroCarregamento, BannerCicloEncerrado, SeletorCicloLocal, Confirm } from '../components/UI'
+import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, AlertBox, BotaoPDF, ErroCarregamento, BadgeSomenteLeitura, SeletorCicloLocal, Confirm } from '../components/UI'
 import { usePermissoes } from '../lib/PermissoesContext'
 import { useConta } from '../lib/ContaContext'
 import { useFazenda } from '../lib/FazendaContext'
@@ -869,20 +869,24 @@ export default function Financeiro() {
 
   return (
     <div>
-      {/* Seletor de ciclo LOCAL desta tela (independente do global) + PDF */}
-      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:10, marginBottom:14, flexWrap:'wrap' }}>
+      {/* Seletor de ciclo LOCAL desta tela (independente do global), alinhado
+          à direita (Fase 14) */}
+      <div style={{ display:'flex', justifyContent:'flex-end', alignItems:'center', flexWrap:'wrap', gap:8, marginBottom:14 }}>
+        <BadgeSomenteLeitura ciclo={cicloLocal} />
         <SeletorCicloLocal cicloLocal={cicloLocal} setCicloLocal={setCicloLocal} ciclos={ciclos} />
+      </div>
+
+      {/* Abas + Gerar PDF na mesma linha, alinhado à direita (Fase 14) — o
+          botão troca de alvo conforme a aba ativa (pdfAtual). */}
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:8, marginBottom:16, borderBottom:'.5px solid var(--gray-200)' }}>
+        <div className="tabs-bar" style={{ flex:1, minWidth:0, marginBottom:0, border:'none' }}>
+          {TABS.map((t,i)=>(
+            <button key={t} className={`tab-btn ${tab===i?'active':''}`} onClick={()=>setTab(i)}>{t}</button>
+          ))}
+        </div>
         {pdfAtual && (
           <BotaoPDF contentRef={pdfAtual.ref} filename={pdfAtual.filename} titulo={pdfAtual.titulo} />
         )}
-      </div>
-
-      <BannerCicloEncerrado ciclo={cicloLocal} />
-
-      <div className="tabs-bar">
-        {TABS.map((t,i)=>(
-          <button key={t} className={`tab-btn ${tab===i?'active':''}`} onClick={()=>setTab(i)}>{t}</button>
-        ))}
       </div>
 
       {/* ── Resumo ── */}

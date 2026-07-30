@@ -1236,19 +1236,18 @@ export default function Metas() {
 
   return (
     <div>
-      {/* Seletor de ciclo */}
-      <div style={{ marginBottom: 12 }}>
+      {/* Filtro por proprietário + seletor de ciclo (alinhado à direita, mesma
+          linha — Fase 14). flexWrap: em tela estreita empilha em vez de espremer. */}
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:10, marginBottom: 12 }}>
+        <div className="pill-group">
+          <button className={`pill ${!filtroProp ? 'active' : ''}`} onClick={() => setFiltroProp('')}>Todos</button>
+          {proprietarios.map(p => (
+            <button key={p.id} className={`pill ${filtroProp === p.id ? 'active' : ''}`} onClick={() => setFiltroProp(p.id)}>
+              {p.nome.split(' ')[0]}
+            </button>
+          ))}
+        </div>
         <SeletorCicloLocal cicloLocal={cicloLocal} setCicloLocal={setCicloLocal} ciclos={ciclos} />
-      </div>
-
-      {/* Filtro por proprietário */}
-      <div className="pill-group" style={{ marginBottom: 12 }}>
-        <button className={`pill ${!filtroProp ? 'active' : ''}`} onClick={() => setFiltroProp('')}>Todos</button>
-        {proprietarios.map(p => (
-          <button key={p.id} className={`pill ${filtroProp === p.id ? 'active' : ''}`} onClick={() => setFiltroProp(p.id)}>
-            {p.nome.split(' ')[0]}
-          </button>
-        ))}
       </div>
 
       {/* Ciclo + sumário */}

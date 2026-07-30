@@ -430,19 +430,17 @@ export default function Relatorios() {
       // pronta ANTES de gerar (PdfWriter desenha a capa de forma síncrona).
       const { carregarLogoFazenda } = await import('../lib/pdfWriter')
       const logoDataURL = await carregarLogoFazenda(fazendaAtual?.foto_url || '')
-      // Fase 8 (Etapa F) — capa rica (período + proprietários do ciclo) e
-      // bloco de assinatura (1 linha por proprietário do rateio) — mesmos
-      // dados nos 3 relatórios, montados uma vez aqui em vez de repetidos em
-      // cada bloco de tab === N.
+      // Fase 8 (Etapa F) — capa rica (período + proprietários do ciclo),
+      // mesmos dados nos 3 relatórios, montados uma vez aqui em vez de
+      // repetidos em cada bloco de tab === N.
       const periodoTxt = dataAberturaCiclo && dataFechamentoCiclo
         ? `Período: ${fmtData(dataAberturaCiclo)} a ${fmtData(dataFechamentoCiclo)}` : null
       const propsTxt = propsSelecionadas.length > 0
         ? `Proprietário(s): ${propsSelecionadas.map(p => p.nome).join(', ')}` : null
-      const nomesAssinatura = propsSelecionadas.map(p => p.nome)
       if (tab === 0) {
         const { gerarPDFRelatorioGeral } = await import('../lib/pdfRelatorios')
         gerarPDFRelatorioGeral({
-          fazenda, cicloNome, periodoTxt, propsTxt, nomesAssinatura, logoDataURL,
+          fazenda, cicloNome, periodoTxt, propsTxt, logoDataURL,
           kpisTopo: [
             { v: ativos.length,        l:'Animais ativos' },
             { v: matrizes.length,      l:'Matrizes' },
@@ -457,7 +455,7 @@ export default function Relatorios() {
       } else if (tab === 1) {
         const { gerarPDFRelatorioReprodutivo } = await import('../lib/pdfRelatorios')
         gerarPDFRelatorioReprodutivo({
-          fazenda, cicloNome, periodoTxt, propsTxt, nomesAssinatura, logoDataURL,
+          fazenda, cicloNome, periodoTxt, propsTxt, logoDataURL,
           lotesRows: lotes.map(l => {
             const ins = (l.inseminacoes||[]).filter(i => !filtroProp || i.animal?.proprietario_id === filtroProp)
             const prn = ins.filter(i=>i.diagnostico==='P').length
@@ -508,7 +506,7 @@ export default function Relatorios() {
       } else {
         const { gerarPDFRelatorioFinanceiro } = await import('../lib/pdfRelatorios')
         gerarPDFRelatorioFinanceiro({
-          fazenda, cicloNome, periodoTxt, propsTxt, nomesAssinatura, logoDataURL,
+          fazenda, cicloNome, periodoTxt, propsTxt, logoDataURL,
           kpisTopo: [
             { v:fmtMoeda(rec),  l:'Receitas',  cor:[30,85,176],  bg:[232,240,252] },
             { v:fmtMoeda(desp), l:'Despesas',  cor:[121,31,31],  bg:[252,235,235] },
@@ -529,22 +527,6 @@ export default function Relatorios() {
   }
 
   // Cabeçalho discreto de cada aba (nome do relatório à esquerda) + botão de
-  // PDF à direita, na MESMA linha — antes o botão tinha uma linha só pra ele
-  // (justify-content:flex-end), desperdiçando espaço vertical, e nenhuma aba
-  // tinha um cabeçalho de tela próprio (só o PrintHeader, centralizado,
-  // dentro do card — é o preview de como fica o PDF, não um cabeçalho de
-  // navegação, por isso não é reaproveitado aqui). Em tela estreita,
-  // flex-wrap deixa o botão descer pra baixo do título — nunca ocupa uma
-  // faixa própria sozinho.
-  const PDFButton = ({ titulo }) => (
-    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:8, marginBottom:12 }}>
-      <h3 style={{ fontSize:'.95rem', fontWeight:700, color:'#111', margin:0 }}>{titulo}</h3>
-      <button className="btn btn-primary btn-sm" onClick={gerarPDF} disabled={generating}>
-        <i className="ti ti-file-type-pdf" /> {generating ? 'Gerando...' : 'Gerar PDF'}
-      </button>
-    </div>
-  )
-
   // Linha de UM lote na tabela "Lotes de inseminação" — extraída pra função
   // porque a Etapa E passou a reaproveitá-la em dois lugares (fallback flat
   // sem estação e dentro de cada grupo de estação), nunca duplicando o JSX.
@@ -580,29 +562,34 @@ export default function Relatorios() {
 
   return (
     <div className="relatorios-page">
-      <div style={{ marginBottom:14 }}>
+      {/* Linha 1: abas (esquerda) + ciclo (direita) — mesmo padrão dos demais módulos */}
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:12 }}>
+        <div className="tabs-bar">
+          {TABS.map((t,i) => (
+            <button key={t} className={`tab-btn ${tab===i?'active':''}`} onClick={()=>setTab(i)}>{t}</button>
+          ))}
+        </div>
         <SeletorCicloLocal cicloLocal={cicloLocal} setCicloLocal={setCicloLocal} ciclos={ciclos} />
       </div>
 
-      <div className="pill-group" style={{ marginBottom:14 }}>
-        <button className={`pill ${!filtroProp ? 'active' : ''}`} onClick={() => setFiltroProp('')}>Todos</button>
-        {props.map(p => (
-          <button key={p.id} className={`pill ${filtroProp === p.id ? 'active' : ''}`} onClick={() => setFiltroProp(p.id)}>
-            {p.nome.split(' ')[0]}
-          </button>
-        ))}
-      </div>
-
-      <div className="tabs-bar">
-        {TABS.map((t,i) => (
-          <button key={t} className={`tab-btn ${tab===i?'active':''}`} onClick={()=>setTab(i)}>{t}</button>
-        ))}
+      {/* Linha 2: filtro por proprietário (esquerda) + Gerar PDF (direita) */}
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:8, marginBottom:16 }}>
+        <div className="pill-group">
+          <button className={`pill ${!filtroProp ? 'active' : ''}`} onClick={() => setFiltroProp('')}>Todos</button>
+          {props.map(p => (
+            <button key={p.id} className={`pill ${filtroProp === p.id ? 'active' : ''}`} onClick={() => setFiltroProp(p.id)}>
+              {p.nome.split(' ')[0]}
+            </button>
+          ))}
+        </div>
+        <button className="btn btn-primary btn-sm" onClick={gerarPDF} disabled={generating}>
+          <i className="ti ti-file-type-pdf" /> {generating ? 'Gerando...' : 'Gerar PDF'}
+        </button>
       </div>
 
       {/* ── Resumo Geral ── */}
       {tab === 0 && (
         <div>
-          <PDFButton titulo="Relatório Geral" />
           <div>
             <div style={{ background:'var(--gray-100)', border:'.5px solid var(--gray-200)', borderRadius:12, padding:'16px 20px', color:'var(--gray-900)', marginBottom:16 }}>
               <PrintHeader titulo="Relatório Geral" />
@@ -790,7 +777,6 @@ export default function Relatorios() {
       {/* ── Reprodução ── */}
       {tab === 1 && (
         <div>
-          <PDFButton titulo="Relatório Reprodutivo" />
           <div>
             <div className="card" style={{ marginBottom:14 }}>
               <PrintHeader titulo="Relatório Reprodutivo" />
@@ -955,7 +941,6 @@ export default function Relatorios() {
       {/* ── Financeiro ── */}
       {tab === 2 && (
         <div>
-          <PDFButton titulo="Relatório Financeiro" />
           <div>
             <div className="card" style={{ marginBottom:14 }}>
               <PrintHeader titulo="Relatório Financeiro" />

@@ -8,7 +8,7 @@ import { useCicloLocal } from '../lib/useCicloLocal'
 import { fmtData, diasDesde, calcCategoriaRebanho, algumErro, capitalizarPrimeira, sanidadeRealizada, sanidadeAgendada, labelTipoSanidade } from '../lib/helpers'
 import { hoje as hojeAgora, hojeISO } from '../lib/hoje'
 import { validarSaldoEstoque, aplicarMovimentacaoEstoque, reverterCascata } from '../lib/estoqueFinanceiro'
-import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, AlertBox, BotaoPDF, Confirm, ErroCarregamento, BannerCicloEncerrado, SeletorCicloLocal } from '../components/UI'
+import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, AlertBox, BotaoPDF, Confirm, ErroCarregamento, BadgeSomenteLeitura, SeletorCicloLocal } from '../components/UI'
 
 const TABS   = ['Registros','Calendário de vacinação','Alertas','Histórico']
 // TIPOS é o valor GRAVADO (procedimentos_sanitarios.tipo) — sempre singular,
@@ -565,18 +565,27 @@ export default function Sanidade() {
   if (loading) return <Loading />
   if (loadError) return <ErroCarregamento onRetry={load} />
 
+  // Botão único de PDF ao lado das abas (Fase 14) — "Calendário de vacinação"
+  // (tab 1) não tem exportação própria.
+  const pdfAtual = tab === 0 ? { ref: refReg,     filename:'sanidade-registros', titulo:'Sanidade: Registros' }
+    : tab === 2 ? { ref: refAlertas, filename:'sanidade-alertas',   titulo:'Sanidade: Alertas' }
+    : tab === 3 ? { ref: refHist,    filename:'sanidade-historico', titulo:'Sanidade: Histórico' }
+    : null
+
   return (
     <div>
-      <div style={{ marginBottom:14 }}>
+      <div style={{ display:'flex', justifyContent:'flex-end', alignItems:'center', flexWrap:'wrap', gap:8, marginBottom:14 }}>
+        <BadgeSomenteLeitura ciclo={cicloLocal} />
         <SeletorCicloLocal cicloLocal={cicloLocal} setCicloLocal={setCicloLocal} ciclos={ciclos} />
       </div>
 
-      <BannerCicloEncerrado ciclo={cicloLocal} />
-
-      <div className="tabs-bar">
-        {TABS.map((t, i) => (
-          <button key={t} className={`tab-btn ${tab === i ? 'active' : ''}`} onClick={() => setTab(i)}>{t}</button>
-        ))}
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:8, marginBottom:16, borderBottom:'.5px solid var(--gray-200)' }}>
+        <div className="tabs-bar" style={{ flex:1, minWidth:0, marginBottom:0, border:'none' }}>
+          {TABS.map((t, i) => (
+            <button key={t} className={`tab-btn ${tab === i ? 'active' : ''}`} onClick={() => setTab(i)}>{t}</button>
+          ))}
+        </div>
+        {pdfAtual && <BotaoPDF contentRef={pdfAtual.ref} filename={pdfAtual.filename} titulo={pdfAtual.titulo} />}
       </div>
 
       {/* ── Registros ── */}
@@ -584,9 +593,6 @@ export default function Sanidade() {
         <div>
           <div className="sanidade-reg-header">
             <span className="sanidade-reg-count">{dadosFiltrados.length} procedimentos</span>
-            <div className="sanidade-reg-pdf">
-              <BotaoPDF contentRef={refReg} filename="sanidade-registros" titulo="Sanidade: Registros" />
-            </div>
             {podeEditarSanidadeCiclo && (
               <div className="sanidade-reg-novo">
                 <button className="btn btn-primary btn-sm" onClick={abrirNovo}>
@@ -723,9 +729,6 @@ export default function Sanidade() {
       {/* ── Alertas ── */}
       {tab === 2 && (
         <div>
-          <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:8 }}>
-            <BotaoPDF contentRef={refAlertas} filename="sanidade-alertas" titulo="Sanidade: Alertas" />
-          </div>
           <div ref={refAlertas}>
           {vencidos.length === 0 && proximos.length === 0 && (
             <AlertBox type="green" title="Tudo em dia!" body="Nenhum procedimento vencido ou próximo do prazo." />
@@ -804,9 +807,6 @@ export default function Sanidade() {
       {/* ── Histórico ── */}
       {tab === 3 && (
         <div>
-          <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:8 }}>
-            <BotaoPDF contentRef={refHist} filename="sanidade-historico" titulo="Sanidade: Histórico" />
-          </div>
           <div ref={refHist}>
           <div className="grid-3" style={{ marginBottom:16 }}>
             {TIPOS.map(tp => {

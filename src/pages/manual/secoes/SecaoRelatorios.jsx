@@ -78,8 +78,8 @@ export default function SecaoRelatorios({ item }) {
         body='A lista de grupos não é uma lista fixa — ela é montada a partir dos lançamentos reais do período, incluindo grupos criados por você em Financeiro (mesmo os digitados à mão) e os grupos automáticos de Comissão/Impostos/Frete/Monta Natural. A soma de tudo que aparece nessa lista bate exatamente com o total de receitas/despesas mostrado acima — se um grupo não tiver nenhum lançamento no período, ele simplesmente não aparece na lista.' />
 
       <AlertBox type="purple" icon="ti-file-type-pdf"
-        title="Estilo do PDF: capa, sumário e assinatura"
-        body="Cada um dos 3 PDFs traz capa com fazenda/período/proprietários, sumário com número de página real de cada seção, seções numeradas, rodapé com paginação, e um bloco de assinatura (uma linha por proprietário + espaço de data) no fim do documento — pronto para imprimir e assinar." />
+        title="Estilo do PDF: capa e seções numeradas"
+        body="Cada um dos 3 PDFs traz capa com fazenda/período/proprietários, seções numeradas e rodapé com paginação — pronto para imprimir ou enviar." />
     </div>
   )
 }

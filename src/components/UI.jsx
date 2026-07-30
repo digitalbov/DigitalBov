@@ -289,18 +289,27 @@ export function AlertBox({ type = 'green', icon, title, body, action }) {
   )
 }
 
-// ── Banner de ciclo encerrado (somente leitura) ────────────────────
-// Sem prop `ciclo`, usa o ciclo GLOBAL selecionado (menu lateral). Passe
-// `ciclo` para refletir um seletor LOCAL de tela (independente do global).
-export function BannerCicloEncerrado({ ciclo } = {}) {
+// ── Badge de ciclo encerrado (somente leitura) ──────────────────────
+// Fase 14 — substitui a antiga tarja amarela de página inteira por uma
+// indicação discreta ao lado do seletor de ciclo (não muda o bloqueio real
+// de edição, que continua em cada página via podeEditarXCiclo/statusCiclo —
+// isto é só o indicador visual). Sem prop `ciclo`, usa o ciclo GLOBAL
+// selecionado; passe `ciclo` pra refletir um seletor LOCAL de tela.
+export function BadgeSomenteLeitura({ ciclo } = {}) {
   const { cicloSelecionado } = useCiclo()
   const c = ciclo !== undefined ? ciclo : cicloSelecionado
   if (!c) return null
   const st = statusCiclo(c)
   if (st === 'atual' || st === 'carencia') return null
   return (
-    <AlertBox type="amber" icon="ti-lock" title="Somente leitura"
-      body={`Você está visualizando o ciclo ${c.nome}, que está encerrado. Os dados são somente para consulta e não podem ser editados.`} />
+    <span title={`Ciclo ${c.nome} encerrado — consulta apenas, sem edição`} style={{
+      display:'inline-flex', alignItems:'center', gap:4, fontSize:'.72rem', fontWeight:600,
+      color:'var(--warning-text)', background:'var(--warning-bg)', border:'1px solid #F3D5A3',
+      borderRadius:20, padding:'3px 9px', whiteSpace:'nowrap',
+    }}>
+      <i className="ti ti-lock" style={{ fontSize:11 }} />
+      Somente leitura
+    </span>
   )
 }
 
