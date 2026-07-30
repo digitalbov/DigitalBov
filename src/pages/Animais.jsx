@@ -65,6 +65,15 @@ function TimelineCard({ timeline, loading }) {
                 {ev.descricao && (
                   <div style={{ fontSize: '.78rem', color: '#6B7280' }}>{ev.descricao}</div>
                 )}
+                {/* Fase 12 — selo do parto órfão (sem lote_inseminacao_id):
+                    hoje fora dos índices da safra sem nenhum aviso visual —
+                    este selo é o ponto de correção disso. */}
+                {ev.semLote && (
+                  <div title="Este parto não está vinculado a nenhum lote de inseminação/monta — não entra nos índices de parição, mortalidade, GMD Terneiros etc. da safra. Corrija em Reprodutivo → Nascimentos → Editar."
+                    style={{ display:'inline-block', fontSize:'.7rem', fontWeight:600, color:'#92620A', background:'#FEF3C7', border:'.5px solid #F3D5A3', borderRadius:12, padding:'2px 8px', marginTop:4, cursor:'help' }}>
+                    <i className="ti ti-alert-triangle" style={{ fontSize:11 }} /> Sem lote vinculado — fora dos índices da safra
+                  </div>
+                )}
               </div>
             </div>
           ))}
@@ -474,7 +483,8 @@ export default function Animais() {
         data:     p.data_parto,
         icon:     TL_ICONS.parto_bezerro,
         titulo:   'Parto registrado',
-        descricao: `Mãe: brinco ${p.mae?.brinco || '?'}`
+        descricao: `Mãe: brinco ${p.mae?.brinco || '?'}`,
+        semLote:  !p.lote_inseminacao_id,
       })
     }
 
@@ -510,15 +520,19 @@ export default function Animais() {
       }
     }
 
-    // Partos como mãe
+    // Partos como mãe — Fase 12: sinaliza quando o parto não tem lote de
+    // inseminação vinculado (fora dos índices da safra — parição, mortalidade,
+    // GMD Terneiros etc. — sem que ninguém percebesse antes disso existir).
     for (const p of (rPartosMae.data || [])) {
+      const descBezerro = p.bezerro?.brinco
+        ? `Bezerro: brinco ${p.bezerro.brinco} · ${p.bezerro.sexo === 'M' ? 'Macho ♂' : 'Fêmea ♀'}`
+        : 'Bezerro não identificado'
       eventos.push({
         data:     p.data_parto,
         icon:     TL_ICONS.parto_mae,
         titulo:   'Parto',
-        descricao: p.bezerro?.brinco
-          ? `Bezerro: brinco ${p.bezerro.brinco} · ${p.bezerro.sexo === 'M' ? 'Macho ♂' : 'Fêmea ♀'}`
-          : 'Bezerro não identificado'
+        descricao: descBezerro,
+        semLote:  !p.lote_inseminacao_id,
       })
     }
 

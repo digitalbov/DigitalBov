@@ -488,6 +488,56 @@ export default function Reprodutivo() {
     return melhor
   }
 
+  // Fase 12 (correção de rumo) — dias entre a monta do lote e a data do
+  // parto. A janela de gestação (260-300 dias) é BIOLOGIA, não preferência do
+  // usuário: erroJanelaGestacao BLOQUEIA o salvamento quando um lote (auto ou
+  // escolhido manualmente) não bate com a data do parto — não é mais um
+  // "aviso, mas grava mesmo assim". Isto é sobre a DATA DO PARTO, nunca sobre
+  // quando o usuário está digitando no sistema (ver LANCAMENTO_ATRASADO_DIAS
+  // abaixo, que é o oposto: nunca bloqueia).
+  const diasGestacaoLote = (lote, dataParto) => {
+    if (!lote?.data || !dataParto) return null
+    return Math.round((new Date(dataParto + 'T12:00:00') - new Date(lote.data + 'T12:00:00')) / 86400000)
+  }
+  const erroJanelaGestacao = (lote, dataParto) => {
+    const dias = diasGestacaoLote(lote, dataParto)
+    if (dias === null || (dias >= GESTACAO_MIN_DIAS && dias <= GESTACAO_MAX_DIAS)) return null
+    return `${dias} dias entre a monta (${fmtData(lote.data)}) e o parto (${fmtData(dataParto)}) — fora da janela de gestação válida (${GESTACAO_MIN_DIAS} a ${GESTACAO_MAX_DIAS} dias). Escolha outro lote ou corrija a data do parto.`
+  }
+  // Lançamento atrasado (o usuário digitando meses depois do parto real) é
+  // sempre permitido — NUNCA bloqueia, é só um informativo. Diferente de
+  // erroJanelaGestacao acima: aqui a data comparada é HOJE (quando o usuário
+  // está preenchendo a tela), não a monta.
+  const LANCAMENTO_ATRASADO_DIAS = 180
+  const diasLancamentoAtrasado = (dataParto) => {
+    if (!dataParto) return 0
+    const dias = Math.round((new Date(hojeISO() + 'T12:00:00') - new Date(dataParto + 'T12:00:00')) / 86400000)
+    return dias > LANCAMENTO_ATRASADO_DIAS ? dias : 0
+  }
+  // Recomputa a mesma validação do quadro "Safra" pra desabilitar o botão de
+  // salvar sem duplicar estado — barato o bastante (filter sobre todosLotes)
+  // pra rodar de novo aqui, mesmo padrão já usado noutros pontos da tela.
+  const safraInvalidaCreate = () => {
+    if (!form.mae_brinco) return true
+    const maeObj = animais.find(a => a.brinco === form.mae_brinco)
+    const candidatos = maeObj
+      ? todosLotes.filter(l => l.inseminacoes?.some(i => i.animal_id === maeObj.id && i.diagnostico === 'P'))
+      : []
+    const loteVinculado = candidatos.find(l => l.id === form.lote_inseminacao_id)
+    if (!loteVinculado) return true
+    return !!erroJanelaGestacao(loteVinculado, form.data_parto)
+  }
+  // Edição: diferente da criação, "sem lote" não bloqueia (ver comentário no
+  // quadro Safra da edição) — só bloqueia se um lote de verdade foi
+  // escolhido e está fora da janela de gestação.
+  const safraInvalidaEdit = () => {
+    if (!editParto?.lote_inseminacao_id) return false
+    const candidatos = todosLotes.filter(l => l.inseminacoes?.some(i => i.animal_id === editParto.mae_id && i.diagnostico === 'P'))
+    const loteVinculado = candidatos.find(l => l.id === editParto.lote_inseminacao_id)
+    if (!loteVinculado) return false
+    return !!erroJanelaGestacao(loteVinculado, editParto.data_parto)
+  }
+
   const togSel = (br) => setSelBrs(prev =>
     prev.includes(br) ? prev.filter(b => b !== br) : [...prev, br]
   )
@@ -859,6 +909,12 @@ export default function Reprodutivo() {
     if (error) { toast('Erro ao salvar diagnóstico: ' + error.message, 'error'); return false }
     const a = animais.find(x => x.id === animalId)
     if (a) await db.animais.update(animalId, { sit_reprodutiva: diag === 'P' ? 'prenha' : 'vazia' })
+    // todosLotes (usado pelas listas de candidatos "Safra (lote de origem)" no
+    // registro/edição de nascimento, Fase 12) só é buscado uma vez por sessão
+    // (todosStale, ver useEffect no topo) — sem isto, diagnosticar Prenha aqui
+    // e tentar vincular esse lote a um nascimento na mesma sessão mostraria a
+    // lista de candidatos desatualizada (achado ao vivo testando a Fase 12).
+    setTodosStale(true)
     if (recarregar) await loadAll(false)
     return true
   }
@@ -1073,18 +1129,19 @@ export default function Reprodutivo() {
       toast(`A mãe ${mae.brinco} teria menos de ${IDADE_MIN_PARTO_MESES} meses na data deste parto (${fmtData(form.data_parto)}) — idade abaixo do mínimo plausível.`, 'error')
       return
     }
-    // Aviso (NÃO bloqueia) se o intervalo entre a monta vinculada e o parto
-    // foge da janela de gestação plausível — mesma janela (260-300 dias) que
-    // encontrarLoteSafra já usa pra escolher qual lote é a safra deste parto.
-    if (form.lote_inseminacao_id) {
-      const loteVinculado = todosLotes.find(l => l.id === form.lote_inseminacao_id)
-      if (loteVinculado?.data) {
-        const diasGestacao = Math.round((new Date(form.data_parto + 'T12:00:00') - new Date(loteVinculado.data + 'T12:00:00')) / 86400000)
-        if (diasGestacao < GESTACAO_MIN_DIAS || diasGestacao > GESTACAO_MAX_DIAS) {
-          toast(`Aviso: ${diasGestacao} dias entre a monta (${fmtData(loteVinculado.data)}) e este parto — fora da janela usual de gestação (${GESTACAO_MIN_DIAS}-${GESTACAO_MAX_DIAS} dias). Registrando mesmo assim — confira se é o lote certo.`, 'error')
-        }
-      }
+    // Fase 12 (correção de rumo) — todo nascimento PRECISA de safra vinculada
+    // (nunca mais opcional): sem lote, o parto some dos índices de parição,
+    // mortalidade, GMD Terneiros etc. sem ninguém perceber — era exatamente o
+    // problema que motivou a Fase 12. E a data do parto tem que estar dentro
+    // da janela de gestação do lote (260-300 dias) — isto é biologia, não
+    // escolha do usuário, então BLOQUEIA (nunca "grava mesmo assim").
+    if (!form.lote_inseminacao_id) {
+      toast('Selecione o lote de origem (Safra) antes de salvar — nenhum nascimento pode ficar sem safra vinculada. Se a mãe não tem um lote com diagnóstico Prenha para esta gestação, registre a inseminação ou monta (IA ou monta natural) correspondente na aba "Lotes / Montas" primeiro.', 'error')
+      return
     }
+    const loteVinculado = todosLotes.find(l => l.id === form.lote_inseminacao_id)
+    const erroJanela = loteVinculado && erroJanelaGestacao(loteVinculado, form.data_parto)
+    if (erroJanela) { toast(erroJanela, 'error'); return }
     const cicloDoParto = cicloDaData(form.data_parto)
 
     // Tudo dentro de try/catch/finally: setSaving(false) TEM que rodar mesmo se
@@ -1381,12 +1438,16 @@ export default function Reprodutivo() {
     if (!podeEditarReprodCiclo) return
     setEditParto({
       id: p.id,
+      mae_id: p.mae_id,
       bezerro_id: p.bezerro_id,
       data_parto: p.data_parto,
       sexo_bezerro: p.bezerro?.sexo || 'F',
       brinco_bezerro: p.bezerro?.brinco || '',
       situacao_bezerro: p.bezerro?.situacao || 'ativo',
-      observacoes: p.observacoes || ''
+      observacoes: p.observacoes || '',
+      // Fase 12 — lote de origem agora editável (antes só era definido na
+      // criação e nunca mais podia ser corrigido/desvinculado).
+      lote_inseminacao_id: p.lote_inseminacao_id || null,
     })
     setBrincoDupEdit(null)
   }
@@ -1408,9 +1469,22 @@ export default function Reprodutivo() {
         : 'Data fora de qualquer ciclo cadastrado.', 'error')
       return
     }
-    // atualiza o parto
+    // Fase 12 (correção de rumo) — "sem lote" continua permitido na edição
+    // (é a ferramenta de conserto dos órfãos legados), mas se um lote de
+    // verdade for escolhido, a janela de gestação (260-300 dias) BLOQUEIA —
+    // mesma regra do registro, é biologia, não preferência do usuário.
+    if (ep.lote_inseminacao_id) {
+      const loteVinculado = todosLotes.find(l => l.id === ep.lote_inseminacao_id)
+      const erroJanela = loteVinculado && erroJanelaGestacao(loteVinculado, ep.data_parto)
+      if (erroJanela) { toast(erroJanela, 'error'); return }
+    }
+    // atualiza o parto — lote_inseminacao_id agora editável (Fase 12): corrige
+    // o vínculo com a safra, ou desvincula (null) um parto que foi ligado ao
+    // lote errado. Índices de parição/perda/mortalidade da safra (calcLoteMetrics)
+    // usam esse FK, então mudar aqui muda em qual safra este parto é contado.
     const { error: e1 } = await db.partos.update(ep.id, {
-      data_parto: ep.data_parto, observacoes: capitalizarPrimeira(ep.observacoes)
+      data_parto: ep.data_parto, observacoes: capitalizarPrimeira(ep.observacoes),
+      lote_inseminacao_id: ep.lote_inseminacao_id || null,
     })
     // atualiza o bezerro — sit_reprodutiva só é recalculada por sexo se o
     // bezerro está vivo; um natimorto/morto fica sempre 'nao_se_aplica'
@@ -2598,7 +2672,16 @@ export default function Reprodutivo() {
                                 </button>
                               ) : <Badge color="gray">{p.bezerro?.brinco||'—'}</Badge>}
                             </td>
-                            <td style={{ fontSize:'.82rem', color:'#6B7280' }}>{loteDoP?.touro || '—'}</td>
+                            <td style={{ fontSize:'.82rem', color:'#6B7280' }}>
+                              {loteDoP
+                                ? loteDoP.touro
+                                : (
+                                  <span title="Sem lote vinculado — fora dos índices da safra (parição, mortalidade, GMD Terneiros etc.)"
+                                    style={{ fontSize:'.72rem', fontWeight:600, color:'#92620A', background:'#FEF3C7', border:'.5px solid #F3D5A3', borderRadius:12, padding:'2px 8px', whiteSpace:'nowrap', cursor:'help' }}>
+                                    <i className="ti ti-alert-triangle" style={{ fontSize:11 }} /> Sem lote
+                                  </span>
+                                )}
+                            </td>
                             <td style={{ fontSize:'.78rem', color:'#9CA3AF', whiteSpace:'nowrap' }}>{prevPartoLoteP}</td>
                             <td style={{ whiteSpace:'nowrap' }}>
                               {podeEditarReprodCiclo && (
@@ -3364,6 +3447,15 @@ export default function Reprodutivo() {
         <div className="grid-form">
           <Field label="Data do nascimento" required>
             <input type="date" value={form.data_parto||''} onChange={e=>setForm(p=>({...p,data_parto:e.target.value}))} />
+            {/* Fase 12 — lançamento atrasado é permitido (nunca bloqueia);
+                isto é só um informativo pra quem digita meses depois do
+                parto real, diferente da janela de gestação (que bloqueia). */}
+            {diasLancamentoAtrasado(form.data_parto) > 0 && (
+              <div style={{ fontSize:'.72rem', color:'#1E55B0', marginTop:4 }}>
+                <i className="ti ti-info-circle" style={{ fontSize:11 }} /> Lançamento tardio: {diasLancamentoAtrasado(form.data_parto)} dias
+                desde o parto. Isso é normal, só um informativo.
+              </div>
+            )}
           </Field>
           <Field label="Brinco da mãe" required>
             <select value={form.mae_brinco||''} onChange={e => {
@@ -3403,8 +3495,11 @@ export default function Reprodutivo() {
           </Field>
         </div>
 
-        {/* Vínculo com a safra reprodutiva (lote de inseminação que originou a gestação) — em
-            destaque visual proposital, para o usuário ver claramente antes de salvar. */}
+        {/* Vínculo com a safra reprodutiva (lote de inseminação que originou a gestação)
+            — Fase 12 (correção de rumo): agora OBRIGATÓRIO, não mais opcional. Sem lote,
+            o parto ficaria fora dos índices de safra sem ninguém perceber. Vermelho +
+            botão de salvar desabilitado enquanto não houver um lote válido escolhido
+            (dentro da janela de gestação de 260-300 dias). */}
         {form.mae_brinco && (() => {
           const maeObj = animais.find(a => a.brinco === form.mae_brinco)
           const candidatos = maeObj
@@ -3413,25 +3508,27 @@ export default function Reprodutivo() {
                 .slice()
                 .sort((a, b) => (b.data||'').localeCompare(a.data||''))
             : []
-          const loteVinculado = candidatos.find(l => l.id === form.lote_inseminacao_id)
+          const loteVinculado = candidatos.find(l => l.id === form.lote_inseminacao_id) || null
+          const erroJanela = loteVinculado && erroJanelaGestacao(loteVinculado, form.data_parto)
+          const ok = loteVinculado && !erroJanela
           return (
             <div style={{
-              background: loteVinculado ? '#E8F0FC' : '#FEF3C7',
-              border: `1.5px solid ${loteVinculado ? '#1BA89C' : '#F3D5A3'}`,
+              background: ok ? '#E8F0FC' : '#FEE2E2',
+              border: `1.5px solid ${ok ? '#1BA89C' : '#DC2626'}`,
               borderRadius: 10, padding: '10px 14px', marginBottom: 14
             }}>
               <div style={{ fontSize:'.68rem', fontWeight:700, color:'#6B7280', textTransform:'uppercase', letterSpacing:.4, marginBottom:5 }}>
-                <i className="ti ti-link" /> Safra (lote de origem)
+                <i className="ti ti-link" /> Safra (lote de origem) <span style={{ color:'#DC2626' }}>*</span>
               </div>
-              <div style={{ fontSize:'.92rem', fontWeight:700, color: loteVinculado ? '#1E55B0' : '#92620A', marginBottom: 8 }}>
-                {loteVinculado
-                  ? <>Vinculado: Lote {loteVinculado.numero} — {loteVinculado.ciclo?.nome || ''} — {
-                      (loteVinculado.lote_touros?.length > 0)
-                        ? `vários touros (paternidade indefinida): ${[loteVinculado.touro, ...loteVinculado.lote_touros.map(t => t.nome)].join(', ')}`
-                        : loteVinculado.touro
-                    } · {loteVinculado.tipo === 'natural' ? 'Monta Natural' : 'IA'} ({fmtData(loteVinculado.data)})</>
-                  : <>Sem lote vinculado</>}
-              </div>
+              {ok && (
+                <div style={{ fontSize:'.92rem', fontWeight:700, color:'#1E55B0', marginBottom: 8 }}>
+                  Vinculado: Lote {loteVinculado.numero} — {loteVinculado.ciclo?.nome || ''} — {
+                    (loteVinculado.lote_touros?.length > 0)
+                      ? `vários touros (paternidade indefinida): ${[loteVinculado.touro, ...loteVinculado.lote_touros.map(t => t.nome)].join(', ')}`
+                      : loteVinculado.touro
+                  } · {loteVinculado.tipo === 'natural' ? 'Monta Natural' : 'IA'} ({fmtData(loteVinculado.data)})
+                </div>
+              )}
               {candidatos.length > 0 ? (
                 <select value={form.lote_inseminacao_id || ''}
                   onChange={e => {
@@ -3442,14 +3539,26 @@ export default function Reprodutivo() {
                     setForm(p => ({ ...p, lote_inseminacao_id: novoId, touro_pai: resolverPaiDerivado(novoLote) }))
                   }}
                   style={{ width:'100%' }}>
-                  <option value="">— nenhum (sem lote) —</option>
+                  <option value="">— selecione o lote —</option>
                   {candidatos.map(l => (
                     <option key={l.id} value={l.id}>Lote {l.numero} — {l.ciclo?.nome || ''} — {l.touro} · {l.tipo === 'natural' ? 'Monta Natural' : 'IA'} ({fmtData(l.data)})</option>
                   ))}
                 </select>
               ) : (
-                <div style={{ fontSize:'.75rem', color:'#92620A' }}>
-                  Nenhum lote com diagnóstico de prenhez encontrado para esta mãe — será registrado sem lote de origem vinculado.
+                <div style={{ fontSize:'.8rem', color:'#791F1F', fontWeight:500 }}>
+                  Nenhum lote com diagnóstico de prenhez encontrado para esta mãe. Todo nascimento precisa de uma
+                  safra vinculada — registre a inseminação ou monta (IA ou monta natural) correspondente na aba
+                  "Lotes / Montas" antes de lançar este parto.
+                </div>
+              )}
+              {!loteVinculado && candidatos.length > 0 && (
+                <div style={{ fontSize:'.78rem', color:'#791F1F', fontWeight:500, marginTop:8 }}>
+                  <i className="ti ti-alert-circle" style={{ fontSize:12 }} /> Selecione o lote de origem — obrigatório, nenhum nascimento pode ficar sem safra vinculada.
+                </div>
+              )}
+              {erroJanela && (
+                <div style={{ fontSize:'.78rem', color:'#791F1F', fontWeight:500, marginTop:8 }}>
+                  <i className="ti ti-alert-circle" style={{ fontSize:12 }} /> {erroJanela}
                 </div>
               )}
             </div>
@@ -3504,9 +3613,10 @@ export default function Reprodutivo() {
         <div className="modal-actions" style={{ marginTop:14 }}>
           {/* podeEditarReprod (permissão) — não podeEditarReprodCiclo, ver
               comentário em salvarParto. Desabilitado também com brinco
-              duplicado — mesma checagem de salvarParto, só antecipada aqui
-              pra dar feedback visual antes mesmo do clique. */}
-          <button className="btn btn-primary" onClick={salvarParto} disabled={saving || !podeEditarReprod || !!brincoDupCreate}>
+              duplicado e com safra ausente/fora da janela de gestação (Fase
+              12) — mesmas checagens de salvarParto, só antecipadas aqui pra
+              dar feedback visual antes mesmo do clique. */}
+          <button className="btn btn-primary" onClick={salvarParto} disabled={saving || !podeEditarReprod || !!brincoDupCreate || safraInvalidaCreate()}>
             {saving ? 'Registrando...' : <><i className="ti ti-check" /> Registrar e criar animal</>}
           </button>
           <button className="btn btn-secondary" onClick={()=>setModal(null)}>Cancelar</button>
@@ -3547,11 +3657,63 @@ export default function Reprodutivo() {
                 )}
               </Field>
             </div>
+
+            {/* Fase 12 (correção de rumo) — safra (lote de origem) corrigível
+                na edição: o propósito é consertar os órfãos legados que já
+                existem no banco. Diferente do registro, "sem lote" continua
+                PERMITIDO aqui (o selo amber já sinaliza o problema) — mas se
+                um lote de verdade for escolhido, a janela de gestação
+                (260-300 dias) BLOQUEIA como no registro, nunca "salva mesmo
+                assim". */}
+            {(() => {
+              const candidatos = todosLotes
+                .filter(l => l.inseminacoes?.some(i => i.animal_id === editParto.mae_id && i.diagnostico === 'P'))
+                .slice()
+                .sort((a, b) => (b.data||'').localeCompare(a.data||''))
+              const loteVinculado = candidatos.find(l => l.id === editParto.lote_inseminacao_id) || null
+              const erroJanela = loteVinculado ? erroJanelaGestacao(loteVinculado, editParto.data_parto) : null
+              return (
+                <div style={{
+                  background: erroJanela ? '#FEE2E2' : (loteVinculado ? '#E8F0FC' : '#FEF3C7'),
+                  border: `1.5px solid ${erroJanela ? '#DC2626' : (loteVinculado ? '#1BA89C' : '#F3D5A3')}`,
+                  borderRadius: 10, padding: '10px 14px', marginBottom: 14
+                }}>
+                  <div style={{ fontSize:'.68rem', fontWeight:700, color:'#6B7280', textTransform:'uppercase', letterSpacing:.4, marginBottom:5 }}>
+                    <i className="ti ti-link" /> Safra (lote de origem)
+                  </div>
+                  <div style={{ fontSize:'.92rem', fontWeight:700, color: erroJanela ? '#791F1F' : (loteVinculado ? '#1E55B0' : '#92620A'), marginBottom: 8 }}>
+                    {loteVinculado
+                      ? <>Vinculado: Lote {loteVinculado.numero} — {loteVinculado.ciclo?.nome || ''} — {loteVinculado.touro} · {loteVinculado.tipo === 'natural' ? 'Monta Natural' : 'IA'} ({fmtData(loteVinculado.data)})</>
+                      : <>Sem lote vinculado — fora dos índices da safra (parição, mortalidade, GMD Terneiros etc.)</>}
+                  </div>
+                  {candidatos.length > 0 ? (
+                    <select value={editParto.lote_inseminacao_id || ''}
+                      onChange={e => setEditParto(p => ({ ...p, lote_inseminacao_id: e.target.value || null }))}
+                      style={{ width:'100%' }}>
+                      <option value="">— nenhum (sem lote) —</option>
+                      {candidatos.map(l => (
+                        <option key={l.id} value={l.id}>Lote {l.numero} — {l.ciclo?.nome || ''} — {l.touro} · {l.tipo === 'natural' ? 'Monta Natural' : 'IA'} ({fmtData(l.data)})</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <div style={{ fontSize:'.75rem', color:'#92620A' }}>
+                      Nenhum lote com diagnóstico de prenhez encontrado para esta mãe.
+                    </div>
+                  )}
+                  {erroJanela && (
+                    <div style={{ fontSize:'.78rem', color:'#791F1F', fontWeight:500, marginTop:8 }}>
+                      <i className="ti ti-alert-circle" style={{ fontSize:12 }} /> {erroJanela}
+                    </div>
+                  )}
+                </div>
+              )
+            })()}
+
             <Field label="Observações">
               <textarea value={editParto.observacoes||''} onChange={e=>setEditParto(p=>({...p,observacoes:e.target.value}))} placeholder="opcional" />
             </Field>
             <div className="modal-actions" style={{ marginTop:14 }}>
-              <button className="btn btn-primary" onClick={salvarEdicaoParto} disabled={!!brincoDupEdit}>
+              <button className="btn btn-primary" onClick={salvarEdicaoParto} disabled={!!brincoDupEdit || safraInvalidaEdit()}>
                 <i className="ti ti-check" /> Salvar
               </button>
               <button className="btn btn-secondary" onClick={()=>setEditParto(null)}>Cancelar</button>

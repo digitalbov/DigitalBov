@@ -234,14 +234,25 @@ export default function SecaoReprodutivo({ item }) {
           <strong>mortalidade de terneiros</strong> (Metas → Perdas) e nunca aparece na oferta de desmame nem
           conta no kg de desmame — ele nunca teve a chance de ser desmamado.
         </p>
-        <h4 style={{ ...H4, fontSize: '.85rem' }}>Registrando um parto de uma safra de ciclo anterior</h4>
+        <h4 style={{ ...H4, fontSize: '.85rem' }}>Toda safra é obrigatória — e a janela de gestação bloqueia</h4>
         <p style={P}>
           Uma gestação dura cerca de 9 meses, então é normal o parto cair no ciclo seguinte ao da monta que o
           originou. Você <strong>não precisa escolher um ciclo</strong> na hora de registrar o parto: basta
-          escolher a mãe e a data do parto — o sistema encontra sozinho, entre todos os lotes onde aquela mãe
-          está com diagnóstico Prenha, qual monta bate com essa data (dentro da janela normal de gestação). Se
-          a mãe tiver mais de um lote Prenha em aberto ao mesmo tempo (raro), aparece um seletor manual
-          "Safra (lote de origem)" para você escolher o lote certo.
+          escolher a mãe e a data do parto — o sistema procura sozinho, entre todos os lotes onde aquela mãe
+          está com diagnóstico Prenha, qual monta bate com essa data (dentro da janela de gestação válida, 260
+          a 300 dias). O quadro <strong>"Safra (lote de origem)"</strong> mostra o resultado dessa busca e traz
+          um seletor manual — com todos os lotes onde a mãe tem diagnóstico Prenha — pra você trocar se o
+          automático escolheu errado.
+        </p>
+        <AlertBox type="red" icon="ti-lock"
+          title='Todo nascimento PRECISA de uma safra vinculada — o botão de salvar fica bloqueado até isso acontecer'
+          body='Não é mais possível registrar um parto sem lote de origem (nem escolhendo "sem lote" de propósito). Se nenhum lote da mãe cair na janela de gestação para a data informada, o quadro "Safra" fica vermelho e o salvamento é bloqueado, com a orientação: vincule a um lote existente da mãe, ou — se ainda não existe — registre primeiro a inseminação ou monta (IA ou monta natural, na aba "Lotes / Montas") que originou essa gestação. O mesmo vale se você escolher manualmente um lote cuja data de monta não bate com o parto: o sistema mostra os dias calculados, a janela válida (260 a 300) e a data da monta, e bloqueia — isto é biologia, não uma preferência sua.' />
+        <p style={P}>
+          Isso é diferente de <strong>quando</strong> você está preenchendo a tela. Lançar hoje um parto que
+          aconteceu meses atrás é normal e sempre funciona — o sistema nunca restringe pela data de hoje, só
+          pela data real do parto (e pela janela de gestação dela com a monta). Se o lançamento estiver muito
+          atrasado (mais de 180 dias entre o parto e hoje), aparece um aviso <strong>informativo</strong> — nunca
+          bloqueia.
         </p>
         <div style={CODE}>
           O parto em si conta para o ciclo em que ele aconteceu de verdade (para relatórios/lançamentos por
@@ -251,6 +262,26 @@ export default function SecaoReprodutivo({ item }) {
         <AlertBox type="amber" icon="ti-calendar-repeat"
           title='Registrar um nascimento atrasado troca o ciclo exibido na tela'
           body='O parto sempre grava certo, no ciclo da SUA data real — mas se você está revisando um lote de uma safra antiga (seletor de ciclo no topo apontando pra ela) e registra um nascimento com a data de hoje, esse parto pertence ao ciclo de hoje, não ao ciclo que você estava vendo. Nesse caso o sistema troca sozinho o ciclo selecionado para o do parto (com aviso no toast), pra você já ver o registro novo direto na aba Nascimentos — sem isso, o parto ficaria certo no banco mas pareceria "sumido" da tela.' />
+
+        <h4 style={{ ...H4, fontSize: '.85rem' }}>Partos sem lote vinculado (órfãos legados)</h4>
+        <p style={P}>
+          Antes desta trava existir, alguns partos foram salvos sem lote de origem — hoje isso não é mais
+          possível na criação, mas os registros antigos continuam no banco. Um parto <strong>sem lote
+          vinculado</strong> some dos índices de parição, mortalidade de terneiros, GMD Terneiros e todo o
+          funil da safra, porque esses índices são ancorados no lote (a monta), não na mãe. Isso era{' '}
+          <strong>invisível</strong> — hoje um{' '}
+          <span style={{ background:'#FEF3C7', border:'.5px solid #F3D5A3', borderRadius:12, padding:'1px 8px', fontSize:'.78rem', fontWeight:600, color:'#92620A' }}>⚠ Sem lote vinculado — fora dos índices da safra</span>{' '}
+          aparece tanto na coluna "Touro" da aba Nascimentos quanto na Linha do tempo da ficha do animal (mãe e
+          terneiro), sempre com essa explicação completa.
+        </p>
+        <p style={P}>
+          Para corrigir: abra o nascimento pela aba Nascimentos (<i className="ti ti-edit" /> Editar) e escolha
+          o lote certo no quadro "Safra (lote de origem)" — o mesmo seletor do registro, agora também
+          disponível na edição, com a mesma trava biológica: se o lote escolhido não bater com a janela de
+          gestação (260-300 dias), o salvamento é bloqueado. Diferente do registro, a edição ainda permite
+          deixar "— nenhum (sem lote) —" — é a única forma de mexer nesses registros antigos sem forçar um
+          vínculo que talvez não exista (dados legados às vezes têm datas imprecisas).
+        </p>
         <h4 style={{ ...H4, fontSize: '.85rem' }}>Aba Nascimentos</h4>
         <p style={P}>
           Além das pills de proprietário, a lista tem <strong>quatro filtros combináveis</strong> (em conjunto
