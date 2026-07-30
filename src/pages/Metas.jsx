@@ -24,7 +24,17 @@ const GraficoPrecoVenda3D = lazy(() => import('../components/GraficoPrecoVenda3D
 const CFG = {
   taxa_prenhez:         { label: 'Taxa de Prenhez',         icon: '💉', inverted: false, desc: 'Prenhas / total de inseminadas no ciclo atual' },
   taxa_aproveitamento:  { label: 'Taxa de Aproveitamento',  icon: '🎯', inverted: false, desc: 'Matrizes expostas / matrizes aptas (fêmeas >24 meses na data da monta)' },
-  taxa_paricao:         { label: 'Taxa de Parição',         icon: '🍼', inverted: false, desc: 'Partos / prenhas confirmadas (ciclo atual)', semDadosMsg: 'Aguardando partos' },
+  // Fase 8 (correção de nomenclatura, Opção A) — "taxa_paricao" existia com
+  // esse nome desde antes, com fórmula partos/PRENHAS. Isso colidia com
+  // outra tela (Reprodutivo.jsx) que já usava "Taxa de parição" pra
+  // partos/EXPOSTAS (padrão do setor). Decisão: taxa_paricao mantém a
+  // fórmula/chave/meta já configurada por quem usa o sistema (zero migração,
+  // nenhuma meta salva muda de sentido) — só o RÓTULO muda, pra "Eficiência
+  // Gestacional". A chave nova abaixo (taxa_paricao_expostas) é quem passa a
+  // se chamar "Taxa de Parição" de verdade, com meta própria (75%, sem
+  // herdar nada — número novo, denominador estruturalmente maior).
+  taxa_paricao:         { label: 'Eficiência Gestacional',  icon: '🍼', inverted: false, desc: 'Partos / prenhas confirmadas (ciclo atual) — mede quantas gestações confirmadas realmente resultaram em parto', semDadosMsg: 'Aguardando partos' },
+  taxa_paricao_expostas:{ label: 'Taxa de Parição',         icon: '🐮', inverted: false, desc: 'Partos / matrizes expostas no ciclo (padrão do setor) — inclui vacas que nunca prenharam, diferente de Eficiência Gestacional', semDadosMsg: 'Aguardando partos' },
   gmd_terneiros:        { label: 'GMD Terneiros',           icon: '⚖️', inverted: false, desc: 'GMD médio dos terneiros com ≥2 pesagens' },
   gmd_terneiros_femeas: { label: 'GMD Terneiras (fêmeas)',  icon: '⚖️', inverted: false, desc: 'GMD médio das terneiras (fêmeas) com ≥2 pesagens' },
   gmd_terneiros_machos: { label: 'GMD Terneiros (machos)',  icon: '⚖️', inverted: false, desc: 'GMD médio dos terneiros (machos) com ≥2 pesagens' },
@@ -114,10 +124,10 @@ function subtituloCustos(indicador, custosPorModo, modo) {
 // Posição no array = ordem de entrada nos GRUPOS abaixo — cada grupo tem seu
 // próprio grid de 4 colunas (.grid-4), então a posição dentro do array só
 // importa relativa ao grupo, não à tela inteira (ver GRUPOS/render).
-const ORDEM = ['taxa_prenhez', 'taxa_aproveitamento', 'taxa_paricao', 'taxa_aborto', 'mortalidade', 'gmd_terneiros', 'gmd_terneiros_femeas', 'gmd_terneiros_machos', 'kg_bezerro_matriz', 'intervalo_partos', 'kg_nascimento', 'kg_desmame', 'producao_kg', 'producao_valor', 'receita_real_terneiros', 'producao_kg_ha', 'producao_valor_ha', 'receita_real_terneiros_ha', 'custo_insem_terneiro', 'custo_insem_pct_valor', 'custo_insem_total', 'custo_insem_matriz']
+const ORDEM = ['taxa_prenhez', 'taxa_aproveitamento', 'taxa_paricao_expostas', 'taxa_paricao', 'taxa_aborto', 'mortalidade', 'gmd_terneiros', 'gmd_terneiros_femeas', 'gmd_terneiros_machos', 'kg_bezerro_matriz', 'intervalo_partos', 'kg_nascimento', 'kg_desmame', 'producao_kg', 'producao_valor', 'receita_real_terneiros', 'producao_kg_ha', 'producao_valor_ha', 'receita_real_terneiros_ha', 'custo_insem_terneiro', 'custo_insem_pct_valor', 'custo_insem_total', 'custo_insem_matriz']
 // Containers exibidos na tela, nesta ordem — Produção sempre por último.
 const GRUPOS = [
-  { titulo: 'Reprodução', indicadores: ['taxa_prenhez', 'taxa_aproveitamento', 'taxa_paricao', 'intervalo_partos'] },
+  { titulo: 'Reprodução', indicadores: ['taxa_prenhez', 'taxa_aproveitamento', 'taxa_paricao_expostas', 'taxa_paricao', 'intervalo_partos'] },
   { titulo: 'Perdas',     indicadores: ['taxa_aborto', 'mortalidade'] },
   { titulo: 'GMD',        indicadores: ['gmd_terneiros', 'gmd_terneiros_femeas', 'gmd_terneiros_machos', 'kg_bezerro_matriz', 'kg_nascimento', 'kg_desmame'] },
   // Grid de 4 colunas: linha 1 = Kg, Kg/ha, Valor Estimado, Receita Real —
@@ -128,7 +138,7 @@ const GRUPOS = [
   { titulo: 'Custos', indicadores: ['custo_insem_terneiro', 'custo_insem_pct_valor', 'custo_insem_total', 'custo_insem_matriz'] },
 ]
 const IDEAIS = {
-  taxa_prenhez: '90%', taxa_paricao: '85%', gmd_terneiros: '0,8', mortalidade: '5%',
+  taxa_prenhez: '90%', taxa_paricao: '85%', taxa_paricao_expostas: '75%', gmd_terneiros: '0,8', mortalidade: '5%',
   taxa_aproveitamento: '100%', kg_bezerro_matriz: '>160kg', intervalo_partos: '~365d', taxa_aborto: '<5%',
   kg_desmame: '>180kg', gmd_terneiros_femeas: '0,8', gmd_terneiros_machos: '0,8',
 }
@@ -148,11 +158,16 @@ const DEFAULTS_NOVOS_INDICADORES = {
   kg_desmame:          180,
   gmd_terneiros_femeas: 0.8,
   gmd_terneiros_machos: 0.8,
+  // Fase 8 — chave nova (taxa_paricao ANTIGA continua com o default que já
+  // tinha configurado, ou sem um aqui mesmo — não mexi nela). 75% é a meta
+  // aprovada pra "Taxa de Parição" (partos/expostas) — decisão do usuário,
+  // não um número já em uso em nenhum outro lugar.
+  taxa_paricao_expostas: 75,
 }
 // Unidade padrão de cada indicador — usada quando ainda não existe uma linha
 // salva no banco (card "virtual"), pra sempre ter algo pra mostrar/editar.
 const UNIDADES_PADRAO = {
-  taxa_prenhez: '%', taxa_paricao: '%', mortalidade: '%',
+  taxa_prenhez: '%', taxa_paricao: '%', taxa_paricao_expostas: '%', mortalidade: '%',
   gmd_terneiros: 'kg/dia', gmd_terneiros_femeas: 'kg/dia', gmd_terneiros_machos: 'kg/dia',
   taxa_aproveitamento: '%', kg_bezerro_matriz: 'kg', intervalo_partos: 'dias', taxa_aborto: '%',
   kg_nascimento: 'kg', kg_desmame: 'kg',
@@ -557,6 +572,7 @@ function valorIndicadorDoBloco(ind, bloco, temValorCadastrado) {
     case 'taxa_prenhez':         return bloco.taxaPrenhez
     case 'taxa_aproveitamento':  return bloco.taxaAproveitamento
     case 'taxa_paricao':         return bloco.taxaParicao
+    case 'taxa_paricao_expostas': return bloco.taxaParicaoExpostas
     case 'intervalo_partos':     return bloco.intervaloPartos
     case 'taxa_aborto':          return bloco.taxaAborto
     case 'mortalidade':          return bloco.mortalidade
@@ -884,6 +900,9 @@ export default function Metas() {
         // safra só está em andamento — 0% pareceria "parição ruim" quando na
         // verdade é "ainda não tem o que medir".
         const taxaParicao = (prenhas > 0 && nPartos > 0) ? (nPartos / prenhas) * 100 : null
+        // Fase 8 — "Taxa de Parição" oficial (padrão do setor): partos ÷
+        // matrizes EXPOSTAS, não prenhas (ver CFG.taxa_paricao_expostas).
+        const taxaParicaoExpostas = (matrizesExpostas > 0 && nPartos > 0) ? (nPartos / matrizesExpostas) * 100 : null
         const desmameMetrics  = calcDesmameMetrics(partosSafra, matrizesExpostas)
         const kgBezerroMatriz = desmameMetrics.kgPorMatrizExposta
         const kgNascimento    = desmameMetrics.pesoMedioNascimento
@@ -979,7 +998,7 @@ export default function Metas() {
 
         return {
           partosSafra, prenhas, matrizesExpostas, taxaPrenhez, taxaAproveitamento,
-          nPartos, taxaParicao, kgBezerroMatriz, kgNascimento, kgDesmame,
+          nPartos, taxaParicao, taxaParicaoExpostas, kgBezerroMatriz, kgNascimento, kgDesmame,
           nAbortos, gestandoTotal, perdasNaoIdentificadas, taxaAborto,
           gmdTerneiros: media(gmdsT), gmdTerneirosFemeas: media(gmdsF), gmdTerneirosMachos: media(gmdsM),
           gmdIndividuais: gmdsT,

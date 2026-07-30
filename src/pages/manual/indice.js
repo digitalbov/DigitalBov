@@ -41,12 +41,12 @@ export const MANUAL_INDICE = [
     resumo: 'Agenda unificada de partos previstos, procedimentos sanitários agendados e vencimentos de estoque.',
   },
   {
-    id: 'comparativo', titulo: 'Comparativo', icone: 'ti-chart-bar',
+    id: 'comparativo', titulo: 'Comparativo de Fazendas', icone: 'ti-chart-bar',
     resumo: 'Compara todas as fazendas da mesma conta lado a lado, alinhadas pelo nome do ciclo.',
   },
   {
-    id: 'relatorios', titulo: 'Relatórios', icone: 'ti-file-text',
-    resumo: 'Geração de relatórios em PDF: Resumo Geral, Reprodução e Financeiro.',
+    id: 'relatorios', titulo: 'Relatório de Fechamento', icone: 'ti-file-text',
+    resumo: 'Geração do relatório de fechamento em PDF: Resumo Geral, Reprodução e Financeiro.',
   },
   {
     id: 'propriedade', titulo: 'Propriedades', icone: 'ti-home-2',

@@ -21,12 +21,12 @@ const PAGE_TITLES = {
   '/pesagens':     { title: 'Pesagens & Desempenho', sub: 'Pesos e GMD por animal' },
   '/estoque':      { title: 'Estoque',               sub: 'Medicamentos, vacinas e sêmen' },
   '/financeiro':   { title: 'Gestão Financeira',     sub: 'Receitas, despesas e resultados' },
-  '/relatorios':   { title: 'Relatórios',            sub: 'Exportar e imprimir' },
+  '/relatorios':   { title: 'Relatório de Fechamento', sub: 'Exportar e imprimir' },
   '/assistente':   { title: 'Assistente IA',         sub: 'Pergunte sobre o rebanho, finanças e estoque' },
   '/calendario':   { title: 'Calendário',             sub: 'Agenda e eventos futuros da fazenda' },
   '/metas':        { title: 'Metas & Indicadores',    sub: 'Semáforo de desempenho e KPIs zootécnicos' },
   '/backup':       { title: 'Backup & Dados',          sub: 'Exportar e fazer backup de todos os dados' },
-  '/comparativo':  { title: 'Comparativo',             sub: 'Análise financeira e zootécnica entre fazendas' },
+  '/comparativo':  { title: 'Comparativo de Fazendas', sub: 'Análise financeira e zootécnica entre fazendas' },
   '/manual':       { title: 'Manual do Sistema',        sub: 'Guia completo de uso do DigitalBov' },
 }
 

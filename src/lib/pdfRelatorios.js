@@ -21,16 +21,45 @@ function subtitulo(cicloNome) {
   return `Ciclo ${cicloNome || '—'} · Gerado em ${hoje}`
 }
 
+// Fase 8 (Etapa F) — estilo formal do relatório de fechamento: capa rica
+// (período + proprietários abaixo do subtítulo), seções numeradas (nível 1,
+// em vez do nível 2 "subtítulo" que os 3 relatórios usavam antes), sumário
+// (mesmo inserirSumario que o Manual já usa) e bloco de assinatura no fim.
+// `criarWriter` monta o writer + a função `h()` que registra cada heading no
+// sumário automaticamente — nenhum dos 3 geradores abaixo monta isso à mão.
+function criarWriter({ titulo, fazenda, cicloNome, periodoTxt, propsTxt, logoDataURL }) {
+  const linhasCapa = [periodoTxt, propsTxt].filter(Boolean)
+  const writer = new PdfWriter({
+    titulo, fazenda, subtitulo: subtitulo(cicloNome), linhasCapa, logoDataURL, numerarSecoes: true,
+  })
+  const tocEntries = []
+  const h = (text, level = 1) => {
+    const pagina = writer.paginaAtual()
+    const textoFinal = writer.heading(text, level)
+    if (level === 1) tocEntries.push({ level: 1, titulo: textoFinal, page: pagina })
+    return textoFinal
+  }
+  return { writer, h, tocEntries }
+}
+
+// Chamado por último, antes de save() — insere o sumário (desloca o
+// documento todo +N páginas) e desenha o bloco de assinatura na página final.
+function finalizarDocumento(writer, tocEntries, nomesAssinatura, rodapeTexto) {
+  writer.inserirSumario(tocEntries)
+  writer.blocoAssinatura(nomesAssinatura)
+  writer.finalize(rodapeTexto)
+}
+
 export function gerarPDFRelatorioGeral(dados) {
   const {
-    fazenda, cicloNome, kpisTopo, catMap, totalAtivos, indices,
+    fazenda, cicloNome, periodoTxt, propsTxt, nomesAssinatura, kpisTopo, catMap, totalAtivos, indices,
     valorRows, propsSelecionadas, valorTotal, vencSan, ativos, inativos, filename, logoDataURL,
   } = dados
-  const writer = new PdfWriter({ titulo: 'Relatório Geral', fazenda, subtitulo: subtitulo(cicloNome), logoDataURL })
+  const { writer, h, tocEntries } = criarWriter({ titulo: 'Relatório Geral', fazenda, cicloNome, periodoTxt, propsTxt, logoDataURL })
 
   writer.kpis(kpisTopo)
 
-  writer.heading('Composição do rebanho', 2)
+  h('Composição do rebanho', 1)
   const catEntries = Object.entries(catMap).sort((a, b) => b[1] - a[1])
   writer.table(
     [{ label: 'Categoria' }, { label: 'Qtde', align: 'right' }, { label: '%', align: 'right' }],
@@ -38,11 +67,11 @@ export function gerarPDFRelatorioGeral(dados) {
     { larguras: [0.6, 0.2, 0.2] },
   )
 
-  writer.heading('Índices principais', 2)
+  h('Índices principais', 1)
   indices.forEach(item => linhaIndice(writer, item))
 
   if (valorRows.length > 0) {
-    writer.heading('Valor estimado do rebanho', 2)
+    h('Valor estimado do rebanho', 1)
     const headers = [
       { label: 'Categoria' },
       ...propsSelecionadas.map(p => ({ label: p.nome.split(' ')[0], align: 'right' })),
@@ -77,15 +106,20 @@ export function gerarPDFRelatorioGeral(dados) {
   writer.alertBox('green', 'Sistema operacional',
     `${ativos} animais ativos · ${inativos} inativos no histórico · Ciclo ${cicloNome} em andamento`)
 
-  writer.finalize('DigitalBov — Relatório Geral')
+  finalizarDocumento(writer, tocEntries, nomesAssinatura, 'DigitalBov — Relatório Geral')
   writer.save(filename)
 }
 
-export function gerarPDFRelatorioReprodutivo(dados) {
-  const { fazenda, cicloNome, lotesRows, kpiIns, kpiPrn, txPrenhez, nascKpis, partosRows, indicesReprod, filename, logoDataURL } = dados
-  const writer = new PdfWriter({ titulo: 'Painel Reprodutivo', fazenda, subtitulo: subtitulo(cicloNome), logoDataURL })
+const idxPct = v => v != null ? `${v}%` : '—'
 
-  writer.heading('Lotes de inseminação', 2)
+export function gerarPDFRelatorioReprodutivo(dados) {
+  const {
+    fazenda, cicloNome, periodoTxt, propsTxt, nomesAssinatura, lotesRows, kpiIns, kpiPrn, txPrenhez, nascKpis, partosRows, indicesReprod,
+    mostrarEstacoes, gruposEstacaoRows, consolidadoIdxRow, filename, logoDataURL,
+  } = dados
+  const { writer, h, tocEntries } = criarWriter({ titulo: 'Painel Reprodutivo', fazenda, cicloNome, periodoTxt, propsTxt, logoDataURL })
+
+  h('Lotes de inseminação', 1)
   if (lotesRows.length === 0) {
     writer.paragraph([{ text: 'Nenhum lote registrado neste ciclo.', cor: [156, 163, 175] }])
   } else {
@@ -93,19 +127,38 @@ export function gerarPDFRelatorioReprodutivo(dados) {
       { label: 'Lote' }, { label: 'Touro' }, { label: 'Data' }, { label: 'Insem.', align: 'right' },
       { label: 'Prenhas', align: 'right' }, { label: 'Tx prenhez', align: 'right' }, { label: 'Parto prev.' },
     ]
-    const rows = lotesRows.map(l => [
-      { text: l.numero, bold: true }, l.touro, l.dataFmt, l.insCount,
-      { text: l.prn, cor: AZUL }, l.txPct, l.partoPrevFmt,
-    ])
-    rows.push([
-      { text: 'Total', bold: true }, '', '', kpiIns,
-      { text: kpiPrn, cor: AZUL, bold: true }, txPrenhez != null ? `${txPrenhez}%` : '—', '',
-    ])
-    writer.table(headers, rows, { larguras: [0.16, 0.22, 0.12, 0.1, 0.1, 0.13, 0.17] })
+    const larguras = [0.16, 0.22, 0.12, 0.1, 0.1, 0.13, 0.17]
+    // Fase 8 (Etapa E) — 2+ estações no ciclo: uma tabela por estação (com
+    // subtotal), em vez da tabela única de antes. 1 grupo só cai no mesmo
+    // formato flat de sempre.
+    if (mostrarEstacoes && gruposEstacaoRows) {
+      gruposEstacaoRows.forEach(g => {
+        writer.paragraph([{ text: g.periodo ? `${g.nome} · ${g.periodo}` : g.nome, bold: true }])
+        const rows = g.lotesRows.map(l => [
+          { text: l.numero, bold: true }, l.touro, l.dataFmt, l.insCount,
+          { text: l.prn, cor: AZUL }, l.txPct, l.partoPrevFmt,
+        ])
+        rows.push([
+          { text: 'Subtotal', cor: [156, 163, 175] }, '', '', g.subtotal.kpiIns,
+          { text: g.subtotal.kpiPrn, cor: AZUL }, idxPct(g.subtotal.txPrenhez), '',
+        ])
+        writer.table(headers, rows, { larguras })
+      })
+    } else {
+      const rows = lotesRows.map(l => [
+        { text: l.numero, bold: true }, l.touro, l.dataFmt, l.insCount,
+        { text: l.prn, cor: AZUL }, l.txPct, l.partoPrevFmt,
+      ])
+      rows.push([
+        { text: 'Total', bold: true }, '', '', kpiIns,
+        { text: kpiPrn, cor: AZUL, bold: true }, idxPct(txPrenhez), '',
+      ])
+      writer.table(headers, rows, { larguras })
+    }
     writer.paragraph([{ text: `Total do ciclo ${cicloNome}: matrizes distintas (a mesma vaca exposta em mais de um lote não é contada 2x).`, italic: true, cor: [156, 163, 175] }])
   }
 
-  writer.heading(`Nascimentos — ciclo ${cicloNome}`, 2)
+  h(`Nascimentos — ciclo ${cicloNome}`, 1)
   if (partosRows.length === 0) {
     writer.paragraph([{ text: 'Nenhum nascimento registrado.', cor: [156, 163, 175] }])
   } else {
@@ -117,37 +170,73 @@ export function gerarPDFRelatorioReprodutivo(dados) {
     )
   }
 
-  writer.heading(`Índices reprodutivos — ciclo ${cicloNome}`, 2)
+  h(`Índices reprodutivos — ${mostrarEstacoes ? `consolidado do ciclo ${cicloNome}` : `ciclo ${cicloNome}`}`, 1)
   indicesReprod.forEach(item => linhaIndice(writer, item))
 
-  writer.finalize('DigitalBov — Painel Reprodutivo')
+  if (mostrarEstacoes && gruposEstacaoRows) {
+    h('Índices por estação de monta', 1)
+    const headers = [
+      { label: 'Estação' }, { label: 'Expostas', align: 'right' }, { label: 'Prenhas', align: 'right' },
+      { label: 'Tx prenhez', align: 'right' }, { label: 'Partos', align: 'right' }, { label: 'Tx parição', align: 'right' },
+      { label: 'Ef. gest.', align: 'right' }, { label: 'Perda gest.', align: 'right' }, { label: 'Mortalidade', align: 'right' },
+    ]
+    const rows = gruposEstacaoRows.map(g => [
+      { text: g.nome, bold: true }, g.subtotal.kpiIns, { text: g.subtotal.kpiPrn, cor: AZUL }, idxPct(g.subtotal.txPrenhez),
+      g.idxRow.partos, idxPct(g.idxRow.txParicao), idxPct(g.idxRow.txEficiencia), idxPct(g.idxRow.txPerdaGestacional), idxPct(g.idxRow.txMortalidade),
+    ])
+    if (consolidadoIdxRow) {
+      rows.push([
+        { text: 'Consolidado do ciclo', bold: true }, consolidadoIdxRow.kpiIns, { text: consolidadoIdxRow.kpiPrn, cor: AZUL, bold: true },
+        idxPct(consolidadoIdxRow.txPrenhez), consolidadoIdxRow.partos, idxPct(consolidadoIdxRow.txParicao),
+        idxPct(consolidadoIdxRow.txEficiencia), idxPct(consolidadoIdxRow.txPerdaGestacional), idxPct(consolidadoIdxRow.txMortalidade),
+      ])
+    }
+    writer.table(headers, rows, { larguras: [0.18, 0.09, 0.09, 0.11, 0.09, 0.11, 0.11, 0.11, 0.11] })
+  }
+
+  finalizarDocumento(writer, tocEntries, nomesAssinatura, 'DigitalBov — Painel Reprodutivo')
   writer.save(filename)
 }
 
 export function gerarPDFRelatorioFinanceiro(dados) {
-  const { fazenda, cicloNome, kpisTopo, receitasGrupo, despesasGrupo, indicadores, filename, logoDataURL } = dados
-  const writer = new PdfWriter({ titulo: 'Gestão Financeira', fazenda, subtitulo: subtitulo(cicloNome), logoDataURL })
+  const {
+    fazenda, cicloNome, periodoTxt, propsTxt, nomesAssinatura, kpisTopo, receitasGrupo, despesasGrupo,
+    indicadores, resultadoPorProp, filename, logoDataURL,
+  } = dados
+  const { writer, h, tocEntries } = criarWriter({ titulo: 'Gestão Financeira', fazenda, cicloNome, periodoTxt, propsTxt, logoDataURL })
 
   writer.kpis(kpisTopo, { perRow: 3 })
 
-  writer.heading('Receitas por grupo', 2)
+  h('Receitas por grupo', 1)
   if (receitasGrupo.length === 0) {
     writer.paragraph([{ text: 'Nenhuma receita lançada neste ciclo.', cor: [156, 163, 175] }])
   } else {
     receitasGrupo.forEach(({ grupo, valor }) => writer.linha(grupo, fmt(valor), { corValor: AZUL }))
   }
 
-  writer.heading('Despesas por grupo', 2)
+  h('Despesas por grupo', 1)
   if (despesasGrupo.length === 0) {
     writer.paragraph([{ text: 'Nenhuma despesa lançada neste ciclo.', cor: [156, 163, 175] }])
   } else {
     despesasGrupo.forEach(({ grupo, valor }) => writer.linha(grupo, fmt(valor), { corValor: VERMELHO }))
   }
 
-  writer.heading('Indicadores de rentabilidade', 2)
+  if (resultadoPorProp && resultadoPorProp.length > 0) {
+    h('Resultado por proprietário', 1)
+    writer.table(
+      [{ label: 'Proprietário' }, { label: 'Receitas', align: 'right' }, { label: 'Despesas', align: 'right' }, { label: 'Resultado', align: 'right' }],
+      resultadoPorProp.map(p => [
+        { text: p.nome, bold: true }, { text: fmt(p.rec), cor: AZUL }, { text: fmt(p.desp), cor: VERMELHO },
+        { text: fmt(p.resu), cor: p.resu >= 0 ? AZUL : VERMELHO, bold: true },
+      ]),
+      { larguras: [0.34, 0.22, 0.22, 0.22] },
+    )
+  }
+
+  h('Indicadores de rentabilidade', 1)
   indicadores.forEach(item => linhaIndice(writer, { ...item, ok: item.ok }))
 
-  writer.finalize('DigitalBov — Gestão Financeira')
+  finalizarDocumento(writer, tocEntries, nomesAssinatura, 'DigitalBov — Gestão Financeira')
   writer.save(filename)
 }
 

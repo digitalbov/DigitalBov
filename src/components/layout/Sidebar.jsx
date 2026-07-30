@@ -28,8 +28,8 @@ const NAV = [
   { path: '/metas',        icon: 'ti-target',           label: 'Metas e Indicadores' },
   { path: '/rebanho',      icon: 'ti-chart-line',       label: 'Controle de Rebanho' },
   { path: '/calendario',   icon: 'ti-calendar-event',   label: 'Calendário' },
-  { path: '/comparativo',  icon: 'ti-chart-bar',        label: 'Comparativo', condicao: 'comparativo', badgeNovo: true },
-  { path: '/relatorios',   icon: 'ti-file-text',        label: 'Relatórios' },
+  { path: '/comparativo',  icon: 'ti-chart-bar',        label: 'Comparativo de Fazendas', condicao: 'comparativo', badgeNovo: true },
+  { path: '/relatorios',   icon: 'ti-file-text',        label: 'Relatório de Fechamento' },
   { path: '/assistente',  icon: 'ti-message-chatbot',  label: 'Assistente IA', destaque: true },
 
   { section: 'GESTÃO OPERACIONAL' },

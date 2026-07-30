@@ -62,7 +62,7 @@ function CardResultadoSafra({ titulo, sm, andamento, previsao, tipo }) {
           ['Perdas não identificadas',     sm.perdasNaoIdentificadas,                                       '#791F1F', 'Prenhas que já passaram da janela de gestação sem parto nem aborto registrado — só entram aqui depois que a gestação deveria ter terminado.'],
           ['Perda gestacional',            sm.perdaGestacional!=null?`${sm.perdaGestacional}%`:'—',        '#791F1F', 'Abortos + perdas não identificadas ÷ prenhas. Prenhas ainda gestando não entram nesse cálculo.'],
           ['Partos',                       sm.nascimentos,                                                  '#0C447C'],
-          ['Taxa de parição (natalidade)', sm.txNatalidade!=null?`${sm.txNatalidade}%`:'—',                '#0C447C', 'Partos realizados até agora ÷ matrizes expostas — tende a ser baixa enquanto a safra está em andamento.'],
+          ['Taxa de Parição',              sm.txNatalidade!=null?`${sm.txNatalidade}%`:'—',                '#0C447C', 'Partos realizados até agora ÷ matrizes expostas (padrão do setor) — tende a ser baixa enquanto a safra está em andamento. Não confundir com "Eficiência Gestacional" (partos ÷ prenhas, ver aba Índices) — Fase 8 padronizou os nomes: os dois eram chamados de forma ambígua antes disso.'],
           ['Peso médio ao nascer',         sm.pesoMedioNascimento!=null?`${sm.pesoMedioNascimento.toFixed(1).replace('.',',')} kg`:'—', '#0C447C', 'Média das pesagens tipo "nascimento" dos bezerros desta safra.'],
           ['Mortalidade de terneiros',     sm.mortalidadeBezerros!=null?`${sm.mortalidadeBezerros}%`:'—',  '#791F1F'],
           ['Desmamados',                   sm.desmamados,                                                   '#166534'],
@@ -1540,8 +1540,13 @@ export default function Reprodutivo() {
     const partosLoteAll = lote.partos || []
     const partosLote = propId ? partosLoteAll.filter(p => p.mae?.proprietario_id === propId) : partosLoteAll
     const nascimentos = partosLote.length
+    // Fase 8 — nomenclatura padronizada: "Taxa de Parição" (setor) passou a
+    // significar SEMPRE partos ÷ expostas (txNatalidade, logo abaixo) — o que
+    // era chamado "Taxa de parição" aqui (partos ÷ prenhas) virou "Eficiência
+    // Gestacional" ("Ef. Gestacional" na tabela de índices). A variável
+    // continua txParicao por conveniência (não renomeada), só o RÓTULO mudou.
     const txParicao   = prenhas > 0 ? Math.round(nascimentos / prenhas * 100) : 0
-    // Novos índices da safra — denominador = matrizes expostas distintas
+    // "Taxa de Parição" oficial (Fase 8) — denominador = matrizes expostas distintas
     const txNatalidade      = total > 0 ? Math.round(nascimentos / total * 100) : null
     const abortosLoteAll = lote.abortos || []
     const abortosLote = propId ? abortosLoteAll.filter(a => a.animal?.proprietario_id === propId) : abortosLoteAll
@@ -2940,7 +2945,7 @@ export default function Reprodutivo() {
                       {[
                         ['ciclo','Ciclo'],['numero','Lote'],['touro','Touro'],['data','Data'],
                         ['total','Insem.'],['prenhas','Prenhas'],['vazias','Vazias'],
-                        ['txPrenhez','Tx Prenhez'],['nascimentos','Nasc.'],['txParicao','Tx Parição'],['partoPrev','Parto Prev.']
+                        ['txPrenhez','Tx Prenhez'],['nascimentos','Nasc.'],['txParicao','Ef. Gestacional'],['partoPrev','Parto Prev.']
                       ].map(([col, label]) => (
                         <th key={col} onClick={() => { setSortCol(col); setSortAsc(p => sortCol === col ? !p : true) }}
                           style={{ cursor:'pointer', userSelect:'none', whiteSpace:'nowrap' }}>

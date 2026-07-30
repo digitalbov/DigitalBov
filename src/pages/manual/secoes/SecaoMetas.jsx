@@ -50,10 +50,20 @@ export default function SecaoMetas({ item }) {
         </p>
 
         <h5 style={H5}>Taxa de Parição</h5>
+        <div style={FORMULA}>Partos ÷ Matrizes expostas no ciclo × 100</div>
+        <p style={P}>
+          Padrão do setor: inclui todas as matrizes que entraram na monta, mesmo as que nunca prenharam. Só é
+          calculada quando já existe pelo menos 1 parto registrado na safra — antes disso, o card mostra
+          "Aguardando partos" em vez de um 0% enganoso (veja o aviso mais abaixo).
+        </p>
+
+        <h5 style={H5}>Eficiência Gestacional</h5>
         <div style={FORMULA}>Partos ÷ Prenhas confirmadas × 100</div>
         <p style={P}>
-          Só é calculada quando já existe pelo menos 1 parto registrado na safra — antes disso, o card mostra
-          "Aguardando partos" em vez de um 0% enganoso (veja o aviso mais abaixo).
+          Mede quantas gestações CONFIRMADAS realmente resultaram em parto — diferente da Taxa de Parição
+          acima, que divide pelo total de expostas (inclui quem nunca prenhou). Até a virada da Fase 8 este
+          indicador se chamava "Taxa de Parição"; a fórmula não mudou, só o nome — metas já configuradas
+          continuam valendo para o mesmo número de antes.
         </p>
 
         <h5 style={H5}>Intervalo entre Partos <span style={{ fontWeight: 400, color: '#9CA3AF' }}>(menor é melhor)</span></h5>

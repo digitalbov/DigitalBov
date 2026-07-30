@@ -49,7 +49,11 @@ export function paraPdfTexto(s) {
 }
 
 export class PdfWriter {
-  constructor({ titulo, fazenda = '', subtitulo = '', logoDataURL = null } = {}) {
+  // Fase 8 (Etapa F) — linhasCapa: linhas extras da capa (ciclo/período/
+  // proprietários do relatório de fechamento), desenhadas abaixo do
+  // subtítulo, cada uma centralizada — capa rica sem precisar de um 2º
+  // desenho por chamador (nada duplicado em pdfRelatorios.js).
+  constructor({ titulo, fazenda = '', subtitulo = '', linhasCapa = [], logoDataURL = null, numerarSecoes = false } = {}) {
     // compress:true liga a compressão Flate dos content streams do jsPDF —
     // sem isso (não é o padrão), cada rect/linha/preenchimento de tabela vira
     // texto PDF cru sem compactação nenhuma, o que sozinho já respondia pela
@@ -68,7 +72,9 @@ export class PdfWriter {
     this.fazenda = fazenda
     this.logoDataURL = logoDataURL
     this.y = 20
-    this._capa(subtitulo)
+    this.numerarSecoes = numerarSecoes
+    this._numeroSecao = 0
+    this._capa(subtitulo, linhasCapa)
   }
 
   // Cabeçalho — só desenhado aqui, uma vez, na página 1 (nunca de novo em
@@ -77,7 +83,7 @@ export class PdfWriter {
   // houver, entra ACIMA do nome da fazenda — já vem pronta (recorte circular
   // + JPEG comprimido, ver carregarLogoFazenda abaixo), então é só desenhar;
   // try/catch pra uma imagem corrompida nunca derrubar a geração inteira.
-  _capa(subtitulo) {
+  _capa(subtitulo, linhasCapa = []) {
     const pdf = this.pdf
     let y = 22
     if (this.logoDataURL) {
@@ -98,6 +104,14 @@ export class PdfWriter {
       pdf.setFont(undefined, 'normal'); pdf.setFontSize(9.5); pdf.setTextColor(...COR_MUTED)
       pdf.text(paraPdfTexto(subtitulo), this.pgW / 2, y, { align: 'center' })
       y += 6
+    }
+    if (linhasCapa && linhasCapa.length > 0) {
+      y += 2
+      pdf.setFont(undefined, 'normal'); pdf.setFontSize(9.5); pdf.setTextColor(...COR_TEXTO)
+      linhasCapa.filter(Boolean).forEach(linha => {
+        pdf.text(paraPdfTexto(linha), this.pgW / 2, y, { align: 'center' })
+        y += 5.5
+      })
     }
     y += 3
     pdf.setDrawColor(...COR_BORDA)
@@ -122,20 +136,31 @@ export class PdfWriter {
   }
 
   // level 1 = título de seção do manual/relatório; 2/3 = subtítulos internos.
+  // Fase 8 (Etapa F) — seções de nível 1 ganham número automático ("1. ",
+  // "2. "...), sequencial pra cada documento (this._numeroSecao começa em 0
+  // no construtor). Devolve o texto final (já numerado) pro chamador poder
+  // reaproveitar o mesmo texto no sumário (inserirSumario), sem duplicar a
+  // lógica de numeração em pdfRelatorios.js.
   heading(text, level = 1) {
     const size = level === 1 ? 13.5 : level === 2 ? 11 : 10
     this.ensureSpace(size === 13.5 ? 15 : 10)
     if (level === 1) this.y += 3
+    let textoFinal = text
+    if (level === 1 && this.numerarSecoes) {
+      this._numeroSecao += 1
+      textoFinal = `${this._numeroSecao}. ${text}`
+    }
     this.pdf.setFont(undefined, 'bold')
     this.pdf.setFontSize(size)
     this.pdf.setTextColor(...(level === 1 ? COR_TITULO : COR_TEXTO))
-    this.pdf.text(paraPdfTexto(text), this.marginX, this.y)
+    this.pdf.text(paraPdfTexto(textoFinal), this.marginX, this.y)
     this.y += size === 13.5 ? 6 : 5.5
     if (level === 1) {
       this.pdf.setDrawColor(...COR_BORDA)
       this.pdf.line(this.marginX, this.y - 3.5, this.rightEdge, this.y - 3.5)
     }
     this.pdf.setFont(undefined, 'normal')
+    return textoFinal
   }
 
   paragraph(segments, opts = {}) {
@@ -417,6 +442,35 @@ export class PdfWriter {
     // não dependem disso (finalize itera 1..total sozinho), mas deixa o
     // estado do jsPDF coerente caso algo mais seja desenhado depois.
     pdf.setPage(pdf.internal.getNumberOfPages())
+  }
+
+  // Bloco de assinatura (Fase 8, Etapa F) — uma linha por nome + "Data: ___/
+  // ___/___" logo abaixo, desenhado onde o cursor estiver (chamador decide
+  // quando: normalmente por último, antes de finalize()). Sem nomes, não
+  // desenha nada (nunca um bloco vazio "Assinaturas" sem ninguém pra assinar).
+  blocoAssinatura(nomes) {
+    if (!nomes || nomes.length === 0) return
+    this.heading('Assinaturas', this.numerarSecoes ? 1 : 2)
+    const larguraLinha = 70
+    const gapX = 12
+    const porLinha = Math.max(1, Math.floor((this.rightEdge - this.marginX + gapX) / (larguraLinha + gapX)))
+    const alturaBloco = 22
+    nomes.forEach((nome, i) => {
+      const col = i % porLinha
+      const linha = Math.floor(i / porLinha)
+      if (col === 0) this.ensureSpace(alturaBloco)
+      const x = this.marginX + col * (larguraLinha + gapX)
+      const y = this.y + linha * alturaBloco
+      this.pdf.setDrawColor(...COR_TEXTO)
+      this.pdf.line(x, y + 14, x + larguraLinha, y + 14)
+      this.pdf.setFont(undefined, 'normal'); this.pdf.setFontSize(9)
+      this.pdf.setTextColor(...COR_TEXTO)
+      this.pdf.text(paraPdfTexto(nome), x, y + 18, { maxWidth: larguraLinha })
+      this.pdf.setFontSize(7.5); this.pdf.setTextColor(...COR_MUTED)
+      this.pdf.text('Data: ___/___/______', x, y + 22)
+    })
+    const linhas = Math.ceil(nomes.length / porLinha)
+    this.y += linhas * alturaBloco + 4
   }
 
   // Segunda passada: numeração de página (só sabemos o total no final) +

@@ -107,12 +107,29 @@ export const diasDesde = (dt) => {
 // do lado da entrada — sem ela, uma fêmea comprada entraria retroativamente
 // nas matrizes aptas de ciclos ANTERIORES à compra. Nascido na fazenda nunca
 // tem data_entrada (fica undefined/null) — comportamento idêntico ao de hoje.
-export function ehMatriz(animal, dataRef = hojeAgora()) {
-  if (animal.sexo !== 'F' || !animal.data_nascimento) return false
+// ── Estava no rebanho numa data passada (Fase 8 — conciliação de rebanho) ──
+// Generalização da mesma lógica de entrada/saída que ehMatriz já usava (só
+// pra fêmeas >24 meses): aqui vale para QUALQUER animal, de qualquer sexo/
+// idade/categoria — "eu tinha esse animal no rebanho na data X?". Mesmas
+// regras: sem data_baixa (ou baixa DEPOIS de dataRef) = ainda não tinha
+// saído; sem data_entrada (nascido na fazenda) ou entrada ATÉ dataRef = já
+// tinha entrado. animal.data_entrada só existe se o chamador enriqueceu a
+// lista via db.transacaoAnimaisItens.listDataEntradaCompras() (mesmo padrão
+// de ehMatriz) — sem enriquecer, todo animal é tratado como "nascido na
+// fazenda" (nunca subtrai retroativamente um comprado antes da compra).
+export function estavaNoRebanho(animal, dataRef = hojeAgora()) {
+  if (!animal.data_nascimento) return false
   const dataRefISO = typeof dataRef === 'string' ? dataRef : format(dataRef, 'yyyy-MM-dd')
-  const ativaNaData = animal.situacao === 'ativo' || !animal.data_baixa || animal.data_baixa > dataRefISO
-  if (!ativaNaData) return false
+  if (animal.data_nascimento > dataRefISO) return false
+  const aindaNaoSaiu = animal.situacao === 'ativo' || !animal.data_baixa || animal.data_baixa > dataRefISO
+  if (!aindaNaoSaiu) return false
   if (animal.data_entrada && animal.data_entrada > dataRefISO) return false
+  return true
+}
+
+export function ehMatriz(animal, dataRef = hojeAgora()) {
+  if (animal.sexo !== 'F') return false
+  if (!estavaNoRebanho(animal, dataRef)) return false
   return mesesDeVida(animal.data_nascimento, dataRef) > 24
 }
 
