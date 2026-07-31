@@ -1,18 +1,23 @@
 ﻿// ─────────────────────────────────────────────────────────────────
 // CONTROLE DE REBANHO
 // ─────────────────────────────────────────────────────────────────
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { db } from '../lib/supabase'
-import { calcCategoria, calcCategoriaRebanho, calcTaxaPrenhez, contarExpostas, contarPrenhas, calcGMD, pct, fmtMoeda, ehMatriz, somaFinita, algumErro, valorPropLanc, CATEGORIAS_VALOR } from '../lib/helpers'
-import { Loading, IndexCard, BotaoPDF, ErroCarregamento, SeletorCicloLocal, Badge, EmptyState } from '../components/UI'
+import { calcCategoria, calcCategoriaRebanho, calcTaxaPrenhez, contarExpostas, contarPrenhas, calcGMD, pct, fmtMoeda, ehMatriz, somaFinita, algumErro, valorPropLanc, CATEGORIAS_VALOR, idadeFormatada, calcDesempenhoVidaFemea, classificarDesfechosPorSafra, CORES_DESFECHO, ROTULOS_DESFECHO } from '../lib/helpers'
+import { Loading, IndexCard, BotaoPDF, ErroCarregamento, SeletorCicloLocal, Badge, EmptyState, AlertBox } from '../components/UI'
 import { useCicloLocal } from '../lib/useCicloLocal'
 import {
   BarChart, Bar, XAxis, YAxis,
   CartesianGrid, Tooltip, Legend, ResponsiveContainer
 } from 'recharts'
 
-const TABS_R = ['Visão Geral','Índices','Comparativo','Histórico','Valor de Mercado do Rebanho']
+const TABS_R = ['Visão Geral','Índices','Comparativo','Histórico','Valor de Mercado do Rebanho','Ranking de Matrizes']
+
+// Safras consecutivas sem cria a partir das quais o selo de atenção aparece —
+// é só um SINAL VISUAL pra olhar com mais cuidado, nunca uma ordem de
+// descarte (a decisão é sempre do produtor).
+const SAFRAS_ATENCAO = 2
 
 export function Rebanho() {
   const navigate   = useNavigate()
@@ -21,6 +26,7 @@ export function Rebanho() {
   const refComp    = useRef(null)
   const refHist    = useRef(null)
   const refValor   = useRef(null)
+  const refRanking = useRef(null)
 
   const [animais,      setAnimais]      = useState([])
   const [props,        setProps]        = useState([])
@@ -44,8 +50,31 @@ export function Rebanho() {
   const [transacsPorCiclo,  setTransacsPorCiclo]  = useState({})
   const [loadingCiclos,     setLoadingCiclos]     = useState(false)
 
+  // Ranking de Matrizes (Fase 14) — carregamento PREGUIÇOSO, mesmo padrão de
+  // todosStale/loadTodos em Reprodutivo.jsx: só busca db.lotesInseminacao.listAll()
+  // (a variante PESADA, com partos.bezerro.pesagens + inseminações + abortos
+  // embutidos — é a única que dá pra montar o histórico reprodutivo completo de
+  // cada matriz numa query só) na primeira vez que a aba é aberta, nunca no
+  // load inicial de Rebanho (que continua leve pras outras 5 abas).
+  const [rankingLotes,   setRankingLotes]   = useState([])
+  const [rankingStale,   setRankingStale]   = useState(true)
+  const [loadingRanking, setLoadingRanking] = useState(false)
+  const [filtCatRanking, setFiltCatRanking] = useState('')
+  const [sortColRanking, setSortColRanking] = useState('kgPorAno')
+  const [sortAscRanking, setSortAscRanking] = useState(false) // desc: maior kg/ano primeiro
+
   useEffect(() => { loadAll() }, [])
   useEffect(() => { if (ciclos.length > 0) loadDadosPorCiclo() }, [ciclos.length])
+  useEffect(() => { if (tab === 5 && rankingStale) loadRanking() }, [tab, rankingStale])
+
+  const loadRanking = async () => {
+    setLoadingRanking(true)
+    const { data, error } = await db.lotesInseminacao.listAll()
+    if (error) console.error('[Rebanho] erro ao buscar ranking de matrizes:', error)
+    setRankingLotes(data || [])
+    setRankingStale(false)
+    setLoadingRanking(false)
+  }
 
   const loadDadosPorCiclo = async () => {
     setLoadingCiclos(true)
@@ -107,6 +136,102 @@ export function Rebanho() {
   )
   const fem    = ativos.filter(a => a.sexo === 'F')
   const matrizes = ativos.filter(a => ehMatriz(a))
+
+  // ── Ranking de Matrizes (Fase 14) ──────────────────────────────────────────
+  // Monta, a partir da query ÚNICA e pesada (rankingLotes), 3 mapas por
+  // animal_id/mae_id — o mesmo formato {partos,inseminacoes,abortos} que
+  // calcDesempenhoVidaFemea/classificarDesfechosPorSafra já esperam (é
+  // literalmente o reprodutivoBruto que a ficha do animal monta, só que aqui
+  // pra TODAS as matrizes de uma vez, sem 1 query por vaca. useMemo pra não
+  // reprocessar a cada render — só quando os dados brutos ou os filtros mudam.
+  const rankingRows = useMemo(() => {
+    if (rankingLotes.length === 0) return []
+    const partosPorMae = new Map()
+    const insPorAnimal = new Map()
+    const abortosPorAnimal = new Map()
+    rankingLotes.forEach(l => {
+      ;(l.partos || []).forEach(p => {
+        if (!p.mae_id) return
+        if (!partosPorMae.has(p.mae_id)) partosPorMae.set(p.mae_id, [])
+        partosPorMae.get(p.mae_id).push(p)
+      })
+      ;(l.inseminacoes || []).forEach(i => {
+        if (!i.animal_id) return
+        if (!insPorAnimal.has(i.animal_id)) insPorAnimal.set(i.animal_id, [])
+        // lote.data é o que classificarDesfechosPorSafra/calcDesempenhoVidaFemea
+        // usam pra saber QUANDO a monta aconteceu — mesmo formato de
+        // db.inseminacoes.byAnimal (ins.lote.data), só remontado aqui porque
+        // listAll() traz o lote como pai, não embutido em cada inseminação.
+        insPorAnimal.get(i.animal_id).push({ ...i, lote: { data: l.data } })
+      })
+      ;(l.abortos || []).forEach(ab => {
+        if (!ab.animal_id) return
+        if (!abortosPorAnimal.has(ab.animal_id)) abortosPorAnimal.set(ab.animal_id, [])
+        abortosPorAnimal.get(ab.animal_id).push(ab)
+      })
+    })
+    return matrizes.map(a => {
+      const reprodutivoBruto = {
+        partos: partosPorMae.get(a.id) || [],
+        inseminacoes: insPorAnimal.get(a.id) || [],
+        abortos: abortosPorAnimal.get(a.id) || [],
+      }
+      const d = calcDesempenhoVidaFemea(a, reprodutivoBruto)
+      const desfechos = classificarDesfechosPorSafra(a, ciclos, reprodutivoBruto)
+      let safrasSemCria = 0
+      for (let i = desfechos.length - 1; i >= 0; i--) {
+        if (desfechos[i].desfecho === 'pariu' || desfechos[i].desfecho === 'pariu_aguardando') break
+        safrasSemCria++
+      }
+      return {
+        animal: a,
+        categoria: calcCategoriaRebanho(a.data_nascimento, a.sexo, a.sit_reprodutiva, a.is_touro),
+        numeroPartosVida: d.numeroPartosVida,
+        kgAcumulado: d.kgDesmamadoAcumulado,
+        kgPorAno: d.kgDesmamadoPorAno,
+        taxaDesmame: d.taxaDesmame,
+        safrasSemCria,
+        ultimoDesfecho: desfechos.length > 0 ? desfechos[desfechos.length - 1].desfecho : null,
+      }
+    })
+  }, [rankingLotes, matrizes, ciclos])
+
+  // Matriz jovem na 1ª safra, ainda sem nenhum parto na vida: não tem
+  // denominador nenhum (kg/ano, taxa de desmame etc. seriam todos "—"), então
+  // NUNCA entra na tabela principal (ordenada por kg/ano) — apareceria como
+  // "pior do rebanho" só por falta de histórico, o que é enganoso. Fica numa
+  // lista separada, só informativa.
+  const rankingComHistorico = rankingRows.filter(r => r.numeroPartosVida > 0 && (!filtCatRanking || r.categoria === filtCatRanking))
+  const rankingSemHistorico = rankingRows.filter(r => r.numeroPartosVida === 0 && (!filtCatRanking || r.categoria === filtCatRanking))
+  const categoriasRanking = [...new Set(rankingRows.map(r => r.categoria))].sort()
+
+  const rankingOrdenado = [...rankingComHistorico].sort((a, b) => {
+    const get = r => {
+      switch (sortColRanking) {
+        case 'brinco':       return r.animal.brinco
+        case 'idade':        return r.animal.data_nascimento || ''
+        case 'categoria':    return r.categoria
+        case 'partos':       return r.numeroPartosVida
+        case 'kgAcumulado':  return r.kgAcumulado
+        case 'kgPorAno':     return r.kgPorAno
+        case 'taxaDesmame':  return r.taxaDesmame
+        case 'safrasSemCria':return r.safrasSemCria
+        case 'ultimoDesfecho': return ROTULOS_DESFECHO[r.ultimoDesfecho] || ''
+        default:              return r.kgPorAno
+      }
+    }
+    const va = get(a), vb = get(b)
+    const vaNulo = va === null || va === undefined
+    const vbNulo = vb === null || vb === undefined
+    if (vaNulo && vbNulo) return 0
+    if (vaNulo) return 1  // "—" sempre por último, nas duas direções
+    if (vbNulo) return -1
+    if (typeof va === 'string') return sortColRanking === 'idade'
+      ? (sortAscRanking ? va.localeCompare(vb) : vb.localeCompare(va)) // data ISO: comparação de string já ordena certo
+      : (sortAscRanking ? va.localeCompare(vb, undefined, { numeric: true }) : vb.localeCompare(va, undefined, { numeric: true }))
+    return sortAscRanking ? va - vb : vb - va
+  })
+  const clicarColunaRanking = (col) => { setSortColRanking(col); setSortAscRanking(p => sortColRanking === col ? !p : true) }
 
   // Índices reprodutivos do ciclo atual — fórmula oficial única (helpers.calcTaxaPrenhez):
   // matrizes distintas prenhas / matrizes distintas expostas no ciclo — não usa
@@ -230,6 +355,7 @@ export function Rebanho() {
     { ref: refComp,    filename:'rebanho-comparativo',  titulo:'Rebanho: Comparativo' },
     { ref: refHist,    filename:'rebanho-historico',    titulo:'Rebanho: Histórico' },
     { ref: refValor,   filename:'rebanho-valor',        titulo:'Rebanho: Valor de Mercado do Rebanho' },
+    { ref: refRanking, filename:'rebanho-ranking-matrizes', titulo:'Rebanho: Ranking de Matrizes' },
   ]
   const pdfAtualR = PDF_CONFIG_R[tab]
 
@@ -253,6 +379,14 @@ export function Rebanho() {
           </div>
           {tab === 1 && (
             <SeletorCicloLocal cicloLocal={cicloLocal} setCicloLocal={setCicloLocal} ciclos={ciclos} />
+          )}
+          {tab === 5 && categoriasRanking.length > 0 && (
+            <div className="pill-group">
+              <button className={`pill ${!filtCatRanking?'active':''}`} onClick={()=>setFiltCatRanking('')}>Todas categorias</button>
+              {categoriasRanking.map(c => (
+                <button key={c} className={`pill ${filtCatRanking===c?'active':''}`} onClick={()=>setFiltCatRanking(c)}>{c}</button>
+              ))}
+            </div>
           )}
         </div>
         <BotaoPDF contentRef={pdfAtualR.ref} filename={pdfAtualR.filename} titulo={pdfAtualR.titulo} />
@@ -546,6 +680,108 @@ export function Rebanho() {
             </table>
           </div>
           </div>{/* end refValor */}
+        </div>
+      )}
+
+      {tab === 5 && (
+        <div>
+          <div ref={refRanking}>
+          {loadingRanking ? <Loading text="Calculando desempenho de vida de cada matriz..." /> : (
+            <>
+              <AlertBox type="purple" icon="ti-bulb"
+                title="Ferramenta de decisão de descarte"
+                body='Ordenado por padrão pelo "Kg desmamado por ano de vida" — é a coluna que normaliza vacas de idades diferentes (sem ela, uma vaca velha sempre parece melhor só por ter tido mais partos). Clique em qualquer cabeçalho pra reordenar.' />
+
+              {rankingComHistorico.length === 0 ? (
+                <EmptyState icon="🐄" title="Nenhuma matriz com histórico reprodutivo" sub="Assim que houver partos registrados, o ranking aparece aqui." />
+              ) : (
+                <div className="table-wrap" style={{ marginTop: 12 }}>
+                  <table>
+                    <thead>
+                      <tr>
+                        {[
+                          ['brinco', 'Brinco'], ['idade', 'Idade'], ['categoria', 'Categoria'],
+                          ['partos', 'Partos na vida'], ['kgAcumulado', 'Kg desmamado acumulado'],
+                          ['kgPorAno', 'Kg desmamado / ano de vida'], ['taxaDesmame', 'Taxa de desmame'],
+                          ['safrasSemCria', 'Safras sem cria'], ['ultimoDesfecho', 'Último desfecho'],
+                        ].map(([col, label]) => (
+                          <th key={col} onClick={() => clicarColunaRanking(col)}
+                            style={{ cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap', textAlign: col === 'brinco' || col === 'categoria' || col === 'ultimoDesfecho' ? 'left' : 'right' }}>
+                            {label}{sortColRanking === col ? (sortAscRanking ? ' ↑' : ' ↓') : ''}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rankingOrdenado.map(r => (
+                        <tr key={r.animal.id}>
+                          <td>
+                            <button onClick={() => navigate('/animais', { state: { abrirAnimalId: r.animal.id } })}
+                              style={{ background: 'none', border: 'none', padding: 0, font: 'inherit', fontWeight: 600, color: '#2B6CD9', textDecoration: 'underline', cursor: 'pointer' }}>
+                              {r.animal.brinco}
+                            </button>
+                          </td>
+                          <td>{idadeFormatada(r.animal.data_nascimento)}</td>
+                          <td>{r.categoria}</td>
+                          <td style={{ textAlign: 'right' }}>{r.numeroPartosVida}</td>
+                          <td style={{ textAlign: 'right' }}>{r.kgAcumulado !== null ? `${r.kgAcumulado} kg` : '—'}</td>
+                          <td style={{ textAlign: 'right', fontWeight: 700, color: '#2B6CD9' }}>{r.kgPorAno !== null ? `${r.kgPorAno} kg/ano` : '—'}</td>
+                          <td style={{ textAlign: 'right' }}>{r.taxaDesmame !== null ? `${r.taxaDesmame}%` : '—'}</td>
+                          <td style={{ textAlign: 'right' }}>
+                            {r.safrasSemCria}
+                            {r.safrasSemCria >= SAFRAS_ATENCAO && (
+                              <span title={`${r.safrasSemCria} safras seguidas sem cria — sinal de atenção, não é ordem de descarte. A decisão é sua.`}
+                                style={{ marginLeft: 5, color: '#D97706' }}>
+                                <i className="ti ti-alert-triangle-filled" style={{ fontSize: 12 }} />
+                              </span>
+                            )}
+                          </td>
+                          <td>
+                            {r.ultimoDesfecho ? (
+                              <Badge style={{ background: CORES_DESFECHO[r.ultimoDesfecho] + '22', color: CORES_DESFECHO[r.ultimoDesfecho] }}>
+                                {ROTULOS_DESFECHO[r.ultimoDesfecho]}
+                              </Badge>
+                            ) : '—'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {rankingSemHistorico.length > 0 && (
+                <div className="card" style={{ marginTop: 16 }}>
+                  <div className="card-title"><i className="ti ti-info-circle" /> Sem histórico suficiente ({rankingSemHistorico.length})</div>
+                  <p style={{ fontSize: '.78rem', color: '#9CA3AF', marginBottom: 10 }}>
+                    Matrizes aptas mas ainda sem nenhum parto na vida — não têm denominador pra calcular kg/ano, taxa de
+                    desmame etc., então não entram no ranking acima (apareceriam como "piores" só por falta de histórico).
+                  </p>
+                  <div className="table-wrap">
+                    <table>
+                      <thead><tr><th>Brinco</th><th>Idade</th><th>Categoria</th><th>Último desfecho</th></tr></thead>
+                      <tbody>
+                        {rankingSemHistorico.map(r => (
+                          <tr key={r.animal.id}>
+                            <td>
+                              <button onClick={() => navigate('/animais', { state: { abrirAnimalId: r.animal.id } })}
+                                style={{ background: 'none', border: 'none', padding: 0, font: 'inherit', fontWeight: 600, color: '#2B6CD9', textDecoration: 'underline', cursor: 'pointer' }}>
+                                {r.animal.brinco}
+                              </button>
+                            </td>
+                            <td>{idadeFormatada(r.animal.data_nascimento)}</td>
+                            <td>{r.categoria}</td>
+                            <td>{r.ultimoDesfecho ? ROTULOS_DESFECHO[r.ultimoDesfecho] : '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+          </div>{/* end refRanking */}
         </div>
       )}
 

@@ -536,6 +536,56 @@ export function calcDesempenhoVidaFemea(animal, { partos = [], inseminacoes = []
   }
 }
 
+// Cores por desfecho de safra — usadas tanto no gráfico "Linha do tempo
+// produtiva" (ficha do animal) quanto no selo de "Último desfecho" do Ranking
+// de Matrizes, pra nunca ter duas paletas diferentes pro mesmo conceito.
+export const CORES_DESFECHO = {
+  pariu: '#27A838', pariu_aguardando: '#1BA89C', abortou: '#E24B4A',
+  prenha: '#2B6CD9', falhou: '#D97706', nao_exposta: '#9CA3AF',
+}
+export const ROTULOS_DESFECHO = {
+  pariu: 'Pariu', pariu_aguardando: 'Pariu (aguard. desmame)', abortou: 'Abortou',
+  prenha: 'Prenha (aguardando)', falhou: 'Falhou', nao_exposta: 'Não exposta',
+}
+
+// Classifica, safra a safra (do primeiro ciclo em que a fêmea era matriz até
+// hoje), o desfecho reprodutivo dela — reaproveita statusReprodutivoCiclo
+// (já resolvido: pariu/perda_gestacional/gestacao_aberta/em_andamento/
+// falhada) e só ACRESCENTA uma distinção que os dados já permitem sem
+// heurística nova: 'falhada' vira 'falhou' (teve inseminação no ciclo, sem
+// resultado) ou 'nao_exposta' (zero inseminação no ciclo), conforme
+// reprodutivoBruto.inseminacoes. Usada pelo gráfico "Linha do tempo
+// produtiva" (Animais.jsx) e pelo Ranking de Matrizes (Rebanho.jsx) — extraída
+// pra cá (Fase 14) pra nunca divergir entre os dois lugares.
+// `ciclosFazenda` = TODOS os ciclos da fazenda (mesmo array já carregado em
+// CicloContext/Rebanho/Animais); `reprodutivoBruto` = { partos, inseminacoes,
+// abortos } DESTA fêmea. 'em_andamento' (ciclo ainda não fechou) nunca entra
+// no resultado — não há desfecho pra mostrar ainda.
+export function classificarDesfechosPorSafra(animal, ciclosFazenda, reprodutivoBruto) {
+  if (animal?.sexo !== 'F') return []
+  const historicoCiclos = [...(ciclosFazenda || [])]
+    .filter(c => c.inicio && c.inicio <= hojeISO())
+    .sort((x, y) => (x.inicio || '').localeCompare(y.inicio || ''))
+    .map(c => ({ ciclo: c, ...statusReprodutivoCiclo(animal, c, reprodutivoBruto) }))
+  const primeiraMatrizIdx = historicoCiclos.findIndex(h => h.status !== 'nao_era_matriz')
+  if (primeiraMatrizIdx === -1) return []
+  return historicoCiclos.slice(primeiraMatrizIdx)
+    .filter(h => h.status !== 'em_andamento')
+    .map(h => {
+      if (h.status === 'pariu') {
+        const parto = (reprodutivoBruto.partos || []).find(p => p.data_parto === h.data)
+        const pesoDesmame = parto?.bezerro?.pesagens?.find(ps => ps.tipo === 'desmama')
+        const peso = pesoDesmame ? parseFloat(pesoDesmame.peso_kg) : null
+        return { ciclo: h.ciclo, safra: h.ciclo.nome, valor: peso ?? 8, peso, desfecho: peso !== null ? 'pariu' : 'pariu_aguardando' }
+      }
+      if (h.status === 'perda_gestacional') return { ciclo: h.ciclo, safra: h.ciclo.nome, valor: 8, peso: null, desfecho: 'abortou' }
+      if (h.status === 'gestacao_aberta')   return { ciclo: h.ciclo, safra: h.ciclo.nome, valor: 8, peso: null, desfecho: 'prenha' }
+      const teveInseminacao = (reprodutivoBruto.inseminacoes || [])
+        .some(i => i.lote?.data && i.lote.data >= h.ciclo.inicio && i.lote.data <= h.ciclo.fim)
+      return { ciclo: h.ciclo, safra: h.ciclo.nome, valor: 8, peso: null, desfecho: teveInseminacao ? 'falhou' : 'nao_exposta' }
+    })
+}
+
 // ── Estoque: saldo por lote (FEFO) ─────────────────────────────────────────────
 // Recebe as movimentações de UM item (tipo 'E'/'S') e devolve o saldo por lote de
 // validade, consumindo primeiro os lotes que vencem antes (First Expired, First

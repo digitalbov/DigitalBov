@@ -11,10 +11,10 @@ export default function SecaoRebanho({ item }) {
 
       <p style={{ ...P, marginBottom: 16 }}>
         <strong>Controle de Rebanho</strong> é uma visão mais detalhada do rebanho do que o Painel — com
-        composição, índices do ciclo, comparação entre ciclos e valor de mercado. Tem 5 abas:
-        <strong> Visão Geral</strong>, <strong>Índices</strong>, <strong>Comparativo</strong>,
-        <strong> Histórico</strong> e <strong>Valor de Mercado do Rebanho</strong>. Um filtro de proprietário
-        no topo se aplica a todas.
+        composição, índices do ciclo, comparação entre ciclos, valor de mercado e decisão de descarte. Tem 6
+        abas: <strong>Visão Geral</strong>, <strong>Índices</strong>, <strong>Comparativo</strong>,
+        <strong> Histórico</strong>, <strong>Valor de Mercado do Rebanho</strong> e
+        <strong> Ranking de Matrizes</strong>. Um filtro de proprietário no topo se aplica a todas.
       </p>
 
       <h4 style={H4}>Visão Geral</h4>
@@ -59,6 +59,32 @@ export default function SecaoRebanho({ item }) {
       <AlertBox type="amber" icon="ti-report-money"
         title="Considera só animais ativos — é 'o que tenho hoje'"
         body="Mesmo aviso do Painel: essa tabela muda a cada venda/compra registrada, porque reflete o plantel no momento em que você abre a tela — não é um índice histórico de safra como os de Metas e Indicadores." />
+
+      <h4 style={H4}>Ranking de Matrizes</h4>
+      <p style={P}>
+        Transforma os cards de desempenho individual da ficha do animal (Cadastro de Animais) numa lista de
+        trabalho: uma linha por matriz ativa da fazenda, para decidir descarte olhando o rebanho inteiro de
+        uma vez, em vez de vaca por vaca. Só carrega os dados na primeira vez que você abre esta aba (não pesa
+        nas outras 5) — pode levar alguns segundos num rebanho grande.
+      </p>
+      <p style={P}>
+        Colunas: brinco (clicável — abre a ficha completa do animal), idade, categoria, número de partos na
+        vida, kg de terneiro desmamado acumulado, <strong>kg desmamado por ano de vida</strong>, taxa de
+        desmame (desmamados ÷ partos), safras seguidas sem cria e último desfecho (pariu / abortou / falhou /
+        não exposta). Clique em qualquer cabeçalho de coluna pra reordenar por ela.
+      </p>
+      <AlertBox type="purple" icon="ti-scale"
+        title='"Kg desmamado por ano de vida" é a coluna principal — e o critério de ordenação padrão'
+        body="É ela que normaliza vacas de idades diferentes: sem dividir pela idade, uma vaca mais velha sempre pareceria melhor só por ter tido mais partos ao longo da vida, mesmo produzindo no mesmo ritmo (ou pior) que uma novilha mais jovem. A lista abre ordenada por essa coluna, da maior para a menor." />
+      <p style={P}>
+        Matrizes já aptas mas que ainda não tiveram nenhum parto (1ª safra) não entram nessa lista ordenada —
+        sem parto nenhum, não haveria denominador pra calcular kg/ano ou taxa de desmame, e elas apareceriam
+        como "as piores" só por falta de histórico. Ficam listadas separadamente, num quadro "Sem histórico
+        suficiente", só pra você saber que existem.
+      </p>
+      <AlertBox type="amber" icon="ti-alert-triangle"
+        title='Selo de atenção: 2 safras seguidas sem cria'
+        body='É só um SINAL VISUAL pra olhar com mais cuidado — não é uma recomendação de descarte. Uma vaca pode estar em 2 safras sem cria por vários motivos (doença, venda de embrião, decisão proposital de descanso) que só quem conhece o rebanho sabe avaliar. A decisão final é sempre do produtor.' />
     </div>
   )
 }

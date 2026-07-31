@@ -2,7 +2,7 @@
 import { useNavigate, useLocation } from 'react-router-dom'
 import { usePermissoes } from '../lib/PermissoesContext'
 import { db } from '../lib/supabase'
-import { calcCategoria, calcCategoriaRebanho, idadeFormatada, fmtData, catCor, sitCor, repCor, sortBrinco, dataNaoFutura, algumErro, statusReprodutivoExibicao, statusReprodutivoDetalhado, statusReprodutivoCiclo, STATUS_CICLO_ANIMAL, PERDA_PRESUMIDA_DIAS_APOS_PREVISTO, paiEhMontaNaturalIndefinida, capitalizarPrimeira, capitalizarNome, sanidadeRealizada, calcDesempenhoVidaFemea, agruparPesoPorData, calcGMD } from '../lib/helpers'
+import { calcCategoria, calcCategoriaRebanho, idadeFormatada, fmtData, catCor, sitCor, repCor, sortBrinco, dataNaoFutura, algumErro, statusReprodutivoExibicao, statusReprodutivoDetalhado, statusReprodutivoCiclo, STATUS_CICLO_ANIMAL, PERDA_PRESUMIDA_DIAS_APOS_PREVISTO, paiEhMontaNaturalIndefinida, capitalizarPrimeira, capitalizarNome, sanidadeRealizada, calcDesempenhoVidaFemea, agruparPesoPorData, calcGMD, classificarDesfechosPorSafra, CORES_DESFECHO, ROTULOS_DESFECHO } from '../lib/helpers'
 import { hojeISO } from '../lib/hoje'
 import { confirmarPerdaPresumida } from '../lib/perdaGestacionalPresumida'
 import { Loading, EmptyState, Modal, Field, MicButton, Badge, toast, BotaoPDF, ErroCarregamento, Confirm } from '../components/UI'
@@ -914,38 +914,20 @@ export default function Animais() {
     const primeiraMatrizIdx = historicoCiclos.findIndex(h => h.status !== 'nao_era_matriz')
     const historicoCiclosVisiveis = primeiraMatrizIdx === -1 ? [] : [...historicoCiclos.slice(primeiraMatrizIdx)].reverse()
 
-    // ── Linha do tempo produtiva (Fase 13, 2ª rodada) — 1 safra por coluna,
-    // do mais antigo pro mais recente (por isso NÃO usa historicoCiclosVisiveis,
-    // que é a versão invertida pro card de texto acima). 'em_andamento' fica de
-    // fora (ciclo ainda não fechou, não há desfecho pra mostrar). 'falhada' se
-    // divide em Falhou/Não foi exposta conforme ela teve ou não inseminação
-    // registrada dentro do próprio ciclo — dado já carregado, não é heurística nova.
-    const CORES_DESFECHO = {
-      pariu: '#27A838', pariu_aguardando: '#1BA89C', abortou: '#E24B4A',
-      prenha: '#2B6CD9', falhou: '#D97706', nao_exposta: '#9CA3AF',
-    }
-    const dadosProdutivos = primeiraMatrizIdx === -1 ? [] : historicoCiclos.slice(primeiraMatrizIdx)
-      .filter(h => h.status !== 'em_andamento')
-      .map(h => {
-        if (h.status === 'pariu') {
-          const parto = (reprodutivoBruto.partos || []).find(p => p.data_parto === h.data)
-          const pesoDesmame = parto?.bezerro?.pesagens?.find(ps => ps.tipo === 'desmama')
-          const peso = pesoDesmame ? parseFloat(pesoDesmame.peso_kg) : null
-          return {
-            safra: h.ciclo.nome, valor: peso ?? 8, peso,
-            desfecho: peso !== null ? 'pariu' : 'pariu_aguardando',
-            rotulo: peso !== null ? `${peso} kg` : 'Aguard. desmame',
-          }
-        }
-        if (h.status === 'perda_gestacional') return { safra: h.ciclo.nome, valor: 8, peso: null, desfecho: 'abortou', rotulo: 'Abortou' }
-        if (h.status === 'gestacao_aberta')   return { safra: h.ciclo.nome, valor: 8, peso: null, desfecho: 'prenha',  rotulo: 'Prenha' }
-        // falhada: distingue exposta-sem-resultado de nunca-exposta
-        const teveInseminacao = (reprodutivoBruto.inseminacoes || [])
-          .some(i => i.lote?.data && i.lote.data >= h.ciclo.inicio && i.lote.data <= h.ciclo.fim)
-        return teveInseminacao
-          ? { safra: h.ciclo.nome, valor: 8, peso: null, desfecho: 'falhou',      rotulo: 'Falhou' }
-          : { safra: h.ciclo.nome, valor: 8, peso: null, desfecho: 'nao_exposta', rotulo: 'Não exposta' }
-      })
+    // ── Linha do tempo produtiva (Fase 13, 2ª rodada) — 1 safra por coluna, do
+    // mais antigo pro mais recente. Classificação em si (pariu/abortou/falhou/
+    // não exposta/prenha) mora em classificarDesfechosPorSafra (helpers.js,
+    // Fase 14) — reaproveitada também pelo Ranking de Matrizes, pra nunca
+    // divergir entre os dois lugares. Aqui só monta o `rotulo` (texto do gráfico,
+    // que precisa do peso exato — algo que a função compartilhada não devolve
+    // pronto, já que ROTULOS_DESFECHO é só o texto genérico por categoria).
+    const dadosProdutivos = classificarDesfechosPorSafra(a, ciclos, reprodutivoBruto)
+      .map(d => ({
+        ...d,
+        rotulo: d.desfecho === 'pariu' ? `${d.peso} kg`
+          : d.desfecho === 'pariu_aguardando' ? 'Aguard. desmame'
+          : ROTULOS_DESFECHO[d.desfecho],
+      }))
 
     // ── Desempenho dos filhos (Fase 13, 2ª rodada) — GMD de cada cria
     // (calcGMD, sem fórmula nova), na ordem cronológica dos partos. Só entram
