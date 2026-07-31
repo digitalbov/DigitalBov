@@ -159,12 +159,23 @@ export default function SecaoReprodutivo({ item }) {
             dias). Se essa data já passou e a vaca ainda não pariu nem tem aborto registrado, o texto aparece em
             vermelho e negrito, como aviso de atraso.</li>
           <li><strong>Pariu, bezerro vivo, ainda não desmamado</strong> — "Pariu em dd/mm/aaaa · BRINCO ·
-            Lactante", com o brinco do terneiro clicável: abre o cadastro dele direto na tela Animais.</li>
+            Lactante", com o brinco do terneiro clicável: abre o cadastro dele direto na tela Animais. Ao lado,
+            na mesma linha das ações de diagnóstico/nascimento/aborto, aparece a próxima ação: um campo de peso
+            (kg) e o botão <strong>"Registrar desmame"</strong> — digitar o peso já habilita o botão, sem peso
+            ele fica desabilitado.</li>
           <li><strong>Pariu, bezerro morto (inclusive natimorto)</strong> — "Pariu em dd/mm/aaaa · Bezerro
             morto", sem oferecer desmame — não faz sentido desmamar um bezerro que não sobreviveu.</li>
           <li><strong>Desmamado</strong> — "Desmamado em dd/mm/aaaa · Xkg" (o peso some se não foi
-            informado).</li>
+            informado), com um botão pequeno de desfazer ao lado, pra corrigir um lançamento por engano.</li>
         </ul>
+        <p style={P}>
+          Assim como o diagnóstico tem uma <strong>"Data do diagnóstico"</strong> única no topo do card, o
+          desmame tem sua própria <strong>"Data do desmame"</strong> — aparece automaticamente quando o lote
+          tem pelo menos um bezerro vivo ainda não desmamado, e vale para todo desmame registrado nas linhas
+          abaixo (não a data de hoje). Não existe mais um card separado "Desmame dos terneiros deste lote": o
+          desmame virou uma etapa na própria sequência da vaca, no mesmo lugar de diagnóstico/nascimento/aborto
+          — uma vaca, uma sequência, sem precisar procurar o bezerro de novo lá embaixo.
+        </p>
         <p style={P}>
           No topo do lote, o <strong>"Progresso da safra"</strong> resume o funil completo num único lugar:
           Expostas → Prenhas → Paridas → Desmamadas — os mesmos números já usados no Resumo do lote e no

@@ -2099,6 +2099,19 @@ export default function Reprodutivo() {
                 </span>
               </div>
             )}
+            {/* Fase 10.1 — desmame virou ação NA LINHA da vaca (mesma sequência de
+                diagnóstico/nascimento/aborto), não mais um card separado no fim do
+                lote. Data única no topo, mesmo padrão de dataDiagLote — só aparece
+                quando há pelo menos um bezerro vivo e ainda não desmamado no lote. */}
+            {podeEditarReprod && (selLote.partos || []).some(p => !p.natimorto && p.bezerro?.situacao !== 'morto' && !p.bezerro?.data_desmame) && (
+              <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:10, flexWrap:'wrap' }}>
+                <label style={{ fontSize:'.8rem', color:'#374151', fontWeight:500 }}>Data do desmame:</label>
+                <input type="date" value={dataDesmameLote} onChange={e => setDataDesmameLote(e.target.value)} style={{ maxWidth:170 }} />
+                <span style={{ fontSize:'.72rem', color:'#9CA3AF' }}>
+                  Todo desmame registrado abaixo usa esta data — não a data de hoje.
+                </span>
+              </div>
+            )}
             <div style={{ fontSize:'.8rem', background:'#EEEDFE', color:'#3C3489', padding:'7px 10px', borderRadius:8, marginBottom:10 }}>
               <i className="ti ti-microphone" style={{ fontSize:12, marginRight:4 }} />
               Fale assim: <b>"zero três prenha"</b> ou <b>"doze vazia"</b> — primeiro o número do brinco, depois o resultado
@@ -2223,8 +2236,14 @@ export default function Reprodutivo() {
                         </div>
                       )}
                       {detalheVaca.etapa === 'desmamado' && (
-                        <div style={{ fontSize:'.72rem', color:'#6B7280', marginTop:2, fontWeight:600 }}>
-                          <i className="ti ti-circle-check" style={{ fontSize:11 }} /> Desmamado em {fmtData(detalheVaca.dataDesmame)}{detalheVaca.pesoDesmame ? ` · ${detalheVaca.pesoDesmame}kg` : ''}
+                        <div style={{ fontSize:'.72rem', color:'#6B7280', marginTop:2, fontWeight:600, display:'flex', alignItems:'center', gap:4 }}>
+                          <span><i className="ti ti-circle-check" style={{ fontSize:11 }} /> Desmamado em {fmtData(detalheVaca.dataDesmame)}{detalheVaca.pesoDesmame ? ` · ${detalheVaca.pesoDesmame}kg` : ''}</span>
+                          {podeEditarReprod && partoReg && (
+                            <button className="btn-icon" title="Desfazer desmame" disabled={salvandoDesmameId === partoReg.id}
+                              onClick={() => desfazerDesmameLote(partoReg)}>
+                              <i className="ti ti-x" style={{ fontSize:12 }} />
+                            </button>
+                          )}
                         </div>
                       )}
                       {d === 'P' && !partoReg && abortoReg && (
@@ -2327,6 +2346,29 @@ export default function Reprodutivo() {
                         <i className="ti ti-alert-circle" /> Registrar aborto
                       </button>
                     )}
+                    {/* Fase 10.1 — desmame na sequência da linha (mesmo padrão de
+                        nascimento/aborto acima): próxima ação depois que o bezerro
+                        nasceu vivo e ainda não foi desmamado (detalheVaca.etapa
+                        'lactante' já exclui morto/natimorto — ver statusReprodutivoDetalhado,
+                        helpers.js). Digitar o peso é o gatilho — sem peso o botão
+                        fica desabilitado (mesma validação de salvarDesmame). */}
+                    {podeEditarReprod && detalheVaca.etapa === 'lactante' && partoReg && (() => {
+                      const fd = formDesmame[partoReg.id] || {}
+                      const temPeso = numeroPositivo(fd.peso) !== null
+                      const ocupado = salvandoDesmameId === partoReg.id
+                      return (
+                        <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                          <input type="number" step="0.1" min="0" placeholder="kg" value={fd.peso || ''}
+                            onChange={e => setFormDesmame(prev => ({ ...prev, [partoReg.id]: { ...prev[partoReg.id], peso: e.target.value } }))}
+                            style={{ maxWidth:90, fontSize:'.78rem' }} />
+                          <button className="btn btn-secondary btn-xs" disabled={ocupado || !temPeso}
+                            onClick={() => salvarDesmame(partoReg)}
+                            style={{ fontSize:'.72rem', color:'#166534' }}>
+                            {ocupado ? 'Salvando...' : <><i className="ti ti-scale" /> Registrar desmame</>}
+                          </button>
+                        </div>
+                      )
+                    })()}
                     {podeEditarReprodCiclo && (
                       <button
                         disabled={diagBloqueado}
@@ -2379,74 +2421,6 @@ export default function Reprodutivo() {
             />
           )}
 
-          {/* Desmame dos terneiros nascidos neste lote — atalho pra não precisar ir
-              até a aba Desmame de Pesagens. Data única no topo (mesmo padrão da
-              data do diagnóstico de gestação). Digitar o peso na linha do
-              terneiro já é o gatilho do desmame — sem peso, o botão fica
-              desabilitado e nada é gravado (ver salvarDesmame acima). Gate de
-              PERMISSÃO (podeEditarReprod), não de ciclo — ver comentário em
-              salvarDesmame. Bezerros mortos/natimortos NUNCA aparecem aqui —
-              não faz sentido oferecer desmame pra quem não sobreviveu (o
-              status deles já aparece como "Bezerro morto" na linha do tempo,
-              na seção de Diagnóstico acima). */}
-          {selLote.partos?.filter(p => p.bezerro?.situacao !== 'morto').length > 0 && (
-            <div className="card" style={{ marginTop:14 }}>
-              <div className="card-title"><i className="ti ti-scale" /> Desmame dos terneiros deste lote</div>
-              {podeEditarReprod && (
-                <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:10, flexWrap:'wrap' }}>
-                  <label style={{ fontSize:'.8rem', color:'#374151', fontWeight:500 }}>Data do desmame:</label>
-                  <input type="date" value={dataDesmameLote} onChange={e => setDataDesmameLote(e.target.value)} style={{ maxWidth:170 }} />
-                  <span style={{ fontSize:'.72rem', color:'#9CA3AF' }}>
-                    Todo desmame registrado abaixo usa esta data — não a data de hoje.
-                  </span>
-                </div>
-              )}
-              {selLote.partos.filter(p => p.bezerro?.situacao !== 'morto').map(p => {
-                const desmamado = !!p.bezerro?.data_desmame
-                const pesoDesm  = (p.bezerro?.pesagens || []).find(ps => ps.tipo === 'desmama')
-                const fd = formDesmame[p.id] || {}
-                const temPeso = numeroPositivo(fd.peso) !== null
-                const ocupado = salvandoDesmameId === p.id
-                return (
-                  <div key={p.id} style={{
-                    display:'flex', alignItems:'center', justifyContent:'space-between',
-                    flexWrap:'wrap', gap:8, padding:'8px 0', borderBottom:'.5px solid #F3F4F6'
-                  }}>
-                    <div>
-                      <span style={{ fontWeight:500 }}>{p.bezerro?.brinco || '?'}</span>
-                      <span style={{ fontSize:'.75rem', color:'#9CA3AF', marginLeft:6 }}>
-                        {p.bezerro?.sexo === 'F' ? '♀' : '♂'} · mãe {p.mae?.brinco || '?'} · nasceu {fmtData(p.data_parto)}
-                      </span>
-                    </div>
-                    {desmamado ? (
-                      <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
-                        <Badge color="green">
-                          Desmamado em {fmtData(p.bezerro.data_desmame)}{pesoDesm ? ` · ${pesoDesm.peso_kg}kg` : ''}
-                        </Badge>
-                        {podeEditarReprod && (
-                          <button className="btn-icon" title="Desfazer desmame" disabled={ocupado} onClick={() => desfazerDesmameLote(p)}>
-                            <i className="ti ti-x" />
-                          </button>
-                        )}
-                      </div>
-                    ) : podeEditarReprod ? (
-                      <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
-                        <input type="number" step="0.1" min="0" placeholder="kg" value={fd.peso || ''}
-                          onChange={e => setFormDesmame(prev => ({ ...prev, [p.id]: { ...prev[p.id], peso: e.target.value } }))}
-                          style={{ maxWidth:110 }} />
-                        <button className="btn btn-secondary btn-xs" disabled={ocupado || !temPeso}
-                          onClick={() => salvarDesmame(p)}>
-                          {ocupado ? 'Salvando...' : <><i className="ti ti-check" /> Registrar desmame</>}
-                        </button>
-                      </div>
-                    ) : (
-                      <Badge color="gray">Não desmamado</Badge>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-          )}
           {/* Perda gestacional presumida (Fase 10) — resumo do que será gravado,
               incluindo o efeito colateral em calcCategoriaRebanho (a vaca some
               da categoria "Vaca Prenha"/"Vaca Prenha 13-24m" etc. no Valor de
