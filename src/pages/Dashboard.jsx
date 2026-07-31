@@ -1,7 +1,7 @@
 ﻿import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase, db } from '../lib/supabase'
-import { calcCategoria, calcCategoriaRebanho, calcTaxaPrenhez, contarExpostas, contarPrenhas, fmtMoeda, valorPropLanc, contarMatrizes, algumErro, calcLotesFEFO, diasAteValidade, CATEGORIAS_VALOR, mesesDeVida } from '../lib/helpers'
+import { calcCategoria, calcCategoriaRebanho, calcTaxaPrenhez, contarExpostas, contarPrenhas, fmtMoeda, calcResultadoFinanceiro, contarMatrizes, algumErro, calcLotesFEFO, diasAteValidade, CATEGORIAS_VALOR, mesesDeVida } from '../lib/helpers'
 import { Loading, FullLoading, AlertBox, IndexCard, ErroCarregamento } from '../components/UI'
 import { useFazenda } from '../lib/FazendaContext'
 import { useCiclo } from '../lib/CicloContext'
@@ -98,9 +98,7 @@ export default function Dashboard({ perfil }) {
   // (o que foi vendido/comprado) e não entra mais nesta soma — ela passa a
   // existir só quando ligada a um lançamento via transacoes_animais.lancamento_id.
   const filtPropId  = filtProp === 0 ? '' : filtProp
-  const rec  = valorPropLanc(lancamentos, 'R', filtPropId)
-  const desp = valorPropLanc(lancamentos, 'D', filtPropId)
-  const resu = rec - desp
+  const { receita: rec, despesa: desp, resultado: resu } = calcResultadoFinanceiro(lancamentos, filtPropId)
 
   // Piquetes
   const totalHa  = piqs.reduce((s,p) => s + parseFloat(p.area_ha||0), 0)

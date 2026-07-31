@@ -8,12 +8,13 @@ import { useCiclo, statusCiclo } from '../lib/CicloContext'
 import { useCicloLocal } from '../lib/useCicloLocal'
 import {
   fmtData, pct, contarMatrizes, contarExpostas, contarPrenhas, calcTaxaPrenhez, calcCategoriaRebanho, algumErro,
-  GESTACAO_MAX_DIAS, GESTACAO_ANGUS_DIAS, PERDA_PRESUMIDA_DIAS_APOS_PREVISTO, calcGestacaoLote, calcDesmameMetrics,
+  GESTACAO_MAX_DIAS, GESTACAO_ANGUS_DIAS, PERDA_PRESUMIDA_DIAS_APOS_PREVISTO, calcGestacaoLote, calcTaxaParicao, calcDesmameMetrics,
   calcIntervaloPartos, statusReprodutivoExibicao, statusReprodutivoDetalhado,
   dataNaoFutura, resolverPaiDerivado, mesesDeVida, capitalizarPrimeira, capitalizarNome, numeroPositivo,
 } from '../lib/helpers'
 import { hoje as hojeAgora, hojeISO } from '../lib/hoje'
 import { registrarDesmame, desfazerDesmame } from '../lib/reprodutivoDesmame'
+import { derivarDatasGestacao, criarPrenhezAdquirida, PRENHEZ_ADQUIRIDA_LABEL } from '../lib/prenhezAdquirida'
 import { confirmarPerdaPresumida } from '../lib/perdaGestacionalPresumida'
 import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, AlertBox, BotaoPDF, ErroCarregamento, BadgeSomenteLeitura, SeletorCicloLocal, Confirm } from '../components/UI'
 import {
@@ -221,23 +222,30 @@ export default function Reprodutivo() {
   const [estacaoIdxSel, setEstacaoIdxSel] = useState('')
   const [estacaoEdit,  setEstacaoEdit]  = useState(null) // {id, nome, inicio, fim} em edição
   const [savingEstacao, setSavingEstacao] = useState(false)
+  // Item 8 — estações do ciclo da monta calculada no modal "Vincular prenhez
+  // adquirida" (pode ser um ciclo diferente do cicloLocal atual — a monta de
+  // origem pode ter ficado num ciclo anterior).
+  const [estacoesRetro, setEstacoesRetro] = useState([])
+  const [savingPrenhez, setSavingPrenhez] = useState(false)
 
   // Aborto (registrado a partir de uma inseminação com diagnóstico 'P')
   const [abortoAlvo, setAbortoAlvo] = useState(null)
   const [formAborto, setFormAborto] = useState({})
   const [editAborto, setEditAborto] = useState(null)
 
-  // Data única do diagnóstico de gestação, aplicada a todos os cliques/voz no
-  // lote selecionado (em vez de sempre usar a data do clique) — reseta pra hoje
-  // sempre que o lote selecionado muda (ver useEffect abaixo).
-  const [dataDiagLote, setDataDiagLote] = useState(() => hojeISO())
+  // Data única do card "Diagnóstico de gestação", aplicada tanto ao
+  // diagnóstico (clique/voz) quanto ao desmame lançados no detalhe do lote —
+  // antes eram dois campos (dataDiagLote/dataDesmameLote) sempre com o mesmo
+  // valor (hoje) e o mesmo propósito ("a data de hoje pros lançamentos deste
+  // lote"), só que duplicados visualmente; unificados num só, com rótulo
+  // calculado no render conforme o que está pendente (ver rotuloDataAcaoLote).
+  // Reseta pra hoje sempre que o lote selecionado muda (ver useEffect abaixo).
+  const [dataAcaoLote, setDataAcaoLote] = useState(() => hojeISO())
   const [editDiag, setEditDiag] = useState(null)
 
   // Desmame direto no detalhe do lote — atalho pra não precisar ir até a aba
-  // Desmame de Pesagens. Uma única data no topo do card (mesmo padrão de
-  // dataDiagLote) aplicada a todos os registros; formDesmame guarda só o peso
-  // por parto.id, que é opcional (dá pra desmamar sem informar peso).
-  const [dataDesmameLote,  setDataDesmameLote]  = useState(() => hojeISO())
+  // Desmame de Pesagens. formDesmame guarda só o peso por parto.id, que é
+  // opcional (dá pra desmamar sem informar peso); a data usa dataAcaoLote.
   const [formDesmame,      setFormDesmame]      = useState({})
   const [salvandoDesmameId, setSalvandoDesmameId] = useState(null)
   // Perda gestacional presumida (Fase 10) — confirmAlvo guarda o contexto da
@@ -305,7 +313,7 @@ export default function Reprodutivo() {
     return () => { ativo = false }
   }, [modal])
   useEffect(() => { if (cicloLocal) loadCicloScoped(cicloLocal.id) }, [cicloLocal?.id])
-  useEffect(() => { setSelInsem([]); setFiltroPropLote(''); setDataDiagLote(hojeISO()); setDataDesmameLote(hojeISO()) }, [selLote?.id])
+  useEffect(() => { setSelInsem([]); setFiltroPropLote(''); setDataAcaoLote(hojeISO()) }, [selLote?.id])
   // Diagnóstico temporário: abortos do lote aberto no detalhe.
   useEffect(() => {
     if (selLote) console.log('[Reprodutivo] abortos do lote selecionado:', selLote.numero, selLote.id, selLote.abortos)
@@ -470,6 +478,14 @@ export default function Reprodutivo() {
     todosLotes.some(l => l.inseminacoes?.some(i => i.animal_id === a.id && i.diagnostico === 'P'))
   )
 
+  // Item 8 — o inverso de maesElegiveis: fêmeas prenhas (cadastro) sem
+  // NENHUM lote com diagnóstico 'P' — o caso típico é vaca comprada já
+  // prenha (nenhuma monta registrada neste sistema). São as candidatas do
+  // modal "Vincular prenhez adquirida".
+  const candidatosPrenhezAdquirida = femsAtivas.filter(a =>
+    a.sit_reprodutiva === 'prenha' && !maesElegiveis.some(m => m.id === a.id)
+  )
+
   // Acha o lote de inseminação (safra) mais provável para o nascimento: entre os
   // lotes com diagnóstico 'P' para a mãe, o que cai numa janela de gestação
   // plausível (260–300 dias) mais próxima do padrão (283 dias).
@@ -556,6 +572,54 @@ export default function Reprodutivo() {
     })
     if (error || !data) { toast('Erro ao criar estação: ' + (error?.message || ''), 'error'); return { error: true } }
     return { id: data.id }
+  }
+
+  // Item 8 — datas do modal "Vincular prenhez adquirida": o usuário informa
+  // uma (monta OU parto previsto), a outra é sempre derivada (283 dias).
+  const datasPrenhezForm = derivarDatasGestacao({
+    dataMonta: form.prenhez_modo === 'monta' ? form.data_monta : '',
+    dataPartoPrevisto: form.prenhez_modo !== 'monta' ? form.data_parto_previsto : '',
+  })
+
+  // Recarrega as estações do ciclo da monta calculada (pode ser diferente do
+  // cicloLocal atual — a monta de origem pode ter ficado num ciclo anterior).
+  useEffect(() => {
+    if (modal !== 'prenhezAdquirida' || !datasPrenhezForm.dataMonta) { setEstacoesRetro([]); return }
+    const ciclo = cicloDaData(datasPrenhezForm.dataMonta)
+    if (!ciclo) { setEstacoesRetro([]); return }
+    let cancelado = false
+    db.estacoesMonta.list(ciclo.id).then(({ data }) => { if (!cancelado) setEstacoesRetro(data || []) })
+    return () => { cancelado = true }
+  }, [modal, datasPrenhezForm.dataMonta])
+
+  const salvarPrenhezAdquirida = async () => {
+    if (!podeEditarReprodCiclo) return
+    const animalIds = form.prenhezAnimais || []
+    if (animalIds.length === 0) { toast('Selecione ao menos uma vaca.', 'error'); return }
+    if (!datasPrenhezForm.dataMonta) {
+      toast('Informe a data da monta ou a data prevista de parto.', 'error'); return
+    }
+    if (datasPrenhezForm.dataMonta > hojeISO()) {
+      toast('A monta calculada não pode ser no futuro — confira a data informada.', 'error'); return
+    }
+    if (form.criandoEstacao && (!form.nova_estacao_nome || !form.nova_estacao_inicio)) {
+      toast('Preencha nome e início da nova estação de monta, ou escolha uma existente.', 'error'); return
+    }
+    const ciclo = cicloDaData(datasPrenhezForm.dataMonta)
+    if (!ciclo) { toast('Não há ciclo cadastrado cobrindo a data da monta calculada.', 'error'); return }
+    setSavingPrenhez(true)
+    const { error } = await criarPrenhezAdquirida({
+      cicloId: ciclo.id, dataMonta: datasPrenhezForm.dataMonta, dataDiagnostico: hojeISO(),
+      estacaoMontaId: form.criandoEstacao ? null : (form.estacao_monta_id || null),
+      novaEstacao: form.criandoEstacao ? { nome: capitalizarNome(form.nova_estacao_nome), inicio: form.nova_estacao_inicio, fim: form.nova_estacao_fim } : null,
+      animalIds,
+    })
+    setSavingPrenhez(false)
+    if (error) { toast('Erro: ' + error, 'error'); return }
+    toast(`Prenhez adquirida vinculada — ${animalIds.length} vaca(s) já com diagnóstico Prenha neste novo lote.`)
+    setModal(null); setForm({})
+    await loadAll()
+    if (cicloLocal) loadCicloScoped(cicloLocal.id)
   }
 
   const abrirEditarEstacao = (es) => {
@@ -955,7 +1019,7 @@ export default function Reprodutivo() {
     for (const id of ids) {
       const ins = (selLote.inseminacoes || []).find(i => i.id === id)
       if (!ins) { erros++; continue }
-      const ok = await salvarDiag(selLote.id, ins.animal_id, diag, dataDiagLote, false)
+      const ok = await salvarDiag(selLote.id, ins.animal_id, diag, dataAcaoLote, false)
       if (!ok) erros++
     }
     setAplicandoDiagLote(false)
@@ -971,7 +1035,7 @@ export default function Reprodutivo() {
     if (!podeEditarReprodCiclo || !ins.diagnostico) return
     setEditDiag({
       loteId: selLote.id, animalId: ins.animal_id, diagnostico: ins.diagnostico,
-      data: ins.data_diagnostico || dataDiagLote, brinco: ins.animal?.brinco || '?'
+      data: ins.data_diagnostico || dataAcaoLote, brinco: ins.animal?.brinco || '?'
     })
   }
 
@@ -1144,6 +1208,19 @@ export default function Reprodutivo() {
     if (erroJanela) { toast(erroJanela, 'error'); return }
     const cicloDoParto = cicloDaData(form.data_parto)
 
+    // BUG CRÍTICO — uma vaca não pode ter mais de um parto na mesma safra
+    // (lote): checagem contra o BANCO (não contra selLote.partos, que pode
+    // estar desatualizado numa corrida de cliques — era exatamente o que
+    // deixava passar 2º/3º nascimento pra mesma mãe antes desta checagem
+    // existir). Gêmeos existem em corte mas são raríssimos — de propósito
+    // NÃO oferecemos essa opção aqui; um caso real de gêmeos precisa ser
+    // lançado manualmente (ver comentário no manual/changelog).
+    const { data: partosDaMaeAtuais } = await db.partos.byMae(mae.id)
+    if ((partosDaMaeAtuais || []).some(p => p.lote_inseminacao_id === form.lote_inseminacao_id)) {
+      toast(`${mae.brinco} já tem um nascimento registrado nesta safra — não é possível lançar um segundo parto para a mesma vaca na mesma safra (gêmeos são raros em corte; um caso real precisa ser tratado manualmente).`, 'error')
+      return
+    }
+
     // Tudo dentro de try/catch/finally: setSaving(false) TEM que rodar mesmo se
     // algum passo falhar, senão o botão trava em "Registrando..." pra sempre —
     // era exatamente o bug: nenhum erro de insert era checado, então um insert
@@ -1226,7 +1303,7 @@ export default function Reprodutivo() {
 
       // Registrar parto — ciclo_id é o ciclo do EVENTO (data do parto); lote_inseminacao_id
       // é a SAFRA (a monta que originou a gestação), que pode ser de um ciclo anterior.
-      const { error: errParto } = await db.partos.insert({
+      const { data: partoData, error: errParto } = await db.partos.insert({
         mae_id: mae.id,
         bezerro_id: bezData.id,
         data_parto: form.data_parto,
@@ -1240,6 +1317,26 @@ export default function Reprodutivo() {
         toast(`Bezerro ${bezData.brinco} criado, mas houve erro ao registrar o parto: ` + errParto.message, 'error')
         return
       }
+
+      // Atualização otimista da linha na tela: injeta o parto recém-criado
+      // direto em `lotes` (fonte de selLote, resincronizada pelo useEffect
+      // logo abaixo) — não espera o round-trip de loadAll(). É essa espera
+      // (rede + await) que deixava a linha da vaca mostrando "Registrar
+      // nascimento" por um tempo depois do 1º clique — e a checagem contra o
+      // banco acima é a rede de segurança real, mas sem isto aqui a UI ainda
+      // parecia "não ter salvo", convidando a clicar de novo.
+      setLotes(prev => prev.map(l => l.id === form.lote_inseminacao_id
+        ? { ...l, partos: [...(l.partos || []), {
+            id: partoData?.id, mae_id: mae.id, bezerro_id: bezData.id,
+            data_parto: form.data_parto, natimorto: !!form.natimorto,
+            lote_inseminacao_id: form.lote_inseminacao_id || null,
+            bezerro: {
+              id: bezData.id, brinco: bezData.brinco, sexo: form.sexo_bezerro,
+              situacao: situacaoBezerro, data_desmame: null,
+              pesagens: form.peso_nascimento ? [{ tipo: 'nascimento', peso_kg: parseFloat(form.peso_nascimento) }] : [],
+            },
+          }] }
+        : l))
 
       // Pesagem ao nascer (opcional) — falha aqui não desfaz o parto já
       // registrado, só avisa: o peso pode ser lançado depois em Pesagens.
@@ -1291,7 +1388,10 @@ export default function Reprodutivo() {
     }
   }
 
-  // Checa se o bezerro já tem histórico (além da pesagem de nascimento)
+  // Checa se o bezerro já tem histórico PRÓPRIO (além da pesagem de
+  // nascimento) — item 6: agora também olha sanidade e venda, não só
+  // pesagens/ser mãe de alguém. Sem isso, "desfazer nascimento" apagava o
+  // animal mesmo já tendo procedimento sanitário ou venda registrados nele.
   const bezerroTemHistorico = async (bezerroId) => {
     if (!bezerroId) return false
     // conta pesagens: permite no máximo 1 (a de nascimento)
@@ -1300,16 +1400,31 @@ export default function Reprodutivo() {
     // é mãe de algum parto?
     const { data: comoMae } = await db.partos.byMae(bezerroId)
     if (comoMae && comoMae.length > 0) return true
+    // tem procedimento sanitário registrado?
+    const { data: sanidade } = await db.sanidadeAnimais.listPorAnimal(bezerroId)
+    if (sanidade && sanidade.length > 0) return true
+    // já foi vendido (ou entra em alguma transação de animais)?
+    const { data: transacoes } = await db.transacaoAnimaisItens.byAnimal(bezerroId)
+    if (transacoes && transacoes.length > 0) return true
     return false
   }
 
-  // Excluir nascimento (apaga parto + bezerro) — pede confirmação via
+  // Excluir/desfazer nascimento (apaga parto + bezerro) — pede confirmação via
   // <Confirm> (setConfirmExcluirParto), a exclusão de fato só roda em
-  // executarExcluirParto, no clique em "Confirmar".
+  // executarExcluirParto, no clique em "Confirmar". Usada tanto pela lista da
+  // aba Nascimentos quanto pelo botão "Desfazer nascimento" na sequência da
+  // linha da vaca no detalhe do lote (item 6).
+  //
+  // Gate de PERMISSÃO (podeEditarReprod), não de ciclo — mesmo raciocínio de
+  // salvarParto/desfazerDesmameLote (ver comentários lá): o cicloLocal deste
+  // lote pode já estar encerrado mesmo com o nascimento em si tendo sido
+  // lançado dentro do ciclo atual. Os dois pontos de entrada continuam
+  // restringindo a VISIBILIDADE do botão como preferirem (a aba Nascimentos
+  // usa podeEditarReprodCiclo na sua própria lista).
   const excluirParto = async (p) => {
-    if (!podeEditarReprodCiclo) return
+    if (!podeEditarReprod) return
     if (await bezerroTemHistorico(p.bezerro_id)) {
-      toast('Não é possível excluir: o bezerro já tem histórico (pesagens/partos).', 'error'); return
+      toast('Não é possível desfazer: o bezerro já tem histórico próprio (pesagem além do nascimento, procedimento sanitário ou venda) — a ficha dele precisa manter esse registro.', 'error'); return
     }
     setConfirmExcluirParto(p)
   }
@@ -1327,15 +1442,22 @@ export default function Reprodutivo() {
     // então) — reverter às cegas arriscaria marcar como prenha uma vaca que não
     // está. Se este era o único parto da mãe no histórico, avisamos para revisão manual.
     const { data: partosRestantes } = await db.partos.byMae(p.mae_id)
+    // Atualização otimista (mesmo raciocínio do salvarParto): remove o parto
+    // de `lotes` na hora, sem esperar o loadAll() terminar.
+    if (p.lote_inseminacao_id) {
+      setLotes(prev => prev.map(l => l.id === p.lote_inseminacao_id
+        ? { ...l, partos: (l.partos || []).filter(x => x.id !== p.id) }
+        : l))
+    }
     toast((!partosRestantes || partosRestantes.length === 0)
-      ? 'Nascimento excluído. Essa era a única cria registrada da mãe — se ela ainda estiver prenha, atualize a situação reprodutiva manualmente no cadastro do animal.'
-      : 'Nascimento excluído.')
+      ? 'Nascimento desfeito. Essa era a única cria registrada da mãe — se ela ainda estiver prenha, atualize a situação reprodutiva manualmente no cadastro do animal.'
+      : 'Nascimento desfeito.')
     loadAll()
     if (cicloLocal) loadPartosNasc(cicloLocal.id)
   }
 
   // Desmame direto no detalhe do lote — atalho pra aba Desmame de Pesagens.
-  // Data única no topo do card (dataDesmameLote), mesmo padrão de dataDiagLote.
+  // Usa a mesma dataAcaoLote do diagnóstico, no topo do card.
   // Digitar o peso na linha do terneiro já é o gatilho do desmame — sem peso,
   // o botão fica desabilitado. Um único clique já confirma (com aviso nativo
   // de impacto nos indicadores, mesmo padrão de confirmação já usado nesta
@@ -1349,7 +1471,7 @@ export default function Reprodutivo() {
   // DESMAME (o que de fato vai ser gravado), não o cicloLocal.
   const salvarDesmame = (parto) => {
     if (!podeEditarReprod) return
-    const data = dataDesmameLote
+    const data = dataAcaoLote
     if (!data) { toast('Informe a data do desmame.', 'error'); return }
     if (!dataNaoFutura(data)) { toast('Data do desmame não pode ser futura.', 'error'); return }
     if (!dataEhEditavel(data)) {
@@ -1368,7 +1490,7 @@ export default function Reprodutivo() {
     const parto = confirmSalvarDesmame
     setConfirmSalvarDesmame(null)
     if (!parto) return
-    const data = dataDesmameLote
+    const data = dataAcaoLote
     const fd = formDesmame[parto.id] || {}
     setSalvandoDesmameId(parto.id)
     const { error } = await registrarDesmame({ animalId: parto.bezerro_id, data, pesoKg: fd.peso })
@@ -1513,8 +1635,8 @@ export default function Reprodutivo() {
     if (!isPrenha && !isVazia) { toast(`Diagnóstico não identificado para brinco ${br}`, 'error'); return }
     const ins = lote.inseminacoes?.find(i => i.animal?.brinco === br)
     if (!ins) { toast(`Brinco ${br} não está neste lote`, 'error'); return }
-    const ok = await salvarDiag(lote.id, ins.animal_id, isPrenha ? 'P' : 'V', dataDiagLote)
-    if (ok) toast(`Brinco ${br} → ${isPrenha ? 'Prenha' : 'Vazia'} (${fmtData(dataDiagLote)})`)
+    const ok = await salvarDiag(lote.id, ins.animal_id, isPrenha ? 'P' : 'V', dataAcaoLote)
+    if (ok) toast(`Brinco ${br} → ${isPrenha ? 'Prenha' : 'Vazia'} (${fmtData(dataAcaoLote)})`)
   }
 
   // ─── Índices: dados derivados ────────────────────────────────────────────────
@@ -1524,6 +1646,16 @@ export default function Reprodutivo() {
   // ciclo seguinte. `lote.partos` vem do FK partos.lote_inseminacao_id (join no
   // supabase.js), por isso é uma contagem exata, diferente de casar por mae_id.
 
+  // NÃO exportar pra helpers.js/reusar em Metas.jsx achando que é duplicação
+  // por descuido — já foi avaliado. matrizesAptas/txAproveitamento aqui são
+  // ancorados em lote.data (POR LOTE, de propósito: cada lote pode ter sua
+  // própria janela de elegibilidade). Metas.jsx calcula matrizesAptas 1x por
+  // CICLO (ancorado em primeiraMontaCiclo), como denominador comum aos 3 modos
+  // IA/Natural/Consolidado — decisão de produto, não a mesma conta. Se os lotes
+  // de um ciclo têm datas diferentes, plugar esta função por lote em Metas
+  // mudaria o denominador da taxa de aproveitamento em silêncio. O resto da
+  // lógica (calcGestacaoLote/calcDesmameMetrics/calcTaxaParicao) já é
+  // compartilhado via helpers.js — só este agregador fica local de propósito.
   const calcLoteMetrics = (lote, propId = null) => {
     const insAll = lote.inseminacoes || []
     const ins = propId ? insAll.filter(i => i.animal?.proprietario_id === propId) : insAll
@@ -1546,8 +1678,6 @@ export default function Reprodutivo() {
     // Gestacional" ("Ef. Gestacional" na tabela de índices). A variável
     // continua txParicao por conveniência (não renomeada), só o RÓTULO mudou.
     const txParicao   = prenhas > 0 ? Math.round(nascimentos / prenhas * 100) : 0
-    // "Taxa de Parição" oficial (Fase 8) — denominador = matrizes expostas distintas
-    const txNatalidade      = total > 0 ? Math.round(nascimentos / total * 100) : null
     const abortosLoteAll = lote.abortos || []
     const abortosLote = propId ? abortosLoteAll.filter(a => a.animal?.proprietario_id === propId) : abortosLoteAll
     const nAbortos = abortosLote.length
@@ -1555,6 +1685,11 @@ export default function Reprodutivo() {
     // conhecido — prenhas ainda dentro da janela de gestação não são perda.
     // calcGestacaoLote é a fórmula única, compartilhada com Metas.jsx.
     const { gestando, perdasNaoIdentificadas, perdaGestacional } = calcGestacaoLote(lote.data, prenhas, nascimentos, nAbortos)
+    // "Taxa de Parição" oficial (Fase 8) — denominador = matrizes expostas
+    // distintas. calcTaxaParicao é a fórmula única (helpers.js), consolidando
+    // 4 reimplementações que divergiam no caso "expostas>0 e 0 partos" — ver
+    // comentário na função.
+    const txNatalidade = calcTaxaParicao(total, nascimentos, gestando)
     const mortosBezerros    = partosLote.filter(p => p.bezerro?.situacao === 'morto').length
     const mortalidadeBezerros = nascimentos > 0 ? Math.round(mortosBezerros / nascimentos * 100) : null
     // Machos/fêmeas nascidos — cards do resumo do lote. semSexo conta bezerros
@@ -1883,6 +2018,20 @@ export default function Reprodutivo() {
                       <i className="ti ti-plus" /> Nova monta natural
                     </button>
                   )}
+                  {/* Item 8 — vínculo retroativo de prenhez adquirida (ex:
+                      vaca comprada já prenha, sem lote nenhum com
+                      diagnóstico 'P' no sistema): mesmo fluxo opcional
+                      oferecido na hora da compra (Financeiro.jsx), disponível
+                      aqui pra quem não criou o lote naquela hora. */}
+                  {podeEditarReprodCiclo && (
+                    <button className="btn btn-secondary btn-sm" onClick={() => {
+                      if (todosStale) loadTodos()
+                      setForm({ prenhez_modo: 'parto', prenhezAnimais: [] })
+                      setModal('prenhezAdquirida')
+                    }}>
+                      <i className="ti ti-plus" /> Vincular prenhez adquirida
+                    </button>
+                  )}
                 </div>
               </div>
               <div ref={refLotes}>
@@ -2090,28 +2239,33 @@ export default function Reprodutivo() {
               <span><i className="ti ti-stethoscope" /> Diagnóstico de gestação</span>
               {podeEditarReprodCiclo && <MicButton hint='Fale: "zero três prenha" ou "doze vazia"' onResult={t => vozDiag(t, selLote)} />}
             </div>
-            {podeEditarReprodCiclo && (
-              <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:10, flexWrap:'wrap' }}>
-                <label style={{ fontSize:'.8rem', color:'#374151', fontWeight:500 }}>Data do diagnóstico:</label>
-                <input type="date" value={dataDiagLote} onChange={e => setDataDiagLote(e.target.value)} style={{ maxWidth:170 }} />
-                <span style={{ fontSize:'.72rem', color:'#9CA3AF' }}>
-                  Todo diagnóstico marcado abaixo (clique ou voz) usa esta data — não a data de hoje.
-                </span>
-              </div>
-            )}
-            {/* Fase 10.1 — desmame virou ação NA LINHA da vaca (mesma sequência de
-                diagnóstico/nascimento/aborto), não mais um card separado no fim do
-                lote. Data única no topo, mesmo padrão de dataDiagLote — só aparece
-                quando há pelo menos um bezerro vivo e ainda não desmamado no lote. */}
-            {podeEditarReprod && (selLote.partos || []).some(p => !p.natimorto && p.bezerro?.situacao !== 'morto' && !p.bezerro?.data_desmame) && (
-              <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:10, flexWrap:'wrap' }}>
-                <label style={{ fontSize:'.8rem', color:'#374151', fontWeight:500 }}>Data do desmame:</label>
-                <input type="date" value={dataDesmameLote} onChange={e => setDataDesmameLote(e.target.value)} style={{ maxWidth:170 }} />
-                <span style={{ fontSize:'.72rem', color:'#9CA3AF' }}>
-                  Todo desmame registrado abaixo usa esta data — não a data de hoje.
-                </span>
-              </div>
-            )}
+            {/* Campo único (item 3 do pedido — antes eram 2 campos de data
+                empilhados, "Data do diagnóstico" e "Data do desmame", quase
+                sempre os dois visíveis e redundantes: mesmo valor default,
+                mesmo propósito ("data de hoje pros lançamentos deste lote").
+                Um só campo agora, com rótulo calculado conforme o que está
+                de fato pendente no lote — some quando não há mais nada
+                pendente (lote 100% diagnosticado e desmamado). */}
+            {(() => {
+              const mostrarDiag = podeEditarReprodCiclo && (selLote.inseminacoes || []).some(i => !i.diagnostico)
+              const mostrarDesmame = podeEditarReprod && (selLote.partos || []).some(p => !p.natimorto && p.bezerro?.situacao !== 'morto' && !p.bezerro?.data_desmame)
+              if (!mostrarDiag && !mostrarDesmame) return null
+              const rotulo = mostrarDiag && mostrarDesmame
+                ? 'Data do diagnóstico / desmame:'
+                : mostrarDiag ? 'Data do diagnóstico:' : 'Data do desmame:'
+              const explicacao = mostrarDiag && mostrarDesmame
+                ? 'Todo diagnóstico (clique ou voz) e todo desmame registrados abaixo usam esta data — não a data de hoje.'
+                : mostrarDiag
+                  ? 'Todo diagnóstico marcado abaixo (clique ou voz) usa esta data — não a data de hoje.'
+                  : 'Todo desmame registrado abaixo usa esta data — não a data de hoje.'
+              return (
+                <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:10, flexWrap:'wrap' }}>
+                  <label style={{ fontSize:'.8rem', color:'#374151', fontWeight:500 }}>{rotulo}</label>
+                  <input type="date" value={dataAcaoLote} onChange={e => setDataAcaoLote(e.target.value)} style={{ maxWidth:170 }} />
+                  <span style={{ fontSize:'.72rem', color:'#9CA3AF' }}>{explicacao}</span>
+                </div>
+              )
+            })()}
             <div style={{ fontSize:'.8rem', background:'#EEEDFE', color:'#3C3489', padding:'7px 10px', borderRadius:8, marginBottom:10 }}>
               <i className="ti ti-microphone" style={{ fontSize:12, marginRight:4 }} />
               Fale assim: <b>"zero três prenha"</b> ou <b>"doze vazia"</b> — primeiro o número do brinco, depois o resultado
@@ -2195,8 +2349,14 @@ export default function Reprodutivo() {
               // global fazia esta linha mostrar "prenha sem parto"/"perda
               // presumida" (e esconder o botão Registrar nascimento, cujo
               // gate usa `d` corretamente) numa vaca que aqui foi vazia.
+              // BUG — aborto encerra a gestação: sem isto, uma vaca com
+              // diagnóstico 'P' (d) que abortou depois continuava sendo
+              // tratada como "prenha sem parto" aqui (statusReprodutivoDetalhado
+              // não sabe de abortoReg, só de partos), mostrando "Prevista
+              // para" ao lado de "Aborto registrado" — as duas juntas, o que
+              // não faz sentido: não há mais parto previsto depois de um aborto.
               const detalheVaca = statusReprodutivoDetalhado(
-                { id: ins.animal_id, sit_reprodutiva: d === 'P' ? 'prenha' : 'vazia' },
+                { id: ins.animal_id, sit_reprodutiva: (d === 'P' && !abortoReg) ? 'prenha' : 'vazia' },
                 selLote.partos, selLote.data
               )
               const partoAtrasado = detalheVaca.etapa === 'prenha_sem_parto'
@@ -2225,14 +2385,26 @@ export default function Reprodutivo() {
                         </div>
                       )}
                       {detalheVaca.etapa === 'lactante' && (
-                        <div style={{ fontSize:'.72rem', color:'#166534', marginTop:2, fontWeight:600 }}>
-                          <i className="ti ti-circle-check" style={{ fontSize:11 }} /> Pariu em {fmtData(detalheVaca.dataParto)} ·{' '}
-                          <button onClick={() => navigate('/animais', { state: { abrirAnimalId: detalheVaca.bezerro.id } })}
-                            title="Abrir cadastro do terneiro"
-                            style={{ background:'none', border:'none', padding:0, font:'inherit', fontWeight:700, color:'#166534', textDecoration:'underline', cursor:'pointer' }}>
-                            {detalheVaca.bezerro.brinco}
-                          </button>
-                          {' '}· Lactante
+                        <div style={{ fontSize:'.72rem', color:'#166534', marginTop:2, fontWeight:600, display:'flex', alignItems:'center', gap:4 }}>
+                          <span>
+                            <i className="ti ti-circle-check" style={{ fontSize:11 }} /> Pariu em {fmtData(detalheVaca.dataParto)} ·{' '}
+                            <button onClick={() => navigate('/animais', { state: { abrirAnimalId: detalheVaca.bezerro.id } })}
+                              title="Abrir cadastro do terneiro"
+                              style={{ background:'none', border:'none', padding:0, font:'inherit', fontWeight:700, color:'#166534', textDecoration:'underline', cursor:'pointer' }}>
+                              {detalheVaca.bezerro.brinco}
+                            </button>
+                            {' '}· Lactante
+                          </span>
+                          {/* Item 6 — desfazer nascimento, mesmo padrão do
+                              "Desfazer desmame" logo abaixo: reusa
+                              excluirParto (aba Nascimentos), que já bloqueia
+                              sozinho se o bezerro tiver histórico próprio. */}
+                          {podeEditarReprod && partoReg && (
+                            <button className="btn-icon" title="Desfazer nascimento"
+                              onClick={() => excluirParto(partoReg)}>
+                              <i className="ti ti-x" style={{ fontSize:12 }} />
+                            </button>
+                          )}
                         </div>
                       )}
                       {detalheVaca.etapa === 'desmamado' && (
@@ -2332,6 +2504,11 @@ export default function Reprodutivo() {
                             auto_lote: mae?.lote?.nome || '—',
                             auto_prop: mae?.proprietario?.nome || ins.animal?.proprietario?.nome || '—',
                             lote_inseminacao_id: selLote.id,
+                            // Itens 4/5 — a linha já define a vaca e a safra:
+                            // trava os dois campos no modal (não editáveis),
+                            // já que reabrir a escolha aqui só convida a
+                            // trocar pra outra mãe/lote por engano.
+                            travarSafra: true,
                           })
                           setModal('parto')
                         }}
@@ -2380,7 +2557,7 @@ export default function Reprodutivo() {
                           background:d==='P'?'#E8F0FC':'white', color:d==='P'?'#1E55B0':'#6B7280',
                           border:`.5px solid ${d==='P'?'#1BA89C':'#E5E7EB'}`
                         }}
-                        onClick={() => salvarDiag(selLote.id, ins.animal_id, 'P', dataDiagLote)}
+                        onClick={() => salvarDiag(selLote.id, ins.animal_id, 'P', dataAcaoLote)}
                       >Prenha</button>
                     )}
                     {podeEditarReprodCiclo && (
@@ -2394,7 +2571,7 @@ export default function Reprodutivo() {
                           background:d==='V'?'#FCEBEB':'white', color:d==='V'?'#791F1F':'#6B7280',
                           border:`.5px solid ${d==='V'?'#E24B4A':'#E5E7EB'}`
                         }}
-                        onClick={() => salvarDiag(selLote.id, ins.animal_id, 'V', dataDiagLote)}
+                        onClick={() => salvarDiag(selLote.id, ins.animal_id, 'V', dataAcaoLote)}
                       >Vazia</button>
                     )}
                     {!d && <Badge color="gray">Pendente</Badge>}
@@ -2443,7 +2620,7 @@ export default function Reprodutivo() {
             onClose={() => setConfirmDiagLote(null)}
             onConfirm={executarDiagLote}
             title={`Marcar ${confirmDiagLote?.diag === 'P' ? 'Prenha' : 'Vazia'} em lote`}
-            message={confirmDiagLote && `${confirmDiagLote.ids.length} vaca(s) serão marcadas como "${confirmDiagLote.diag === 'P' ? 'Prenha' : 'Vazia'}" (diagnóstico de ${fmtData(dataDiagLote)}).${confirmDiagLote.ignorados > 0 ? ` ${confirmDiagLote.ignorados} das selecionadas já têm parto ou aborto registrado neste lote e serão ignoradas.` : ''} Confirmar?`}
+            message={confirmDiagLote && `${confirmDiagLote.ids.length} vaca(s) serão marcadas como "${confirmDiagLote.diag === 'P' ? 'Prenha' : 'Vazia'}" (diagnóstico de ${fmtData(dataAcaoLote)}).${confirmDiagLote.ignorados > 0 ? ` ${confirmDiagLote.ignorados} das selecionadas já têm parto ou aborto registrado neste lote e serão ignoradas.` : ''} Confirmar?`}
           />
           {/* Remoção em lote — <Confirm> do app em vez de window.confirm()
               nativo (etapa D). */}
@@ -2697,14 +2874,15 @@ export default function Reprodutivo() {
               }
             </div>{/* end refNasc */}
             </>}
-            {/* Exclusão de nascimento — <Confirm> do app em vez de
-                window.confirm() nativo (etapa D). */}
+            {/* Exclusão/desfazimento de nascimento — <Confirm> do app em vez de
+                window.confirm() nativo (etapa D). Item 6 — aviso explícito do
+                impacto nos índices de parição/mortalidade/GMD Terneiros da safra. */}
             <Confirm
               open={!!confirmExcluirParto}
               onClose={() => setConfirmExcluirParto(null)}
               onConfirm={executarExcluirParto}
-              title="Excluir nascimento"
-              message={confirmExcluirParto && `Excluir o nascimento do bezerro ${confirmExcluirParto.bezerro?.brinco||''}? O animal e o registro de parto serão removidos.`}
+              title="Desfazer nascimento"
+              message={confirmExcluirParto && `Desfazer o nascimento do bezerro ${confirmExcluirParto.bezerro?.brinco||''}? O animal e o registro de parto serão removidos — isso também muda os índices de parição, mortalidade e GMD Terneiros da safra.`}
               danger
             />
           </div>
@@ -2765,7 +2943,7 @@ export default function Reprodutivo() {
                   perdasNaoIdentificadas: kpiPerdasNaoIdentificadas,
                   perdaGestacional:    kpiPerdaGestacional,
                   nascimentos:         kpiPartos,
-                  txNatalidade:        kpiIns > 0 ? Math.round(kpiPartos / kpiIns * 100) : null,
+                  txNatalidade:        calcTaxaParicao(kpiIns, kpiPartos, kpiGestando),
                   pesoMedioNascimento: kpiPesoMedioNascimento,
                   mortalidadeBezerros: kpiMortalidade,
                   ...kpiDesmame,
@@ -3375,15 +3553,104 @@ export default function Reprodutivo() {
         </div>
       </Modal>
 
+      {/* ── Modal Vincular prenhez adquirida (item 8) ── */}
+      <Modal open={modal==='prenhezAdquirida'} onClose={()=>setModal(null)} title="Vincular prenhez adquirida" width={560}>
+        <div style={{ fontSize:'.8rem', background:'#F3F0FF', color:'#3C3489', padding:'8px 12px', borderRadius:8, marginBottom:14 }}>
+          Para vacas prenhas sem nenhuma monta registrada aqui (o caso mais comum: comprada já prenha). Cria um lote
+          rotulado "{PRENHEZ_ADQUIRIDA_LABEL}" com diagnóstico Prenha já confirmado — sem isso, elas não aparecem
+          como opção de mãe no registro de nascimento, e o parto delas fica bloqueado (toda safra é obrigatória).
+        </div>
+        <Field label="Vacas" required hint="Só aparecem aqui fêmeas prenhas (cadastro) sem nenhum lote com diagnóstico Prenha">
+          {candidatosPrenhezAdquirida.length === 0 ? (
+            <div style={{ fontSize:'.8rem', color:'#9CA3AF' }}>Nenhuma vaca nessa condição no momento.</div>
+          ) : (
+            <div style={{ border:'.5px solid #E5E7EB', borderRadius:8, maxHeight:180, overflowY:'auto', padding:'6px 10px' }}>
+              {candidatosPrenhezAdquirida.map(a => {
+                const marcado = (form.prenhezAnimais || []).includes(a.id)
+                return (
+                  <label key={a.id} style={{ display:'flex', alignItems:'center', gap:8, padding:'4px 0', fontSize:'.85rem', cursor:'pointer' }}>
+                    <input type="checkbox" checked={marcado} onChange={() => setForm(p => ({
+                      ...p,
+                      prenhezAnimais: marcado ? (p.prenhezAnimais||[]).filter(id=>id!==a.id) : [...(p.prenhezAnimais||[]), a.id],
+                    }))} />
+                    <strong>{a.brinco}</strong>
+                    <span style={{ color:'#9CA3AF' }}>{a.proprietario?.nome?.split(' ')[0] || ''}</span>
+                  </label>
+                )
+              })}
+            </div>
+          )}
+        </Field>
+        <div className="grid-form">
+          <Field label="Você sabe...">
+            <select value={form.prenhez_modo || 'parto'} onChange={e=>setForm(p=>({...p, prenhez_modo:e.target.value, data_monta:'', data_parto_previsto:''}))}>
+              <option value="parto">A data prevista de parto</option>
+              <option value="monta">A data da monta</option>
+            </select>
+          </Field>
+          {form.prenhez_modo === 'monta' ? (
+            <Field label="Data da monta (estimada)" required>
+              <input type="date" value={form.data_monta||''} onChange={e=>setForm(p=>({...p,data_monta:e.target.value}))} />
+            </Field>
+          ) : (
+            <Field label="Data prevista de parto" required>
+              <input type="date" value={form.data_parto_previsto||''} onChange={e=>setForm(p=>({...p,data_parto_previsto:e.target.value}))} />
+            </Field>
+          )}
+        </div>
+        {datasPrenhezForm.dataMonta && datasPrenhezForm.dataPartoPrevisto && (
+          <div style={{ fontSize:'.78rem', color:'#6B7280', marginBottom:10 }}>
+            {form.prenhez_modo==='monta' ? `Parto previsto: ${fmtData(datasPrenhezForm.dataPartoPrevisto)}` : `Monta estimada: ${fmtData(datasPrenhezForm.dataMonta)}`}
+            {' '}(gestação de {GESTACAO_ANGUS_DIAS} dias)
+          </div>
+        )}
+        <Field label="Estação de monta" hint="Agrupa este lote com as demais montas desta estação">
+          <select
+            value={form.criandoEstacao ? '__nova__' : (form.estacao_monta_id || '')}
+            onChange={e => {
+              const v = e.target.value
+              if (v === '__nova__') setForm(p => ({ ...p, estacao_monta_id: '', criandoEstacao: true }))
+              else setForm(p => ({ ...p, estacao_monta_id: v || null, criandoEstacao: false }))
+            }}>
+            <option value="">— nenhuma —</option>
+            {estacoesRetro.map(es => (
+              <option key={es.id} value={es.id}>{es.nome} ({fmtData(es.inicio)}{es.fim ? ` – ${fmtData(es.fim)}` : ''})</option>
+            ))}
+            <option value="__nova__">+ Criar nova estação de monta…</option>
+          </select>
+        </Field>
+        {form.criandoEstacao && (
+          <div className="grid-form" style={{ marginTop:-4 }}>
+            <Field label="Nome da estação" required>
+              <input value={form.nova_estacao_nome||''} onChange={e=>setForm(p=>({...p,nova_estacao_nome:e.target.value}))} placeholder="ex: Estação 2026/27" />
+            </Field>
+            <Field label="Início" required>
+              <input type="date" value={form.nova_estacao_inicio||''} onChange={e=>setForm(p=>({...p,nova_estacao_inicio:e.target.value}))} />
+            </Field>
+          </div>
+        )}
+        <div className="modal-actions" style={{ marginTop:14 }}>
+          <button className="btn btn-primary" onClick={salvarPrenhezAdquirida} disabled={savingPrenhez || !podeEditarReprodCiclo}>
+            {savingPrenhez ? 'Salvando...' : <><i className="ti ti-check" /> Vincular</>}
+          </button>
+          <button className="btn btn-secondary" onClick={()=>setModal(null)}>Cancelar</button>
+        </div>
+      </Modal>
+
       {/* ── Modal parto ── */}
       <Modal open={modal==='parto'} onClose={()=>setModal(null)} title="Registrar nascimento" width={520}>
-        {/* Bloco de voz único */}
+        {/* Bloco de voz único — em modo travarSafra (aberto pelo detalhe do
+            lote, itens 4/5) a mãe e a safra já estão fixadas, então a fala
+            só precisa informar sexo/peso, sem procurar brinco. */}
         <div style={{ background:'#EEEDFE', borderRadius:8, padding:'10px 12px', marginBottom:14 }}>
           <div style={{ fontSize:'.78rem', color:'#3C3489', marginBottom:8, lineHeight:1.5 }}>
-            📢 Fale: <b>[número da mãe] [sexo] [peso opcional]</b><br/>
-            <span style={{ color:'#5B52A3' }}>Exemplo: <i>"três fêmea"</i> ou <i>"três fêmea 32"</i></span>
+            {form.travarSafra ? (
+              <>📢 Fale: <b>[sexo] [peso opcional]</b><br/><span style={{ color:'#5B52A3' }}>Exemplo: <i>"fêmea"</i> ou <i>"fêmea 32"</i></span></>
+            ) : (
+              <>📢 Fale: <b>[número da mãe] [sexo] [peso opcional]</b><br/><span style={{ color:'#5B52A3' }}>Exemplo: <i>"três fêmea"</i> ou <i>"três fêmea 32"</i></span></>
+            )}
           </div>
-          <MicButton hint='ex: "três fêmea" ou "três fêmea 32"' onResult={t => {
+          <MicButton hint={form.travarSafra ? 'ex: "fêmea" ou "fêmea 32"' : 'ex: "três fêmea" ou "três fêmea 32"'} onResult={t => {
             const lower = t.toLowerCase()
 
             // Localiza sexo e sua posição na string
@@ -3393,19 +3660,33 @@ export default function Reprodutivo() {
             if (machoM) { sexo = 'M'; sexoFim = machoM.index + machoM[0].length }
             else if (femeaM) { sexo = 'F'; sexoFim = femeaM.index + femeaM[0].length }
 
-            // Primeiro grupo de dígitos = brinco
-            const nums   = lower.match(/\d+/g)
-            const brinco = nums ? nums[0].padStart(2, '0') : null
-
-            // Dígitos APÓS a palavra de sexo = peso (opcional)
+            // Dígitos APÓS a palavra de sexo = peso (opcional); em modo
+            // travado não há brinco pra procurar antes do sexo, então o
+            // peso é só o primeiro número da fala inteira.
             let peso = null
-            if (sexoFim >= 0) {
+            if (form.travarSafra) {
+              const pesoM = lower.match(/\d+/)
+              if (pesoM) peso = pesoM[0]
+            } else if (sexoFim >= 0) {
               const afterSexo = lower.slice(sexoFim)
               const pesoM = afterSexo.match(/\d+/)
               if (pesoM) peso = pesoM[0]
             }
 
-            if (!brinco || !sexo) {
+            if (!sexo) {
+              toast('Não entendi o sexo. Fale "macho" ou "fêmea"' + (form.travarSafra ? '' : ', com o número da mãe'), 'error'); return
+            }
+
+            if (form.travarSafra) {
+              const pesoTxt = peso ? ` · ${peso}kg` : ''
+              setForm(p => ({ ...p, sexo_bezerro: sexo, voz_resumo: `${sexo === 'M' ? 'Macho' : 'Fêmea'}${pesoTxt}`, peso_nascimento: peso || p.peso_nascimento }))
+              return
+            }
+
+            // Primeiro grupo de dígitos = brinco
+            const nums   = lower.match(/\d+/g)
+            const brinco = nums ? nums[0].padStart(2, '0') : null
+            if (!brinco) {
               toast('Não entendi. Fale o número da mãe e o sexo (macho/fêmea)', 'error'); return
             }
             const mae = maesElegiveis.find(a => a.brinco === brinco)
@@ -3447,24 +3728,33 @@ export default function Reprodutivo() {
             )}
           </Field>
           <Field label="Brinco da mãe" required>
-            <select value={form.mae_brinco||''} onChange={e => {
-              const brinco = e.target.value
-              const mae = maesElegiveis.find(a => a.brinco === brinco)
-              // Touro SEMPRE do lote resolvido por ID (ver comentário acima, no handler de voz)
-              const loteSafra = mae ? encontrarLoteSafra(mae.id, form.data_parto) : null
-              const touro   = resolverPaiDerivado(loteSafra)
-              const loteLbl = mae?.lote?.nome || '—'
-              const prop    = mae?.proprietario?.nome || '—'
-              setForm(p => ({ ...p, mae_brinco: brinco, touro_pai: touro, auto_lote: loteLbl, auto_prop: prop, voz_resumo: null, lote_inseminacao_id: loteSafra?.id || null }))
-            }}>
-              <option value="">— selecione —</option>
-              {maesElegiveis.map(a => (
-                <option key={a.id} value={a.brinco}>{a.brinco} · {a.proprietario?.nome?.split(' ')[0]}</option>
-              ))}
-            </select>
-            <div style={{ fontSize:'.72rem', color:'#9CA3AF', marginTop:4 }}>
-              Apenas vacas com diagnóstico de prenhez confirmado em algum lote (inseminação ou monta natural) aparecem aqui.
-            </div>
+            {/* Item 4 — aberto pelo detalhe do lote: a linha já define a
+                vaca, não editável aqui (evita trocar de mãe por engano e
+                acabar registrando o nascimento errado). */}
+            {form.travarSafra ? (
+              <input value={form.mae_brinco||''} readOnly style={{ background:'#F9FAFB', color:'#6B7280', cursor:'default' }} />
+            ) : (
+              <>
+                <select value={form.mae_brinco||''} onChange={e => {
+                  const brinco = e.target.value
+                  const mae = maesElegiveis.find(a => a.brinco === brinco)
+                  // Touro SEMPRE do lote resolvido por ID (ver comentário acima, no handler de voz)
+                  const loteSafra = mae ? encontrarLoteSafra(mae.id, form.data_parto) : null
+                  const touro   = resolverPaiDerivado(loteSafra)
+                  const loteLbl = mae?.lote?.nome || '—'
+                  const prop    = mae?.proprietario?.nome || '—'
+                  setForm(p => ({ ...p, mae_brinco: brinco, touro_pai: touro, auto_lote: loteLbl, auto_prop: prop, voz_resumo: null, lote_inseminacao_id: loteSafra?.id || null }))
+                }}>
+                  <option value="">— selecione —</option>
+                  {maesElegiveis.map(a => (
+                    <option key={a.id} value={a.brinco}>{a.brinco} · {a.proprietario?.nome?.split(' ')[0]}</option>
+                  ))}
+                </select>
+                <div style={{ fontSize:'.72rem', color:'#9CA3AF', marginTop:4 }}>
+                  Apenas vacas com diagnóstico de prenhez confirmado em algum lote (inseminação ou monta natural) aparecem aqui.
+                </div>
+              </>
+            )}
           </Field>
           <Field label="Sexo do bezerro" required>
             <select value={form.sexo_bezerro||''} onChange={e=>setForm(p=>({...p,sexo_bezerro:e.target.value}))}>
@@ -3518,7 +3808,11 @@ export default function Reprodutivo() {
                   } · {loteVinculado.tipo === 'natural' ? 'Monta Natural' : 'IA'} ({fmtData(loteVinculado.data)})
                 </div>
               )}
-              {candidatos.length > 0 ? (
+              {/* Item 5 — aberto pelo detalhe do lote: a safra já é a deste
+                  lote, sem seletor (evita trocar pra outra safra da mesma
+                  mãe por engano). O seletor só aparece no fluxo livre, aberto
+                  pela aba Nascimentos. */}
+              {!form.travarSafra && (candidatos.length > 0 ? (
                 <select value={form.lote_inseminacao_id || ''}
                   onChange={e => {
                     const novoId = e.target.value || null
@@ -3539,8 +3833,8 @@ export default function Reprodutivo() {
                   safra vinculada — registre a inseminação ou monta (IA ou monta natural) correspondente na aba
                   "Lotes / Montas" antes de lançar este parto.
                 </div>
-              )}
-              {!loteVinculado && candidatos.length > 0 && (
+              ))}
+              {!form.travarSafra && !loteVinculado && candidatos.length > 0 && (
                 <div style={{ fontSize:'.78rem', color:'#791F1F', fontWeight:500, marginTop:8 }}>
                   <i className="ti ti-alert-circle" style={{ fontSize:12 }} /> Selecione o lote de origem — obrigatório, nenhum nascimento pode ficar sem safra vinculada.
                 </div>

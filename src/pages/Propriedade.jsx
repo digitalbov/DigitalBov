@@ -30,12 +30,6 @@ const calcAreaHa = (geom) => {
   try { return (area(geom) / 10000).toFixed(2) } catch { return 0 }
 }
 
-// Leaflet [[lat,lng]] → GeoJSON [lng,lat]
-const leafletToGeoJson = (latlngs) => ({
-  type: 'Polygon',
-  coordinates: [latlngs.map(([lat, lng]) => [lng, lat])]
-})
-
 // ── Mapa leitura (piquetes com polígonos salvos) ───────────────────
 function MapaPiquetes({ piqs }) {
   const mapRef = useRef(null)

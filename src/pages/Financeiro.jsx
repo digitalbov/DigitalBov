@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef, Fragment } from 'react'
 import { useLocation } from 'react-router-dom'
 import { db } from '../lib/supabase'
-import { fmtMoeda, fmtData, GRUPOS_REC, GRUPOS_DES, valorPropLanc, numeroPositivo, algumErro, calcCategoriaRebanho, CATEGORIAS_VALOR, estimarDataNascimentoPorCategoria, CATS_ESTOQUE, GRUPO_SUGERIDO_POR_CATEGORIA, capitalizarPrimeira, capitalizarNome, gruposPorValor, parsePesoIndividual, pesoIndividualInvalido, PESO_INDIVIDUAL_MAX_KG } from '../lib/helpers'
+import { fmtMoeda, fmtData, GRUPOS_REC, GRUPOS_DES, valorPropLanc, calcResultadoFinanceiro, numeroPositivo, algumErro, calcCategoriaRebanho, CATEGORIAS_VALOR, estimarDataNascimentoPorCategoria, CATS_ESTOQUE, GRUPO_SUGERIDO_POR_CATEGORIA, capitalizarPrimeira, capitalizarNome, gruposPorValor, parsePesoIndividual, pesoIndividualInvalido, PESO_INDIVIDUAL_MAX_KG, GESTACAO_ANGUS_DIAS } from '../lib/helpers'
 import { validarSaldoEstoque, aplicarMovimentacaoEstoque, reverterCascata, buscarMovsVinculadas, criarLancamentoRateado, carregarGruposExtras, gruposDisponiveis as gruposDisponiveisShared, comGrupoExtra } from '../lib/estoqueFinanceiro'
+import { derivarDatasGestacao, criarPrenhezAdquirida, PRENHEZ_ADQUIRIDA_LABEL } from '../lib/prenhezAdquirida'
 import RateioProprietarios from '../components/RateioProprietarios'
 import GrupoSelect from '../components/GrupoSelect'
 import { hoje as hojeAgora, hojeISO } from '../lib/hoje'
@@ -72,6 +73,16 @@ export default function Financeiro() {
   const [itensEstoque, setItensEstoque] = useState([])
   const [animaisAtivos, setAnimaisAtivos] = useState([])
   const [lotes,       setLotes]       = useState([])
+  // Item 7 — dados reprodutivos (inseminações/partos/abortos), carregados sob
+  // demanda só quando o modal de venda abre (nunca no load geral da tela: a
+  // maioria das visitas a Financeiro não mexe em venda) — usados pelos
+  // filtros "sem cria" e "aborto registrado" abaixo.
+  const [reprodutivoVenda, setReprodutivoVenda] = useState(null)
+  const [carregandoReprodVenda, setCarregandoReprodVenda] = useState(false)
+  // Item 8 — estações de monta do ciclo da compra, carregadas sob demanda só
+  // pro seletor de "Prenhez adquirida" (compra de vaca já prenha). Recarrega
+  // sempre que o ciclo da data da compra muda.
+  const [estacoesCompra, setEstacoesCompra] = useState([])
   const [transacaoExpandida, setTransacaoExpandida] = useState(null)
   const [itensPorTransacao,  setItensPorTransacao]  = useState({})
   const [carregandoItens,   setCarregandoItens]     = useState(false)
@@ -100,6 +111,40 @@ export default function Financeiro() {
   useEffect(() => { loadBase() }, [])
   useEffect(() => { if (cicloLocal) loadCiclo() }, [cicloLocal?.id])
   useEffect(() => { if (tab === 3 && ciclos.length > 0) loadResultadosPorCiclo() }, [tab, ciclos.length, filtProp])
+
+  // Item 7 — carrega inseminações/partos/abortos (histórico completo, sem
+  // escopo de ciclo: o que importa é a data de cada evento vs. a data da
+  // venda, não o ciclo financeiro atual) só quando o modal de venda é aberto
+  // pela 1ª vez nesta visita à tela — nunca no loadBase() geral.
+  useEffect(() => {
+    if (modal !== 'transac' || !(form.tipo === 'V' || form.tipo === 'venda_sim')) return
+    if (reprodutivoVenda || carregandoReprodVenda) return
+    setCarregandoReprodVenda(true)
+    Promise.all([
+      db.inseminacoes.listAllComDiagnostico(),
+      db.partos.listAll(),
+      db.abortos.listAll(),
+    ]).then(([ri, rp, ra]) => {
+      setReprodutivoVenda({
+        inseminacoes: ri.data || [],
+        partos:       rp.data || [],
+        abortos:      ra.data || [],
+      })
+      setCarregandoReprodVenda(false)
+    })
+  }, [modal, form.tipo, reprodutivoVenda, carregandoReprodVenda])
+
+  // Item 8 — estações de monta do ciclo da data de compra, pro seletor do
+  // bloco opcional "Prenhez adquirida" (compra de vaca já prenha). Recarrega
+  // quando o ciclo muda (troca de data) — lista pequena, sem custo relevante.
+  useEffect(() => {
+    if (modal !== 'transac' || !(form.tipo === 'C' || form.tipo === 'compra_sim') || !form.data) return
+    const ciclo = cicloDaData(form.data)
+    if (!ciclo) { setEstacoesCompra([]); return }
+    let cancelado = false
+    db.estacoesMonta.list(ciclo.id).then(({ data }) => { if (!cancelado) setEstacoesCompra(data || []) })
+    return () => { cancelado = true }
+  }, [modal, form.tipo, form.data])
 
   // Bloco D11 — saldo anterior do ciclo exibido no Resumo (faixa do ciclo +
   // card "Caixa disponível"). Sempre recalculado no banco a cada troca de
@@ -274,9 +319,7 @@ export default function Financeiro() {
     }
   }
 
-  const rec  = valorPropLanc(lancs, 'R', filtProp)
-  const desp = valorPropLanc(lancs, 'D', filtProp)
-  const resu = rec - desp
+  const { receita: rec, despesa: desp, resultado: resu } = calcResultadoFinanceiro(lancs, filtProp)
 
   // ── Filtros da aba Compra & Venda — combináveis (tipo + categoria +
   // contraparte). Categoria/contraparte são dropdowns populados com os
@@ -301,7 +344,39 @@ export default function Financeiro() {
   const vendaFiltroCategoria    = form.vendaFiltroCategoria    || ''
   const vendaFiltroProprietario = form.vendaFiltroProprietario || ''
   const vendaFiltroLote         = form.vendaFiltroLote         || ''
+  const vendaFiltroSemCria      = !!form.vendaFiltroSemCria
+  const vendaFiltroAborto       = !!form.vendaFiltroAborto
   const vendaSelecionados = form.vendaSelecionados || []
+
+  // Item 7 — "sem cria em nenhum lote": nunca teve diagnóstico 'P' (IA ou
+  // monta natural) com data_diagnostico até a data da venda. Com
+  // reprodutivoVenda ainda carregando, não filtra ninguém por engano (melhor
+  // mostrar de mais por um instante do que esconder animal por engano).
+  const naoTemCriaAteData = (animalId, dataRef) => {
+    if (!reprodutivoVenda) return true
+    return !reprodutivoVenda.inseminacoes.some(i =>
+      i.animal_id === animalId && i.diagnostico === 'P' && i.data_diagnostico && i.data_diagnostico <= dataRef)
+  }
+  // Item 7 — "aborto registrado, considerando o último status": olha os 3
+  // tipos de evento reprodutivo (diagnóstico, parto, aborto) até a data da
+  // venda e pega o mais recente — só qualifica se ESSE for um aborto (uma
+  // vaca que abortou mas depois foi diagnosticada prenha de novo, ou pariu
+  // de novo, não entra: o aborto não é mais o status atual dela).
+  const ultimoEventoEhAborto = (animalId, dataRef) => {
+    if (!reprodutivoVenda) return false
+    const eventos = [
+      ...reprodutivoVenda.inseminacoes
+        .filter(i => i.animal_id === animalId && i.data_diagnostico && i.data_diagnostico <= dataRef)
+        .map(i => ({ data: i.data_diagnostico, aborto: false })),
+      ...reprodutivoVenda.partos
+        .filter(p => p.mae_id === animalId && p.data_parto && p.data_parto <= dataRef)
+        .map(p => ({ data: p.data_parto, aborto: false })),
+      ...reprodutivoVenda.abortos
+        .filter(ab => ab.animal_id === animalId && ab.data && ab.data <= dataRef)
+        .map(ab => ({ data: ab.data, aborto: true })),
+    ].sort((x, y) => (y.data || '').localeCompare(x.data || ''))
+    return eventos.length > 0 && eventos[0].aborto
+  }
   // Nunca oferece pra venda um animal que ainda nem tinha nascido na data da
   // venda (bug real já visto em produção: 32 animais vendidos meses antes de
   // nascer, porque nada aqui comparava data_nascimento com a data escolhida).
@@ -313,6 +388,9 @@ export default function Financeiro() {
     if (vendaFiltroProprietario && a.proprietario_id !== vendaFiltroProprietario) return false
     if (vendaFiltroLote && a.lote_id !== vendaFiltroLote) return false
     if (form.data && a.data_nascimento && a.data_nascimento > form.data) return false
+    const dataRefReprod = form.data || hojeISO()
+    if (vendaFiltroSemCria && !naoTemCriaAteData(a.id, dataRefReprod)) return false
+    if (vendaFiltroAborto && !ultimoEventoEhAborto(a.id, dataRefReprod)) return false
     return true
   })
   const animaisSelecionadosObjs = animaisAtivos.filter(a => vendaSelecionados.includes(a.id))
@@ -627,9 +705,30 @@ export default function Financeiro() {
         toast(`Peso individual inválido na categoria "${r.categoria}" (posição ${posInvalida+1}) — informe um valor maior que 0 e até ${PESO_INDIVIDUAL_MAX_KG} kg, ou deixe em branco para usar o peso médio.`, 'error')
         return
       }
+      // Item 8 — categoria com "Prenhez adquirida" marcada
+      if (r.prenhezAtiva) {
+        const dataInformada = r.prenhezModo === 'monta' ? r.prenhezDataMonta : r.prenhezDataPartoPrevisto
+        if (!dataInformada) {
+          toast(`"${r.categoria}": informe a data da monta ou a data prevista de parto para a prenhez adquirida.`, 'error'); return
+        }
+        const { dataMonta: dataMontaCalc } = derivarDatasGestacao({
+          dataMonta: r.prenhezModo === 'monta' ? r.prenhezDataMonta : '',
+          dataPartoPrevisto: r.prenhezModo !== 'monta' ? r.prenhezDataPartoPrevisto : '',
+        })
+        if (dataMontaCalc > form.data) {
+          toast(`"${r.categoria}": a monta calculada (${fmtData(dataMontaCalc)}) fica depois da data da compra — confira a data informada.`, 'error'); return
+        }
+        if (r.prenhezCriandoEstacao && (!r.prenhezNovaEstacaoNome || !r.prenhezNovaEstacaoInicio)) {
+          toast(`"${r.categoria}": preencha nome e início da nova estação de monta, ou escolha uma existente.`, 'error'); return
+        }
+      }
     }
     setSaving(true)
     const ciclo = cicloDaData(form.data)
+    // Item 8 — snapshot de quem já existia ANTES da compra, pra depois achar
+    // por diferença os animais recém-criados (a RPC não devolve os IDs
+    // criados por categoria).
+    const idsAnimaisAntes = new Set(animaisAtivos.map(a => a.id))
     const detalhes = resumoCompra.map(r => ({
       categoria: r.categoria, quantidade: r.qtdNum,
       peso_medio: r.pesoNum, preco_kg: r.precoNum, valor_total: r.subtotal,
@@ -652,6 +751,42 @@ export default function Financeiro() {
     setModal(null); setForm({}); loadCiclo()
     const { data: rAnimais } = await db.animais.list({ situacao:'ativo' })
     setAnimaisAtivos(rAnimais || [])
+
+    // Item 8 — para cada categoria com "Prenhez adquirida" marcada, acha por
+    // diferença (novos = quem não existia antes desta compra) os animais
+    // daquela linha específica (mesma categoria/proprietário/data de
+    // nascimento estimada) e cria o lote + inseminações com diagnóstico 'P'.
+    const linhasPrenhez = resumoCompra.filter(r => r.prenhezAtiva)
+    if (linhasPrenhez.length > 0) {
+      const novos = (rAnimais || []).filter(a => !idsAnimaisAntes.has(a.id))
+      for (const r of linhasPrenhez) {
+        const candidatos = novos.filter(a =>
+          a.proprietario_id === r.proprietario_id &&
+          a.data_nascimento === r.data_nascimento_estimada &&
+          categoriaReal(a) === r.categoria)
+        if (candidatos.length !== r.qtdNum) {
+          toast(`Compra registrada, mas não foi possível identificar com segurança os animais de "${r.categoria}" para vincular a prenhez adquirida — vincule manualmente depois pela aba Lotes/Montas ("+ Vincular prenhez adquirida").`, 'error')
+          continue
+        }
+        const { dataMonta } = derivarDatasGestacao({
+          dataMonta: r.prenhezModo === 'monta' ? r.prenhezDataMonta : '',
+          dataPartoPrevisto: r.prenhezModo !== 'monta' ? r.prenhezDataPartoPrevisto : '',
+        })
+        const cicloDaMonta = cicloDaData(dataMonta)
+        if (!cicloDaMonta) {
+          toast(`"${r.categoria}": não há ciclo cadastrado cobrindo a data da monta (${fmtData(dataMonta)}) — vincule manualmente depois pela aba Lotes/Montas.`, 'error')
+          continue
+        }
+        const { error: errPrenhez } = await criarPrenhezAdquirida({
+          cicloId: cicloDaMonta.id, dataMonta, dataDiagnostico: form.data,
+          estacaoMontaId: r.prenhezCriandoEstacao ? null : (r.prenhezEstacaoId || null),
+          novaEstacao: r.prenhezCriandoEstacao ? { nome: r.prenhezNovaEstacaoNome, inicio: r.prenhezNovaEstacaoInicio } : null,
+          animalIds: candidatos.map(a => a.id),
+        })
+        if (errPrenhez) toast(`"${r.categoria}": ${errPrenhez}`, 'error')
+        else toast(`"${r.categoria}": lote de prenhez adquirida criado — ${candidatos.length} animal(is) já com diagnóstico Prenha.`)
+      }
+    }
   }
 
   // Venda real (tipo === 'V'): registra tudo numa RPC atômica —
@@ -1198,9 +1333,9 @@ export default function Financeiro() {
                   {ciclos.map(c=>{
                     const ehAtual = c.id === cicloAtual?.id
                     const lancsCiclo = lancsPorCiclo[c.id]
-                    const recC  = lancsCiclo ? valorPropLanc(lancsCiclo, 'R', filtProp) : null
-                    const despC = lancsCiclo ? valorPropLanc(lancsCiclo, 'D', filtProp) : null
-                    const resuC = recC !== null && despC !== null ? recC - despC : null
+                    const { receita: recC, despesa: despC, resultado: resuC } = lancsCiclo
+                      ? calcResultadoFinanceiro(lancsCiclo, filtProp)
+                      : { receita: null, despesa: null, resultado: null }
                     // Bloco D11 — saldo anterior/caixa acumulado NUNCA entram no
                     // Resultado/Margem acima (colunas intocadas) — são valores à
                     // parte, buscados em saldosPorCiclo (soma no banco).
@@ -1494,7 +1629,7 @@ export default function Financeiro() {
       {/* ── Modal transação ── */}
       <Modal open={modal==='transac'} onClose={()=>setModal(null)}
         title={ehSimulacaoTransac ? 'Simular transação' : (ehVendaShape ? 'Registrar venda' : 'Registrar compra')}
-        width={(ehVendaShape || ehCompraShape) ? 760 : 540}>
+        width={ehVendaShape ? 860 : (ehCompraShape ? 760 : 540)}>
         {ehSimulacaoTransac && (
           <div style={{background:'#EEF2FF',border:'.5px solid #C7D2FE',borderRadius:8,padding:'10px 12px',marginBottom:14,fontSize:'.8rem',color:'#3730A3'}}>
             <i className="ti ti-flask" style={{marginRight:6}}/>
@@ -1534,6 +1669,24 @@ export default function Financeiro() {
                 <option value="">Todos os lotes</option>
                 {lotes.map(l=><option key={l.id} value={l.id}>{l.nome}</option>)}
               </select>
+            </div>
+            {/* Item 7 — filtros reprodutivos, combináveis com os de cima
+                (categoria/proprietário/lote) e entre si (E lógico). Dados
+                carregados sob demanda (ver useEffect de reprodutivoVenda) —
+                desabilitados enquanto carrega pra não sugerir um resultado
+                que ainda não reflete a data escolhida. */}
+            <div style={{display:'flex',gap:14,marginBottom:10,flexWrap:'wrap',alignItems:'center'}}>
+              <label style={{display:'flex',alignItems:'center',gap:6,fontSize:'.82rem',color:'#374151',whiteSpace:'nowrap',cursor:carregandoReprodVenda?'default':'pointer',opacity:carregandoReprodVenda?0.6:1}}>
+                <input type="checkbox" checked={vendaFiltroSemCria} disabled={carregandoReprodVenda}
+                  onChange={e=>setForm(p=>({...p,vendaFiltroSemCria:e.target.checked}))} />
+                Sem cria (nenhum lote) até a data
+              </label>
+              <label style={{display:'flex',alignItems:'center',gap:6,fontSize:'.82rem',color:'#374151',whiteSpace:'nowrap',cursor:carregandoReprodVenda?'default':'pointer',opacity:carregandoReprodVenda?0.6:1}}>
+                <input type="checkbox" checked={vendaFiltroAborto} disabled={carregandoReprodVenda}
+                  onChange={e=>setForm(p=>({...p,vendaFiltroAborto:e.target.checked}))} />
+                Aborto registrado até a data
+              </label>
+              {carregandoReprodVenda && <span style={{fontSize:'.76rem',color:'#9CA3AF'}}>carregando histórico reprodutivo...</span>}
             </div>
 
             {animaisFiltradosVenda.length > 0 && (
@@ -1707,6 +1860,85 @@ export default function Financeiro() {
                       </div>
                     )}
                   </div>
+
+                  {/* Item 8 — categoria comprada já prenha: oferece criar o
+                      lote que representa a monta de origem, opcional. Sem
+                      isso, a vaca nunca aparece em maesElegiveis (nenhum lote
+                      com diagnóstico 'P') e o nascimento do terneiro dela
+                      fica bloqueado (todo parto exige safra vinculada). */}
+                  {/* Nunca em simulação (compra_sim não cadastra animal
+                      nenhum — não haveria o que vincular). */}
+                  {!ehSimulacaoTransac && c.categoria?.includes('Prenha') && (() => {
+                    const modo = c.prenhezModo || 'parto'
+                    const { dataMonta, dataPartoPrevisto } = derivarDatasGestacao({
+                      dataMonta: modo === 'monta' ? c.prenhezDataMonta : '',
+                      dataPartoPrevisto: modo === 'parto' ? c.prenhezDataPartoPrevisto : '',
+                    })
+                    return (
+                      <div style={{marginTop:8,padding:'8px 12px',background:'#F3F0FF',border:'.5px solid #C4B5FD',borderRadius:8}}>
+                        <label style={{display:'flex',alignItems:'center',gap:8,fontSize:'.82rem',color:'#3C3489',fontWeight:500,cursor:'pointer'}}>
+                          <input type="checkbox" checked={!!c.prenhezAtiva}
+                            onChange={e=>atualizarCategoriaCompra(idx,{prenhezAtiva:e.target.checked})} />
+                          Registrar a prenhez já confirmada (cria um lote "{PRENHEZ_ADQUIRIDA_LABEL}")
+                        </label>
+                        {c.prenhezAtiva && (
+                          <div style={{marginTop:10}}>
+                            <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'flex-end',marginBottom:8}}>
+                              <Field label="Você sabe...">
+                                <select value={modo} onChange={e=>atualizarCategoriaCompra(idx,{prenhezModo:e.target.value, prenhezDataMonta:'', prenhezDataPartoPrevisto:''})}>
+                                  <option value="parto">A data prevista de parto</option>
+                                  <option value="monta">A data da monta</option>
+                                </select>
+                              </Field>
+                              {modo === 'monta' ? (
+                                <Field label="Data da monta (estimada)" required>
+                                  <input type="date" value={c.prenhezDataMonta||''} onChange={e=>atualizarCategoriaCompra(idx,{prenhezDataMonta:e.target.value})} />
+                                </Field>
+                              ) : (
+                                <Field label="Data prevista de parto" required>
+                                  <input type="date" value={c.prenhezDataPartoPrevisto||''} onChange={e=>atualizarCategoriaCompra(idx,{prenhezDataPartoPrevisto:e.target.value})} />
+                                </Field>
+                              )}
+                              {dataMonta && dataPartoPrevisto && (
+                                <div style={{fontSize:'.76rem',color:'#6B7280',paddingBottom:8}}>
+                                  {modo==='monta' ? `Parto previsto: ${fmtData(dataPartoPrevisto)}` : `Monta estimada: ${fmtData(dataMonta)}`}
+                                  {' '}(gestação de {GESTACAO_ANGUS_DIAS} dias)
+                                </div>
+                              )}
+                            </div>
+                            <Field label="Estação de monta" hint="Agrupa este lote com as demais montas desta estação">
+                              <select value={c.prenhezCriandoEstacao ? '__nova__' : (c.prenhezEstacaoId||'')}
+                                onChange={e=>{
+                                  const v = e.target.value
+                                  if (v === '__nova__') atualizarCategoriaCompra(idx,{prenhezEstacaoId:'', prenhezCriandoEstacao:true})
+                                  else atualizarCategoriaCompra(idx,{prenhezEstacaoId:v||null, prenhezCriandoEstacao:false})
+                                }}>
+                                <option value="">— nenhuma —</option>
+                                {estacoesCompra.map(es=><option key={es.id} value={es.id}>{es.nome} ({fmtData(es.inicio)}{es.fim?` – ${fmtData(es.fim)}`:''})</option>)}
+                                <option value="__nova__">+ Criar nova estação de monta…</option>
+                              </select>
+                            </Field>
+                            {c.prenhezCriandoEstacao && (
+                              <div style={{display:'flex',gap:8,flexWrap:'wrap',marginTop:8}}>
+                                <Field label="Nome da estação" required>
+                                  <input value={c.prenhezNovaEstacaoNome||''} onChange={e=>atualizarCategoriaCompra(idx,{prenhezNovaEstacaoNome:e.target.value})} placeholder="ex: Estação 2026/27" />
+                                </Field>
+                                <Field label="Início" required>
+                                  <input type="date" value={c.prenhezNovaEstacaoInicio||''} onChange={e=>atualizarCategoriaCompra(idx,{prenhezNovaEstacaoInicio:e.target.value})} />
+                                </Field>
+                              </div>
+                            )}
+                            <div style={{fontSize:'.72rem',color:'#5B52A3',marginTop:8}}>
+                              O lote fica rotulado "{PRENHEZ_ADQUIRIDA_LABEL}" — nunca se confunde com uma monta feita
+                              aqui na fazenda. As {r?.qtdNum || 0} matriz(es) desta categoria entram já com diagnóstico
+                              Prenha confirmado nesse lote, e os terneiros delas passam a contar normalmente nos
+                              índices da safra (parição, mortalidade, GMD Terneiros, kg desmamado).
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })()}
 
                   {r && r.precoNum !== null && (r.subtotal > 0 || r.qtdComPesoIndividual > 0 || r.qtdComPesoMedio > 0) && (
                     <div style={{marginTop:6}}>

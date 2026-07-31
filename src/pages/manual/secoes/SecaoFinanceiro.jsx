@@ -159,7 +159,7 @@ export default function SecaoFinanceiro({ item }) {
         <h4 style={{ ...H4, fontSize: '.85rem' }}>Venda</h4>
         <ol style={OL}>
           <li>Informe a <strong>data</strong> — animais nascidos depois dela nem aparecem para seleção.</li>
-          <li>Filtre por categoria, proprietário e/ou lote, e marque os animais (ou "Selecionar todos do filtro").</li>
+          <li>Filtre por categoria, proprietário e/ou lote, e marque os animais (ou "Selecionar todos do filtro"). Dois filtros reprodutivos combinam com os de cima: <strong>"Sem cria (nenhum lote) até a data"</strong> (nunca teve diagnóstico Prenha confirmado, por IA ou monta natural, até a data escolhida) e <strong>"Aborto registrado até a data"</strong> (o último status reprodutivo dela até a data escolhida foi um aborto — se ela pariu ou foi diagnosticada prenha de novo depois do aborto, deixa de contar aqui). Os dois ficam desabilitados por um instante enquanto o histórico reprodutivo carrega, na primeira vez que você abre o formulário de venda.</li>
           <li>Para cada categoria selecionada, informe <strong>peso médio</strong> e <strong>preço/kg</strong> — os campos nascem vazios (não são pré-preenchidos a partir de Parâmetros, porque esse valor vai para o histórico de pesagem e o GMD dos animais).</li>
           <li>Opcional: em cada animal marcado, digite o <strong>peso individual</strong> dele no campo estreito que aparece na própria linha (placeholder "Dig. peso kg"; em branco = usa o peso médio da categoria). Logo abaixo, o card azul de <strong>Total</strong> mostra o valor total em destaque e, abaixo dele, uma linha menor para cada origem de peso realmente usada — ex: "2x Terneiro · peso individual (média 120 kg) × R$ 15,60 = R$ 3.744,00" e "3x Terneiro · peso médio 160 kg × R$ 15,60 = R$ 7.488,00" — mostrando só as que existirem. Se todos os animais da categoria tiverem peso individual, o peso médio deixa de ser obrigatório.</li>
           <li>Preencha contraparte, comissão, imposto e frete, se houver.</li>
@@ -183,6 +183,27 @@ export default function SecaoFinanceiro({ item }) {
           normalmente no <strong>GMD</strong> do animal (veja o aviso na seção Pesagens). Na compra, os animais
           novos entram com um brinco provisório (PROV-0001, PROV-0002...) até você editar com o brinco definitivo.
         </p>
+        <h4 style={{ ...H4, fontSize: '.85rem' }}>Comprando animais já prenhas</h4>
+        <p style={P}>
+          Sempre que a categoria escolhida numa linha da compra contiver <strong>"Prenha"</strong> (Novilha Prenha,
+          Vaca Prenha, Vaca Madura Prenha), aparece um bloco opcional: <strong>"Registrar a prenhez já
+          confirmada"</strong>. Sem isso, uma vaca comprada já prenha nunca tem nenhuma monta registrada neste
+          sistema — e sem uma monta com diagnóstico Prenha, ela não aparece como opção de mãe no registro de
+          nascimento, e o parto do terneiro dela fica bloqueado (toda safra é obrigatória, ver seção Reprodutivo).
+        </p>
+        <p style={P}>
+          Marcando o bloco, informe <strong>uma</strong> das duas datas — a <strong>prevista de parto</strong>
+          (o dado mais confiável na prática, normalmente passado por quem vendeu) ou a <strong>da monta</strong> —
+          o sistema calcula a outra sozinho (gestação padrão de 283 dias), e escolha uma <strong>estação de
+          monta</strong> existente ou crie uma nova. Ao registrar a compra, o sistema cria um lote rotulado
+          <strong> "Prenhez adquirida na compra"</strong> (nunca se confunde com uma monta de verdade feita na
+          fazenda, ao navegar pela aba Lotes/Montas de Reprodutivo) e já vincula as matrizes dessa categoria com
+          diagnóstico Prenha confirmado — os terneiros delas passam a contar normalmente nos índices da safra
+          (parição, mortalidade, GMD Terneiros, kg desmamado).
+        </p>
+        <AlertBox type="amber" icon="ti-info-circle"
+          title='Esse passo é opcional na hora da compra'
+          body='Se você não marcar o bloco agora, pode vincular depois — a qualquer momento — pelo botão "+ Vincular prenhez adquirida" na aba Lotes/Montas de Reprodutivo, que lista justamente as fêmeas prenhas (no cadastro) sem nenhum lote com diagnóstico Prenha, comprada ou não.' />
       </div>
 
       <div id="financeiro-resultados" style={{ scrollMarginTop: 90 }}>

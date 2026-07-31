@@ -1,6 +1,6 @@
 ﻿import { useState, useEffect } from 'react'
 import { db } from '../lib/supabase'
-import { calcCategoria, calcCategoriaRebanho, calcTaxaPrenhez, contarExpostas, contarPrenhas, contarMatrizes, calcGestacaoLote, calcDesmameMetrics, calcIntervaloPartos, calcGMD, estavaNoRebanho, fmtData, fmtMoeda, pct, ehMatriz, algumErro, somaFinita, valorPropLanc, CATEGORIAS_VALOR, gruposPorValor, sanidadeRealizada } from '../lib/helpers'
+import { calcCategoria, calcCategoriaRebanho, calcTaxaPrenhez, contarExpostas, contarPrenhas, contarMatrizes, calcGestacaoLote, calcTaxaParicao, calcResultadoFinanceiro, calcDesmameMetrics, calcIntervaloPartos, calcGMD, estavaNoRebanho, fmtData, fmtMoeda, pct, ehMatriz, algumErro, CATEGORIAS_VALOR, gruposPorValor, sanidadeRealizada } from '../lib/helpers'
 import { Loading, Badge, AlertBox, toast, SeletorCicloLocal, ErroCarregamento } from '../components/UI'
 import { useFazenda } from '../lib/FazendaContext'
 import { useCicloLocal } from '../lib/useCicloLocal'
@@ -208,9 +208,7 @@ export default function Relatorios() {
 
   // lancamentos_financeiros é a fonte única de dinheiro — transacoes_animais é
   // registro operacional e não entra mais nesta soma (ver Bloco D/D2).
-  const rec      = filtroProp ? valorPropLanc(lancs, 'R', filtroProp) : somaFinita(lancs.filter(l=>l.tipo==='R'), 'valor')
-  const desp     = filtroProp ? valorPropLanc(lancs, 'D', filtroProp) : somaFinita(lancs.filter(l=>l.tipo==='D'), 'valor')
-  const resu     = rec - desp
+  const { receita: rec, despesa: desp, resultado: resu } = calcResultadoFinanceiro(lancs, filtroProp)
 
   // Taxa de prenhez — fórmula oficial única (helpers.calcTaxaPrenhez), a mesma
   // usada em Reprodutivo/Rebanho/Metas: matrizes DISTINTAS prenhas / expostas no
@@ -256,7 +254,9 @@ export default function Relatorios() {
   // "Eficiência Gestacional": partos ÷ matrizes PRENHAS — nome novo pra
   // fórmula que ANTES se chamava "Taxa de parição" aqui (mesma chave
   // taxa_paricao em Metas.jsx, só o rótulo muda — ver Opção A).
-  const txParicaoNova = kpiIns > 0 ? Math.round(partosKpiArr.length / kpiIns * 100) : null
+  // calcTaxaParicao (helpers.js) consolida esta conta com Reprodutivo.jsx/
+  // Metas.jsx, que divergiam no tratamento de "expostas>0 e 0 partos".
+  const txParicaoNova = calcTaxaParicao(kpiIns, partosKpiArr.length, kpiGestando)
   const txEficienciaGestacional = kpiPrn > 0 ? Math.round(partosKpiArr.length / kpiPrn * 100) : null
   // % de matrizes expostas ainda sem diagnóstico (nem Prenha nem Vazia).
   const kpiPendentes = insemRel.filter(i => !i.diagnostico).length
@@ -346,9 +346,8 @@ export default function Relatorios() {
   // rebanho de hoje, não pelo rebanho que existia durante o próprio ciclo.
   const caixaAcumulado = saldoAnteriorCiclo != null ? saldoAnteriorCiclo + resu : null
   const resultadoPorProp = propsSelecionadas.map(p => {
-    const recP  = valorPropLanc(lancs, 'R', p.id)
-    const despP = valorPropLanc(lancs, 'D', p.id)
-    return { nome: p.nome.split(' ')[0], rec: recP, desp: despP, resu: recP - despP }
+    const { receita: recP, despesa: despP, resultado: resuP } = calcResultadoFinanceiro(lancs, p.id)
+    return { nome: p.nome.split(' ')[0], rec: recP, desp: despP, resu: resuP }
   })
   const custoPorMatriz  = matrizesAptasCiclo > 0 ? desp / matrizesAptasCiclo : null
   const receitaPorMatriz = matrizesAptasCiclo > 0 ? rec  / matrizesAptasCiclo : null

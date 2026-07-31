@@ -46,10 +46,6 @@ export function limparDataSimulada() {
   } catch {}
 }
 
-export function estaSimulado() {
-  return !!getDataSimulada()
-}
-
 // Retorna a data de referência atual: a simulada (se configurada e válida) ou a
 // real. T12:00:00 evita que fusos negativos (ex: Brasil) empurrem a data
 // simulada um dia para trás/frente em conversões UTC feitas em outros pontos do código.

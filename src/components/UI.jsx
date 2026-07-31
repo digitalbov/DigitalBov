@@ -216,33 +216,6 @@ export function MicButton({ onResult, hint, context }) {
   )
 }
 
-// ── Page section header ───────────────────────────────────────────
-export function SectionHeader({ title, subtitle, action }) {
-  return (
-    <div style={{
-      display:'flex', alignItems:'flex-start', justifyContent:'space-between',
-      marginBottom:16, gap:12
-    }}>
-      <div>
-        {subtitle && <div className="sl">{subtitle}</div>}
-        {title && <h3>{title}</h3>}
-      </div>
-      {action}
-    </div>
-  )
-}
-
-// ── Stat row ──────────────────────────────────────────────────────
-export function StatRow({ label, value, color, extra }) {
-  return (
-    <div className="row">
-      <span className="row-label">{label}</span>
-      <span className="row-value" style={color ? { color } : {}}>{value}</span>
-      {extra && <span style={{ fontSize:'.75rem', color:'#9CA3AF' }}>{extra}</span>}
-    </div>
-  )
-}
-
 // ── Index card ────────────────────────────────────────────────────
 export function IndexCard({ value, label, meta, ok, color, compact }) {
   return (
@@ -259,19 +232,6 @@ export function IndexCard({ value, label, meta, ok, color, compact }) {
           meta: {meta} {ok ? '✓' : '↑'}
         </div>
       )}
-    </div>
-  )
-}
-
-// ── Progress bar ──────────────────────────────────────────────────
-export function ProgressBar({ value, max, color = '#2B6CD9', height = 6 }) {
-  const pct = max > 0 ? Math.min(100, Math.round((value / max) * 100)) : 0
-  return (
-    <div className="progress-bg" style={{ height }}>
-      <div
-        className="progress-fill"
-        style={{ width: `${pct}%`, background: color }}
-      />
     </div>
   )
 }

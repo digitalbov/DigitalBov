@@ -120,6 +120,25 @@ export default function SecaoReprodutivo({ item }) {
           dado antigo/importado — não entra em nenhuma das duas contagens; se isso acontecer, um aviso aparece
           abaixo dos cards avisando quantos bezerros da safra estão sem sexo, em vez de sumir sem explicação.
         </p>
+        <h4 style={{ ...H4, fontSize: '.85rem' }}>Prenhez adquirida (vaca comprada já prenha)</h4>
+        <p style={P}>
+          Uma vaca comprada já prenha nunca teve nenhuma monta registrada neste sistema — sem um lote com
+          diagnóstico Prenha, ela não aparece como opção de mãe no registro de nascimento, e o parto do terneiro
+          dela fica bloqueado (toda safra é obrigatória). O botão <strong>"+ Vincular prenhez adquirida"</strong>,
+          ao lado de "Novo lote"/"Nova monta natural", resolve isso: lista as fêmeas prenhas (no cadastro) sem
+          nenhum lote com diagnóstico Prenha — normalmente compradas, mas serve para qualquer prenhez órfã.
+          Selecione uma ou mais, informe a <strong>data prevista de parto</strong> ou a <strong>data da
+          monta</strong> (o sistema calcula a outra, gestação de 283 dias), escolha ou crie uma <strong>estação
+          de monta</strong>, e confirme. O sistema cria um lote rotulado <strong>"Prenhez adquirida na
+          compra"</strong> (nunca se confunde com uma monta de verdade) já com diagnóstico Prenha confirmado
+          para as vacas selecionadas — a partir daí elas aparecem normalmente em "Registrar nascimento" e os
+          terneiros delas entram nos índices da safra.
+        </p>
+        <p style={P}>
+          O mesmo fluxo também aparece <strong>dentro do formulário de Compra</strong> (Financeiro → Compra &
+          Venda), como um passo opcional na hora de comprar uma categoria "Prenha" — veja a seção Financeiro.
+          Se você não fizer isso na hora da compra, pode vincular depois, a qualquer momento, por aqui.
+        </p>
       </div>
 
       <div id="reprodutivo-diagnostico" style={{ scrollMarginTop: 90, marginTop: 18 }}>
@@ -157,24 +176,31 @@ export default function SecaoReprodutivo({ item }) {
         <ul style={{ ...OL, listStyle: 'disc' }}>
           <li><strong>Prenha, sem parto ainda</strong> — "Prevista para dd/mm/aaaa" (data da monta + 283
             dias). Se essa data já passou e a vaca ainda não pariu nem tem aborto registrado, o texto aparece em
-            vermelho e negrito, como aviso de atraso.</li>
+            vermelho e negrito, como aviso de atraso. Se um aborto já foi registrado para essa gestação, a
+            previsão de parto some — aborto encerra a gestação, então não há mais parto previsto (só o aviso de
+            "Aborto registrado em dd/mm/aaaa" continua aparecendo).</li>
           <li><strong>Pariu, bezerro vivo, ainda não desmamado</strong> — "Pariu em dd/mm/aaaa · BRINCO ·
-            Lactante", com o brinco do terneiro clicável: abre o cadastro dele direto na tela Animais. Ao lado,
-            na mesma linha das ações de diagnóstico/nascimento/aborto, aparece a próxima ação: um campo de peso
-            (kg) e o botão <strong>"Registrar desmame"</strong> — digitar o peso já habilita o botão, sem peso
-            ele fica desabilitado.</li>
+            Lactante", com o brinco do terneiro clicável: abre o cadastro dele direto na tela Animais, e um
+            botão pequeno de <strong>"Desfazer nascimento"</strong> ao lado, para corrigir um lançamento por
+            engano (mesmo padrão do desfazer desmame — só funciona se o bezerro ainda não tiver histórico
+            próprio: pesagem além da de nascimento, procedimento sanitário ou venda; se tiver, o sistema explica
+            e bloqueia). Ao lado, na mesma linha das ações de diagnóstico/nascimento/aborto, aparece a próxima
+            ação: um campo de peso (kg) e o botão <strong>"Registrar desmame"</strong> — digitar o peso já
+            habilita o botão, sem peso ele fica desabilitado.</li>
           <li><strong>Pariu, bezerro morto (inclusive natimorto)</strong> — "Pariu em dd/mm/aaaa · Bezerro
             morto", sem oferecer desmame — não faz sentido desmamar um bezerro que não sobreviveu.</li>
           <li><strong>Desmamado</strong> — "Desmamado em dd/mm/aaaa · Xkg" (o peso some se não foi
             informado), com um botão pequeno de desfazer ao lado, pra corrigir um lançamento por engano.</li>
         </ul>
         <p style={P}>
-          Assim como o diagnóstico tem uma <strong>"Data do diagnóstico"</strong> única no topo do card, o
-          desmame tem sua própria <strong>"Data do desmame"</strong> — aparece automaticamente quando o lote
-          tem pelo menos um bezerro vivo ainda não desmamado, e vale para todo desmame registrado nas linhas
-          abaixo (não a data de hoje). Não existe mais um card separado "Desmame dos terneiros deste lote": o
-          desmame virou uma etapa na própria sequência da vaca, no mesmo lugar de diagnóstico/nascimento/aborto
-          — uma vaca, uma sequência, sem precisar procurar o bezerro de novo lá embaixo.
+          O topo do card "Diagnóstico de gestação" tem <strong>um único campo de data</strong>, usado tanto
+          para o diagnóstico (clique ou voz) quanto para o desmame lançados nas linhas abaixo (não a data de
+          hoje). O rótulo do campo muda sozinho conforme o que está pendente no lote: só diagnóstico pendente
+          → "Data do diagnóstico"; só desmame pendente → "Data do desmame"; os dois ao mesmo tempo → "Data do
+          diagnóstico / desmame"; e o campo some quando não há mais nada pendente (lote 100% diagnosticado e
+          desmamado). Não existe mais um card separado "Desmame dos terneiros deste lote": o desmame virou uma
+          etapa na própria sequência da vaca, no mesmo lugar de diagnóstico/nascimento/aborto — uma vaca, uma
+          sequência, sem precisar procurar o bezerro de novo lá embaixo.
         </p>
         <p style={P}>
           No topo do lote, o <strong>"Progresso da safra"</strong> resume o funil completo num único lugar:
@@ -230,6 +256,18 @@ export default function SecaoReprodutivo({ item }) {
           uma pesagem do tipo "nascimento" automaticamente — você não precisa lançar essa pesagem de novo na
           tela Pesagens.
         </p>
+        <p style={P}>
+          Ao abrir esse formulário <strong>pelo detalhe do lote</strong> (clicando em "Registrar nascimento" na
+          linha de uma vaca), a <strong>mãe</strong> e a <strong>safra (lote de origem)</strong> já vêm
+          fixadas pela linha em que você clicou — os dois campos aparecem travados (somente leitura), sem
+          seletor pra trocar. Isso evita reabrir a escolha e acabar vinculando o nascimento à mãe ou à safra
+          erradas por engano. Aberto pela aba <strong>Nascimentos</strong> (botão "+ Registrar nascimento" no
+          topo da lista), os dois campos continuam livres — é o fluxo pra quando você não está navegando a
+          partir de um lote específico.
+        </p>
+        <AlertBox type="red" icon="ti-lock"
+          title='Uma vaca não pode ter dois partos na mesma safra'
+          body='O sistema bloqueia o registro de um 2º nascimento para a mesma mãe na mesma safra (mesmo lote de origem) — mensagem clara na hora do clique. Gêmeos existem em corte, mas são raros o bastante para não merecerem essa opção na tela; um caso real de gêmeos precisa ser lançado com ajuda do suporte. A vaca some da lista de "Registrar nascimento" assim que o primeiro parto dela naquela safra é salvo, sem precisar recarregar a página.' />
         <p style={P}>
           O <strong>brinco do bezerro</strong> pode ser digitado na hora do registro — deixe em branco e o
           sistema gera um automático (SN-01, SN-02...), mostrando antes de salvar exatamente qual número vai

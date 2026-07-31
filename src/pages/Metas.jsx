@@ -2,7 +2,7 @@
 import { db } from '../lib/supabase'
 import {
   calcCategoria, calcGMD, calcTaxaPrenhez, contarPrenhas, contarExpostas, contarMatrizes,
-  calcGestacaoLote, calcDesmameMetrics, calcIntervaloPartos, algumErro, fmtMoeda,
+  calcGestacaoLote, calcTaxaParicao, calcDesmameMetrics, calcIntervaloPartos, algumErro, fmtMoeda,
 } from '../lib/helpers'
 import { Loading, Modal, toast, BotaoPDF, EmptyState, ErroCarregamento, SeletorCicloLocal, AlertBox, Badge } from '../components/UI'
 import { usePermissoes } from '../lib/PermissoesContext'
@@ -896,23 +896,14 @@ export default function Metas() {
           p => p.mae?.proprietario_id
         )
         const nPartos     = partosSafra.length
-        // Guardado por nPartos > 0: com prenhas>0 mas zero partos ainda, a
-        // safra só está em andamento — 0% pareceria "parição ruim" quando na
-        // verdade é "ainda não tem o que medir".
-        const taxaParicao = (prenhas > 0 && nPartos > 0) ? (nPartos / prenhas) * 100 : null
-        // Fase 8 — "Taxa de Parição" oficial (padrão do setor): partos ÷
-        // matrizes EXPOSTAS, não prenhas (ver CFG.taxa_paricao_expostas).
-        const taxaParicaoExpostas = (matrizesExpostas > 0 && nPartos > 0) ? (nPartos / matrizesExpostas) * 100 : null
-        const desmameMetrics  = calcDesmameMetrics(partosSafra, matrizesExpostas)
-        const kgBezerroMatriz = desmameMetrics.kgPorMatrizExposta
-        const kgNascimento    = desmameMetrics.pesoMedioNascimento
-        const kgDesmame       = desmameMetrics.pesoMedioDesmame
 
         // taxa_aborto (perda gestacional) — soma "gestando" lote a lote, pois
         // cada lote tem sua própria data de monta; calcGestacaoLote é a MESMA
         // fórmula usada em Reprodutivo.jsx. abortos JÁ têm lote_inseminacao_id
         // gravado (confirmado no insert de salvarAborto em Reprodutivo.jsx) —
         // então perda gestacional por modo é confiável, sem dado faltando.
+        // Movido pra ANTES de taxaParicao/taxaParicaoExpostas (abaixo): as
+        // duas agora precisam de gestandoTotal (ver calcTaxaParicao, helpers.js).
         const abortosSafra = filtrar(lotesX.flatMap(l => l.abortos || []), a => a.animal?.proprietario_id)
         const nAbortos = abortosSafra.length
         let gestandoTotal = 0
@@ -922,6 +913,22 @@ export default function Metas() {
           const abortosLote = filtrar(l.abortos || [],      a => a.animal?.proprietario_id)
           gestandoTotal += calcGestacaoLote(l.data, contarPrenhas(insLote), partosLote.length, abortosLote.length).gestando
         })
+        // "Eficiência Gestacional" (partos ÷ prenhas) — métrica diferente da
+        // Taxa de Parição oficial, não fazia parte do levantamento de
+        // divergência; mantida como estava (guarda própria, nPartos > 0).
+        const taxaParicao = (prenhas > 0 && nPartos > 0) ? (nPartos / prenhas) * 100 : null
+        // Fase 8 — "Taxa de Parição" oficial (padrão do setor): partos ÷
+        // matrizes EXPOSTAS, não prenhas (ver CFG.taxa_paricao_expostas).
+        // calcTaxaParicao é a fórmula única (helpers.js) — consolida esta
+        // implementação com as de Reprodutivo.jsx/Relatorios.jsx, que
+        // divergiam no tratamento de "expostas>0 e 0 partos" (ver comentário
+        // na função).
+        const taxaParicaoExpostas = calcTaxaParicao(matrizesExpostas, nPartos, gestandoTotal)
+        const desmameMetrics  = calcDesmameMetrics(partosSafra, matrizesExpostas)
+        const kgBezerroMatriz = desmameMetrics.kgPorMatrizExposta
+        const kgNascimento    = desmameMetrics.pesoMedioNascimento
+        const kgDesmame       = desmameMetrics.pesoMedioDesmame
+
         const perdasNaoIdentificadas = Math.max(0, prenhas - nPartos - nAbortos - gestandoTotal)
         const desfechosResolvidos = nPartos + nAbortos + perdasNaoIdentificadas
         const taxaAborto = (prenhas > 0 && desfechosResolvidos > 0) ? ((nAbortos + perdasNaoIdentificadas) / prenhas) * 100 : null

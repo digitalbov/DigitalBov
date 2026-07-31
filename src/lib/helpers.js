@@ -185,11 +185,6 @@ export const CATEGORIAS_VALOR = [
   'Terneiro','Novilho 13-24m','Novilho 25-36m','Boi','Touro'
 ]
 
-// Sexo implícito na categoria — usado na Compra (D3) pra travar o campo sexo
-// assim que a categoria é escolhida, já que categoria e sexo não podem divergir.
-const CATEGORIAS_MACHO = ['Terneiro', 'Novilho 13-24m', 'Novilho 25-36m', 'Boi', 'Touro']
-export const sexoDaCategoria = (categoria) => CATEGORIAS_MACHO.includes(categoria) ? 'M' : 'F'
-
 // Idade média (em meses) de cada categoria de compra — usada só pra pré-preencher
 // a data de nascimento estimada (o usuário pode sobrescrever). Categorias acima de
 // 36 meses (Boi/Touro/Vaca*) usam todas o mesmo valor (42m), pois a categoria não
@@ -372,6 +367,30 @@ export function calcGestacaoLote(loteData, prenhas, nascimentos, nAbortos, hoje 
   const perdasNaoIdentificadas = aindaDentroDaJanela ? 0 : semDesfecho
   const perdaGestacional = prenhas > 0 ? Math.round((nAbortos + perdasNaoIdentificadas) / prenhas * 100) : null
   return { gestando, perdasNaoIdentificadas, perdaGestacional }
+}
+
+// ── Taxa de Parição (Fase 8 — oficial: partos ÷ matrizes EXPOSTAS, nunca
+// prenhas) — consolidada aqui depois de um levantamento achar 4
+// reimplementações divergentes (Reprodutivo.jsx x2, Metas.jsx, Relatorios.jsx)
+// no tratamento do caso "expostas > 0 e 0 partos":
+//   - Reprodutivo.jsx/Relatorios.jsx sempre mostravam 0% nesse caso, MESMO
+//     com a safra ainda dentro da janela de gestação (matrizes ainda
+//     "gestando", sem desfecho) — 0% prematuro pode parecer "parição ruim"
+//     quando na verdade é "ainda não tem o que medir".
+//   - Metas.jsx nunca mostrava 0% nesse caso (guarda explícita por
+//     nPartos > 0, comentário: "a safra só está em andamento") — mas essa
+//     guarda não expirava nunca: mesmo uma safra JÁ CONCLUÍDA (janela de
+//     gestação encerrada) com zero partos ficava escondida atrás de "—"
+//     pra sempre, quando na verdade é um resultado real (0%).
+// Reconciliação: só é 0% quando não há mais NENHUMA matriz "gestando" (ver
+// calcGestacaoLote, mesma fonte em todos os pontos de consumo) — enquanto
+// houver gestação em andamento sem desfecho, fica null ("—"), porque ainda
+// não há o que medir; quando a janela se encerra sem partos, essa é uma
+// parição de 0% de verdade, não ausência de dado.
+export function calcTaxaParicao(expostas, partos, gestando = 0) {
+  if (!expostas) return null
+  if (partos === 0 && gestando > 0) return null
+  return Math.round(partos / expostas * 100)
 }
 
 // Desmame + peso ajustado 205 dias (padrão Embrapa) para um conjunto de partos.
@@ -904,6 +923,21 @@ export const valorPropLanc = (lancamentos, tipo, propId) => {
     const v = rateio ? Number(rateio.valor) : 0
     return s + (Number.isFinite(v) ? v : 0)
   }, 0)
+}
+
+// ── Resultado financeiro (receita − despesa) — consolidado aqui depois de um
+// levantamento achar a mesma fórmula reimplementada em 6 telas (Financeiro
+// Resumo/Resultados, Relatorios, Dashboard, Rebanho, Comparativo). Nenhuma
+// delas tinha particularidade real: valorPropLanc já reduz sozinho a
+// somaFinita quando propId é vazio/null, então os "filtroProp ? valorPropLanc
+// (...) : somaFinita(...)" espalhados por Rebanho.jsx/Relatorios.jsx eram só
+// redundantes (nunca produziam número diferente). Comparativo.jsx nunca
+// filtra por proprietário (compara fazendas inteiras) — chamar com
+// propId=null reproduz exatamente o total de hoje.
+export function calcResultadoFinanceiro(lancamentos, propId = null) {
+  const receita = valorPropLanc(lancamentos, 'R', propId)
+  const despesa = valorPropLanc(lancamentos, 'D', propId)
+  return { receita, despesa, resultado: receita - despesa }
 }
 
 // ── Grupos "por valor" (receita/despesa), DERIVADOS dos lançamentos reais ────

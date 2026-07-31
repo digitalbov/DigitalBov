@@ -2,7 +2,7 @@
 import { supabase } from '../lib/supabase'
 import { useFazenda } from '../lib/FazendaContext'
 import { useCicloLocal } from '../lib/useCicloLocal'
-import { fmtMoeda, calcCategoria, calcTaxaPrenhez, contarExpostas, contarPrenhas, contarMatrizes, somaFinita, algumErro } from '../lib/helpers'
+import { fmtMoeda, calcCategoria, calcTaxaPrenhez, contarExpostas, contarPrenhas, contarMatrizes, calcResultadoFinanceiro, algumErro } from '../lib/helpers'
 import { Loading, EmptyState, SeletorCicloLocal, AlertBox } from '../components/UI'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -64,9 +64,10 @@ export default function Comparativo() {
 
     // lancamentos_financeiros é a fonte única de dinheiro — transacoes_animais é
     // registro operacional e não entra mais nesta soma (ver Bloco D/D2).
-    const receitas  = somaFinita(lancamentos.filter(l => l.tipo === 'R'), 'valor')
-    const despesas  = somaFinita(lancamentos.filter(l => l.tipo === 'D'), 'valor')
-    const resultado = receitas - despesas
+    // Comparativo nunca filtra por proprietário (compara fazendas inteiras) —
+    // calcResultadoFinanceiro(lancamentos) sem propId reproduz exatamente o
+    // total de antes.
+    const { receita: receitas, despesa: despesas, resultado } = calcResultadoFinanceiro(lancamentos)
     const totalHa   = piqs.reduce((s,p) => s + parseFloat(p.area_ha||0), 0)
 
     const cats = {}

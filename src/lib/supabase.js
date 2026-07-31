@@ -123,7 +123,7 @@ export const db = {
     // de 1 touro só, que continuam usando só o campo touro de sempre.
     list: (cicloId) => T('lotes_inseminacao').select(`
       *, inseminacoes(*, animal:animais(brinco,proprietario_id,sit_reprodutiva,proprietario:proprietarios(nome))),
-      partos(id,bezerro_id,mae_id,data_parto,natimorto,mae:animais!mae_id(brinco,proprietario_id),bezerro:animais!bezerro_id(id,brinco,sexo,pai,situacao,data_desmame,desmame_confirmado,pesagens(id,data,tipo,peso_kg))),
+      partos(id,bezerro_id,mae_id,data_parto,natimorto,mae:animais!mae_id(brinco,proprietario_id),bezerro:animais!bezerro_id(id,brinco,sexo,pai,situacao,data_desmame,pesagens(id,data,tipo,peso_kg))),
       abortos(id,animal_id,data,causa,observacoes,animal:animais(proprietario_id)),
       estacao:estacoes_monta(id,nome,inicio,fim),
       lote_touros(id,nome)
@@ -180,6 +180,10 @@ export const db = {
     insert:   (data)      => T('abortos').insertOne(data).select().single(),
     update:   (id, d)     => escopo(T('abortos').raw().update(d).eq('id', id)).select().single(),
     delete:   (id)        => escopo(T('abortos').raw().delete().eq('id', id)),
+    // Item 7 (Financeiro.jsx — filtro "aborto registrado" na venda): todo o
+    // histórico, sem escopo de ciclo — o que importa é a data do aborto vs.
+    // a data da venda, nunca o ciclo financeiro atual.
+    listAll:  ()          => T('abortos').select('animal_id,data'),
   },
 
   inseminacoes: {
@@ -192,6 +196,10 @@ export const db = {
     delete:       (id)        => escopo(T('inseminacoes').raw().delete().eq('id', id)),
     deleteVarios: (ids)       => escopo(T('inseminacoes').raw().delete().in('id', ids)),
     byAnimal:     (animalId)  => T('inseminacoes').select('*, lote:lotes_inseminacao(numero,touro,data)').eq('animal_id', animalId).order('criado_em', { ascending: true }),
+    // Item 7 (Financeiro.jsx — filtro "sem cria em nenhum lote" na venda):
+    // só as que já têm diagnóstico (P ou V), com a data do próprio exame —
+    // histórico completo, sem escopo de ciclo (mesmo motivo do abortos.listAll).
+    listAllComDiagnostico: () => T('inseminacoes').select('animal_id,diagnostico,data_diagnostico').not('diagnostico', 'is', null),
   },
 
   partos: {
@@ -390,6 +398,10 @@ export const db = {
     listVendasAnimais: () => T('transacao_animais_itens')
       .select('animal_id, valor, transacoes_animais!inner(tipo)')
       .eq('transacoes_animais.tipo', 'V'),
+    // Item 6 (Reprodutivo.jsx) — usado por bezerroTemHistorico pra bloquear
+    // "desfazer nascimento" num bezerro que já entrou em alguma transação
+    // (venda, na prática — um recém-nascido nunca tem compra própria).
+    byAnimal: (animalId) => T('transacao_animais_itens').select('id').eq('animal_id', animalId).limit(1),
   },
 
   simulacoes: {

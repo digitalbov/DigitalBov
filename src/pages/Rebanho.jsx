@@ -4,7 +4,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { db } from '../lib/supabase'
-import { calcCategoria, calcCategoriaRebanho, calcTaxaPrenhez, contarExpostas, contarPrenhas, calcGMD, pct, fmtMoeda, ehMatriz, somaFinita, algumErro, valorPropLanc, CATEGORIAS_VALOR, idadeFormatada, calcDesempenhoVidaFemea, classificarDesfechosPorSafra, CORES_DESFECHO, ROTULOS_DESFECHO } from '../lib/helpers'
+import { calcCategoria, calcCategoriaRebanho, calcTaxaPrenhez, contarExpostas, contarPrenhas, calcGMD, pct, fmtMoeda, ehMatriz, algumErro, calcResultadoFinanceiro, CATEGORIAS_VALOR, idadeFormatada, calcDesempenhoVidaFemea, classificarDesfechosPorSafra, CORES_DESFECHO, ROTULOS_DESFECHO } from '../lib/helpers'
 import { Loading, IndexCard, BotaoPDF, ErroCarregamento, SeletorCicloLocal, Badge, EmptyState, AlertBox } from '../components/UI'
 import { useCicloLocal } from '../lib/useCicloLocal'
 import {
@@ -327,13 +327,7 @@ export function Rebanho() {
     // lancamentos_financeiros é a fonte única de dinheiro — transacoes_animais é
     // registro operacional (vendas/compras abaixo são contagem, não soma de
     // dinheiro) e não entra mais nesta apuração (ver Bloco D/D2).
-    const receitas     = filtProp
-      ? valorPropLanc(lancs, 'R', filtProp)
-      : somaFinita(lancs.filter(l => l.tipo === 'R'), 'valor')
-    const despesas     = filtProp
-      ? valorPropLanc(lancs, 'D', filtProp)
-      : somaFinita(lancs.filter(l => l.tipo === 'D'), 'valor')
-    const resultado    = receitas - despesas
+    const { receita: receitas, despesa: despesas, resultado } = calcResultadoFinanceiro(lancs, filtProp)
     const vendas       = filtProp ? 0 : transacs.filter(t => t.tipo === 'V').reduce((s, t) => s + (parseInt(t.quantidade) || 0), 0)
     const compras      = filtProp ? 0 : transacs.filter(t => t.tipo === 'C').reduce((s, t) => s + (parseInt(t.quantidade) || 0), 0)
     return { ciclo: c, inseminacoes, inseminacoesServicos, prenhas, txPrenhez, nascimentos, receitas, despesas, resultado, vendas, compras }
