@@ -3,7 +3,7 @@ import { db } from '../lib/supabase'
 import { usePermissoes } from '../lib/PermissoesContext'
 import { useCiclo, statusCiclo } from '../lib/CicloContext'
 import { useCicloLocal } from '../lib/useCicloLocal'
-import { fmtData, calcGMD, fmtPeso, numeroPositivo, dataNaoFutura, calcCategoria, calcCategoriaRebanho, mesesDeVida, algumErro, capitalizarPrimeira } from '../lib/helpers'
+import { fmtData, calcGMD, fmtPeso, numeroPositivo, dataNaoFutura, calcCategoria, calcCategoriaRebanho, mesesDeVida, algumErro, capitalizarPrimeira, agruparPesoPorData } from '../lib/helpers'
 import { hoje as hojeAgora, hojeISO } from '../lib/hoje'
 import { registrarDesmame as gravarDesmame, desfazerDesmame } from '../lib/reprodutivoDesmame'
 import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, IndexCard, BotaoPDF, Confirm, ErroCarregamento, BadgeSomenteLeitura, SeletorCicloLocal } from '../components/UI'
@@ -17,22 +17,6 @@ const TIPOS_MANUAIS = TIPOS.filter(t => t !== 'compra' && t !== 'venda')
 const TIPO_LABEL = { nascimento:'Nascimento', desmama:'Desmama', sobreano:'Sobreano', intermediaria:'Intermediária', compra:'Compra', venda:'Venda' }
 const TIPO_COR   = { compra:'blue', venda:'green' }
 
-// Agrupa pesagens de um CONJUNTO de animais por data, tirando a média do peso
-// em cada data — vira a "curva do grupo" (mesmo formato {data,peso} do gráfico
-// individual, só que cada ponto é uma média em vez de um valor único).
-function agruparPesoPorData(pesagensGrupo) {
-  const porData = new Map()
-  pesagensGrupo.forEach(p => {
-    const peso = parseFloat(p.peso_kg)
-    if (!Number.isFinite(peso)) return
-    if (!porData.has(p.data)) porData.set(p.data, { soma: 0, qtd: 0 })
-    const e = porData.get(p.data)
-    e.soma += peso; e.qtd += 1
-  })
-  return [...porData.entries()]
-    .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([data, e]) => ({ data: fmtData(data), peso: +(e.soma / e.qtd).toFixed(1) }))
-}
 
 // GMD médio de um grupo de animais — média dos GMDs individuais (não o GMD da
 // curva média), consistente com a aba Desempenho. TODA pesagem do animal

@@ -2,12 +2,13 @@
 import { useNavigate, useLocation } from 'react-router-dom'
 import { usePermissoes } from '../lib/PermissoesContext'
 import { db } from '../lib/supabase'
-import { calcCategoria, calcCategoriaRebanho, idadeFormatada, fmtData, catCor, sitCor, repCor, sortBrinco, dataNaoFutura, algumErro, statusReprodutivoExibicao, statusReprodutivoDetalhado, statusReprodutivoCiclo, STATUS_CICLO_ANIMAL, PERDA_PRESUMIDA_DIAS_APOS_PREVISTO, paiEhMontaNaturalIndefinida, capitalizarPrimeira, capitalizarNome, sanidadeRealizada, calcDesempenhoVidaFemea } from '../lib/helpers'
+import { calcCategoria, calcCategoriaRebanho, idadeFormatada, fmtData, catCor, sitCor, repCor, sortBrinco, dataNaoFutura, algumErro, statusReprodutivoExibicao, statusReprodutivoDetalhado, statusReprodutivoCiclo, STATUS_CICLO_ANIMAL, PERDA_PRESUMIDA_DIAS_APOS_PREVISTO, paiEhMontaNaturalIndefinida, capitalizarPrimeira, capitalizarNome, sanidadeRealizada, calcDesempenhoVidaFemea, agruparPesoPorData, calcGMD } from '../lib/helpers'
 import { hojeISO } from '../lib/hoje'
 import { confirmarPerdaPresumida } from '../lib/perdaGestacionalPresumida'
 import { Loading, EmptyState, Modal, Field, MicButton, Badge, toast, BotaoPDF, ErroCarregamento, Confirm } from '../components/UI'
 import { baixarModeloAnimais, lerPlanilhaAnimais, validarLinhas } from '../lib/importacaoAnimais'
 import GraficoEvolucaoPeso from '../components/GraficoEvolucaoPeso'
+import { BarChart, Bar, Cell, LabelList, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 
 const SITUACOES = ['ativo','vendido','morto']
 
@@ -355,6 +356,12 @@ export default function Animais() {
   // Pesagens do animal selecionado, em bruto — alimenta o gráfico de evolução
   // de peso (mesmo componente reaproveitado de Pesagens.jsx) ao lado da timeline.
   const [pesagensAnimal, setPesagensAnimal] = useState([])
+  // Contemporâneos (mesma fazenda, mesmo sexo, ±3 meses de nascimento) — linha
+  // de comparação discreta no mesmo gráfico. nContemporaneos guarda o TAMANHO
+  // do grupo mesmo quando pesagensContemporaneos fica vazio (< 3 contemporâneos
+  // → nem busca pesagem, mas o número entra na nota discreta pro usuário).
+  const [pesagensContemporaneos, setPesagensContemporaneos] = useState([])
+  const [nContemporaneos, setNContemporaneos] = useState(0)
   // Registro do animal SELECIONADO como bezerro (db.partos.byBezerro) — usado
   // só pra resolver o clique em "Pai" quando é monta natural com paternidade
   // indefinida (leva pro lote via parto.lote_inseminacao_id, ver botaoPai abaixo).
@@ -452,12 +459,31 @@ export default function Animais() {
     setTimelineLoading(true)
     setTimeline([])
 
-    const [rPes, rIns, rPartosMae, rPartoBezerro, rAbortos] = await Promise.all([
+    // Contemporâneos (Fase 13, 2ª rodada) — mesma fazenda (já é o escopo do
+    // estado `animais`), mesmo sexo, nascidos numa janela de ±3 meses da data
+    // de nascimento DESTE animal. Não depende de query nenhuma (`animais` já
+    // está em memória), então já entra pedindo as pesagens deles junto com o
+    // resto — só busca se der pra formar um grupo de 3+ (senão a média não
+    // significa nada e a linha de comparação nem é desenhada).
+    let contemporaneosIds = []
+    if (animal.data_nascimento) {
+      const d = new Date(animal.data_nascimento + 'T12:00:00')
+      const ini = new Date(d); ini.setMonth(ini.getMonth() - 3)
+      const fim = new Date(d); fim.setMonth(fim.getMonth() + 3)
+      const iniISO = ini.toISOString().slice(0, 10), fimISO = fim.toISOString().slice(0, 10)
+      contemporaneosIds = animais
+        .filter(x => x.id !== animal.id && x.sexo === animal.sexo && x.data_nascimento && x.data_nascimento >= iniISO && x.data_nascimento <= fimISO)
+        .map(x => x.id)
+    }
+    setNContemporaneos(contemporaneosIds.length)
+
+    const [rPes, rIns, rPartosMae, rPartoBezerro, rAbortos, rPesContemp] = await Promise.all([
       db.pesagens.list(animal.id),
       db.inseminacoes.byAnimal(animal.id),
       db.partos.byMae(animal.id),
       db.partos.byBezerro(animal.id),
-      db.abortos.byAnimal(animal.id)
+      db.abortos.byAnimal(animal.id),
+      contemporaneosIds.length >= 3 ? db.pesagens.listPorAnimais(contemporaneosIds) : Promise.resolve({ data: [], error: null }),
     ])
 
     if (rPes.error)         console.error('[Timeline] Erro pesagens:', rPes.error)
@@ -465,6 +491,7 @@ export default function Animais() {
     if (rPartosMae.error)   console.error('[Timeline] Erro partos (como mãe):', rPartosMae.error)
     if (rPartoBezerro.error) console.error('[Timeline] Erro parto (como bezerro):', rPartoBezerro.error)
     if (rAbortos.error)     console.error('[Timeline] Erro abortos:', rAbortos.error)
+    if (rPesContemp.error)  console.error('[Timeline] Erro pesagens contemporâneos:', rPesContemp.error)
 
     // Guardado em bruto (não achatado em eventos) pro card "Histórico
     // reprodutivo" calcular o status por ciclo (statusReprodutivoCiclo).
@@ -475,6 +502,7 @@ export default function Animais() {
     })
     setPartoComoFilho(rPartoBezerro.data || null)
     setPesagensAnimal(rPes.data || [])
+    setPesagensContemporaneos(rPesContemp.data || [])
 
     const eventos = []
 
@@ -886,6 +914,53 @@ export default function Animais() {
     const primeiraMatrizIdx = historicoCiclos.findIndex(h => h.status !== 'nao_era_matriz')
     const historicoCiclosVisiveis = primeiraMatrizIdx === -1 ? [] : [...historicoCiclos.slice(primeiraMatrizIdx)].reverse()
 
+    // ── Linha do tempo produtiva (Fase 13, 2ª rodada) — 1 safra por coluna,
+    // do mais antigo pro mais recente (por isso NÃO usa historicoCiclosVisiveis,
+    // que é a versão invertida pro card de texto acima). 'em_andamento' fica de
+    // fora (ciclo ainda não fechou, não há desfecho pra mostrar). 'falhada' se
+    // divide em Falhou/Não foi exposta conforme ela teve ou não inseminação
+    // registrada dentro do próprio ciclo — dado já carregado, não é heurística nova.
+    const CORES_DESFECHO = {
+      pariu: '#27A838', pariu_aguardando: '#1BA89C', abortou: '#E24B4A',
+      prenha: '#2B6CD9', falhou: '#D97706', nao_exposta: '#9CA3AF',
+    }
+    const dadosProdutivos = primeiraMatrizIdx === -1 ? [] : historicoCiclos.slice(primeiraMatrizIdx)
+      .filter(h => h.status !== 'em_andamento')
+      .map(h => {
+        if (h.status === 'pariu') {
+          const parto = (reprodutivoBruto.partos || []).find(p => p.data_parto === h.data)
+          const pesoDesmame = parto?.bezerro?.pesagens?.find(ps => ps.tipo === 'desmama')
+          const peso = pesoDesmame ? parseFloat(pesoDesmame.peso_kg) : null
+          return {
+            safra: h.ciclo.nome, valor: peso ?? 8, peso,
+            desfecho: peso !== null ? 'pariu' : 'pariu_aguardando',
+            rotulo: peso !== null ? `${peso} kg` : 'Aguard. desmame',
+          }
+        }
+        if (h.status === 'perda_gestacional') return { safra: h.ciclo.nome, valor: 8, peso: null, desfecho: 'abortou', rotulo: 'Abortou' }
+        if (h.status === 'gestacao_aberta')   return { safra: h.ciclo.nome, valor: 8, peso: null, desfecho: 'prenha',  rotulo: 'Prenha' }
+        // falhada: distingue exposta-sem-resultado de nunca-exposta
+        const teveInseminacao = (reprodutivoBruto.inseminacoes || [])
+          .some(i => i.lote?.data && i.lote.data >= h.ciclo.inicio && i.lote.data <= h.ciclo.fim)
+        return teveInseminacao
+          ? { safra: h.ciclo.nome, valor: 8, peso: null, desfecho: 'falhou',      rotulo: 'Falhou' }
+          : { safra: h.ciclo.nome, valor: 8, peso: null, desfecho: 'nao_exposta', rotulo: 'Não exposta' }
+      })
+
+    // ── Desempenho dos filhos (Fase 13, 2ª rodada) — GMD de cada cria
+    // (calcGMD, sem fórmula nova), na ordem cronológica dos partos. Só entram
+    // filhos com GMD calculável (2+ pesagens) — os outros não têm o que mostrar.
+    const dadosGMDFilhos = [...(reprodutivoBruto.partos || [])]
+      .filter(p => p.data_parto)
+      .sort((p1, p2) => p1.data_parto.localeCompare(p2.data_parto))
+      .map(p => {
+        const gmd = calcGMD(p.bezerro?.pesagens)
+        if (gmd === null) return null
+        const cicloDoParto = ciclos.find(c => c.inicio && c.fim && c.inicio <= p.data_parto && p.data_parto <= c.fim)
+        return { safra: cicloDoParto?.nome || fmtData(p.data_parto), gmd: parseFloat(gmd), brinco: p.bezerro?.brinco || '?' }
+      })
+      .filter(Boolean)
+
     // "Pai" clicável só no único caso resolvível hoje: monta natural com
     // vários touros ("Monta natural — Lote N, Estação X", paternidade
     // indefinida) — leva pro detalhe do LOTE via parto.lote_inseminacao_id
@@ -954,30 +1029,61 @@ export default function Animais() {
           </div>
 
           <div className="grid-2">
-            {/* Dados cadastrais */}
-            <div className="card">
-              <div className="card-title"><i className="ti ti-id" /> Dados cadastrais</div>
-              {[
-                ['Brinco',        a.brinco],
-                ['SISBOV',        a.sisbov || '—'],
-                ['Sexo',          a.sexo === 'F' ? 'Fêmea ♀' : 'Macho ♂'],
-                ['Nascimento',    `${fmtData(a.data_nascimento)} · ${idadeFormatada(a.data_nascimento)}`],
-                ['Categoria',     <Badge style={{ background: cc.bg, color: cc.text }}>{cat} <span style={{ fontSize: '.65rem', color: '#9CA3AF', marginLeft: 3 }}>automático</span></Badge>],
-                ['Nº Registro',   a.numero_registro || '—'],
-                ['Classificação', a.classificacao ? (CLASSIFICACAO_LABEL[a.classificacao] || a.classificacao) : '—'],
-                ['Raça',          a.raca],
-                ['Pelagem',       a.pelagem],
-                ['Pai',           paiValor],
-                ['Mãe (brinco)',  a.mae_brinco || '—'],
-                ['Proprietário',  a.proprietario?.nome || '—'],
-                ['Lote',          a.lote?.nome || '—'],
-                ['Situação',      <Badge style={{ background: sc.bg, color: sc.text }}>{a.situacao}</Badge>],
-              ].map(([l, v]) => (
-                <div key={l} style={{ display: 'flex', gap: 12, marginBottom: 6, alignItems: 'flex-start' }}>
-                  <span style={{ fontSize: '.78rem', color: '#6B7280', minWidth: 80, flexShrink: 0 }}>{l}</span>
-                  <span style={{ fontSize: '.82rem' }}>{v}</span>
+            {/* Coluna esquerda — Dados cadastrais (compacto, 2 colunas) +
+                Linha do tempo logo abaixo, preenchendo o espaço que sobrava
+                (a coluna direita é bem mais alta: histórico, cards de
+                desempenho e os gráficos). */}
+            <div>
+              <div className="card" style={{ marginBottom: 12 }}>
+                <div className="card-title"><i className="ti ti-id" /> Dados cadastrais</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 14 }}>
+                  {[
+                    ['Brinco',        a.brinco],
+                    ['SISBOV',        a.sisbov || '—'],
+                    ['Sexo',          a.sexo === 'F' ? 'Fêmea ♀' : 'Macho ♂'],
+                    ['Nascimento',    `${fmtData(a.data_nascimento)} · ${idadeFormatada(a.data_nascimento)}`],
+                    ['Categoria',     <Badge style={{ background: cc.bg, color: cc.text }}>{cat} <span style={{ fontSize: '.65rem', color: '#9CA3AF', marginLeft: 3 }}>automático</span></Badge>],
+                    ['Nº Registro',   a.numero_registro || '—'],
+                    ['Classificação', a.classificacao ? (CLASSIFICACAO_LABEL[a.classificacao] || a.classificacao) : '—'],
+                    ['Raça',          a.raca],
+                    ['Pelagem',       a.pelagem],
+                    ['Pai',           paiValor],
+                    ['Mãe (brinco)',  a.mae_brinco || '—'],
+                    ['Proprietário',  a.proprietario?.nome || '—'],
+                    ['Lote',          a.lote?.nome || '—'],
+                    ['Situação',      <Badge style={{ background: sc.bg, color: sc.text }}>{a.situacao}</Badge>],
+                  ].map(([l, v]) => (
+                    <div key={l} style={{ display: 'flex', flexDirection: 'column', marginBottom: 8 }}>
+                      <span style={{ fontSize: '.72rem', color: '#6B7280' }}>{l}</span>
+                      <span style={{ fontSize: '.82rem' }}>{v}</span>
+                    </div>
+                  ))}
                 </div>
-              ))}
+              </div>
+              <TimelineCard timeline={timeline} loading={timelineLoading} />
+
+              {/* Histórico Sanitário — logo abaixo da Linha do tempo, mesma
+                  largura (coluna esquerda), pra ocupar o espaço em vez de ir
+                  pro fim da ficha em largura cheia. */}
+              <div className="card" style={{ marginTop: 12 }}>
+                <div className="card-title"><i className="ti ti-vaccine" /> Histórico Sanitário</div>
+                {histSanidade.length === 0
+                  ? <div style={{ fontSize: '.82rem', color: '#9CA3AF' }}>Nenhum procedimento sanitário registrado para este animal.</div>
+                  : histSanidade
+                      .slice()
+                      .sort((x, y) => (y.procedimento?.data || '').localeCompare(x.procedimento?.data || ''))
+                      .map(h => (
+                        <div key={h.id} style={{ padding: '8px 0', borderBottom: '.5px solid #F3F4F6' }}>
+                          <div style={{ fontWeight: 500, fontSize: '.85rem' }}>{h.procedimento?.procedimento}</div>
+                          <div style={{ fontSize: '.75rem', color: '#6B7280' }}>
+                            {h.procedimento?.tipo} · {fmtData(h.procedimento?.data)}
+                            {h.procedimento?.proximo && ` · próximo: ${fmtData(h.procedimento.proximo)}`}
+                          </div>
+                          {h.procedimento?.observacoes && <div style={{ fontSize: '.75rem', color: '#9CA3AF' }}>{h.procedimento.observacoes}</div>}
+                        </div>
+                      ))
+                }
+              </div>
             </div>
 
             {/* Coluna direita */}
@@ -1080,6 +1186,102 @@ export default function Animais() {
                 )
               })()}
 
+              {/* Gráfico de evolução de peso — reaproveitado de Pesagens.jsx
+                  "Por Animal", nunca duplicado. Agrupado junto com os outros
+                  gráficos (linha do tempo produtiva / GMD dos filhos logo
+                  abaixo), em vez de ao lado da timeline (que agora fica na
+                  coluna esquerda, junto de Dados cadastrais). */}
+              {(() => {
+                const serieAnimal = agruparPesoPorData(pesagensAnimal)
+                const serieContemp = pesagensContemporaneos.length > 0 ? agruparPesoPorData(pesagensContemporaneos) : []
+                const porData = new Map()
+                serieAnimal.forEach(p => porData.set(p.dataISO, { data: p.data, peso: p.peso }))
+                serieContemp.forEach(p => {
+                  const e = porData.get(p.dataISO) || { data: p.data }
+                  e.pesoComparacao = p.peso
+                  porData.set(p.dataISO, e)
+                })
+                const chartDataPeso = [...porData.entries()].sort((x, y) => x[0].localeCompare(y[0])).map(([, v]) => v)
+                const notaComparacao = nContemporaneos === 0
+                  ? 'Nenhum contemporâneo (mesmo sexo, nascidos ±3 meses) nesta fazenda.'
+                  : nContemporaneos < 3
+                    ? `Só ${nContemporaneos} contemporâneo${nContemporaneos !== 1 ? 's' : ''} (mesmo sexo, nascidos ±3 meses) — comparação não é exibida (mínimo: 3).`
+                    : null
+
+                if (timelineLoading) return null
+                return pesagensAnimal.length > 0 ? (
+                  <GraficoEvolucaoPeso
+                    data={chartDataPeso}
+                    titulo={`Evolução de peso — Brinco ${a.brinco}`}
+                    nomeSerie={`Brinco ${a.brinco}`}
+                    nomeComparacao="Contemporâneos (média)"
+                    notaComparacao={notaComparacao}
+                  />
+                ) : (
+                  <div className="card" style={{ marginBottom: 12 }}>
+                    <div className="card-title"><i className="ti ti-chart-line" /> Evolução de peso</div>
+                    <div style={{ fontSize: '.82rem', color: '#9CA3AF' }}>Nenhuma pesagem registrada para este animal.</div>
+                  </div>
+                )
+              })()}
+
+              {desempenhoVida && (
+                <div className="card" style={{ marginBottom: 12 }}>
+                  <div className="card-title"><i className="ti ti-timeline" /> Linha do tempo produtiva</div>
+                  {dadosProdutivos.length < 2 ? (
+                    <div style={{ fontSize: '.82rem', color: '#9CA3AF' }}>sem dados</div>
+                  ) : (
+                    <>
+                      <ResponsiveContainer width="100%" height={200}>
+                        <BarChart data={dadosProdutivos} margin={{ top: 20, right: 10, left: -20, bottom: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" />
+                          <XAxis dataKey="safra" tick={{ fontSize: 10 }} />
+                          <YAxis tick={{ fontSize: 10 }} />
+                          <Tooltip formatter={(_v, _n, props) => [props.payload.rotulo, props.payload.safra]} />
+                          <Bar dataKey="valor">
+                            {dadosProdutivos.map((d, i) => <Cell key={i} fill={CORES_DESFECHO[d.desfecho]} />)}
+                            <LabelList dataKey="rotulo" position="top" style={{ fontSize: 9, fill: '#6B7280' }} />
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 6, fontSize: '.7rem', color: '#6B7280' }}>
+                        {[
+                          ['pariu', 'Pariu (peso = kg ao desmame)'], ['pariu_aguardando', 'Pariu, aguardando desmame'],
+                          ['abortou', 'Abortou'], ['prenha', 'Prenha (aguardando)'],
+                          ['falhou', 'Falhou'], ['nao_exposta', 'Não foi exposta'],
+                        ].map(([k, l]) => (
+                          <span key={k} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <span style={{ width: 8, height: 8, borderRadius: '50%', background: CORES_DESFECHO[k], display: 'inline-block' }} />
+                            {l}
+                          </span>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+
+              {desempenhoVida && (
+                <div className="card" style={{ marginBottom: 12 }}>
+                  <div className="card-title"><i className="ti ti-chart-bar" /> Desempenho dos filhos (GMD)</div>
+                  {dadosGMDFilhos.length < 2 ? (
+                    <div style={{ fontSize: '.82rem', color: '#9CA3AF' }}>sem dados</div>
+                  ) : (
+                    <ResponsiveContainer width="100%" height={200}>
+                      <BarChart data={dadosGMDFilhos} margin={{ top: 20, right: 10, left: -20, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" />
+                        <XAxis dataKey="safra" tick={{ fontSize: 10 }} />
+                        <YAxis tick={{ fontSize: 10 }} />
+                        <Tooltip formatter={(v, _n, props) => [`${v} kg/dia`, `Brinco ${props.payload.brinco}`]} />
+                        <Bar dataKey="gmd" fill="#2B6CD9">
+                          <LabelList dataKey="brinco" position="top" style={{ fontSize: 9, fill: '#6B7280' }} formatter={b => `#${b}`} />
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  )}
+                </div>
+              )}
+
               {filhos.length > 0 && (
                 <div className="card" style={{ marginBottom: 12 }}>
                   <div className="card-title"><i className="ti ti-users" /> Filhos cadastrados ({filhos.length})</div>
@@ -1113,48 +1315,12 @@ export default function Animais() {
             </div>
           </div>
 
-          {/* Linha do tempo + gráfico de evolução de peso lado a lado (dentro
-              do ref para PDF) — mesmo componente reaproveitado de Pesagens.jsx
-              "Por Animal", nunca duplicado. Empilha em tela estreita (grid-2). */}
-          <div className="grid-2" style={{ marginTop: 14, alignItems: 'start' }}>
-            <TimelineCard timeline={timeline} loading={timelineLoading} />
-            {timelineLoading ? null : (
-              pesagensAnimal.length > 0 ? (
-                <GraficoEvolucaoPeso
-                  data={[...pesagensAnimal].sort((p1, p2) => p1.data.localeCompare(p2.data))
-                    .map(p => ({ data: fmtData(p.data), peso: parseFloat(p.peso_kg) }))}
-                  titulo={`Evolução de peso — Brinco ${a.brinco}`}
-                />
-              ) : (
-                <div className="card">
-                  <div className="card-title"><i className="ti ti-chart-line" /> Evolução de peso</div>
-                  <div style={{ fontSize: '.82rem', color: '#9CA3AF' }}>Nenhuma pesagem registrada para este animal.</div>
-                </div>
-              )
-            )}
-          </div>
-
-          {/* Histórico Sanitário */}
-          <div className="card" style={{ marginTop: 14 }}>
-            <div className="card-title"><i className="ti ti-vaccine" /> Histórico Sanitário</div>
-            {histSanidade.length === 0
-              ? <div style={{ fontSize: '.82rem', color: '#9CA3AF' }}>Nenhum procedimento sanitário registrado para este animal.</div>
-              : histSanidade
-                  .slice()
-                  .sort((x, y) => (y.procedimento?.data || '').localeCompare(x.procedimento?.data || ''))
-                  .map(h => (
-                    <div key={h.id} style={{ padding: '8px 0', borderBottom: '.5px solid #F3F4F6' }}>
-                      <div style={{ fontWeight: 500, fontSize: '.85rem' }}>{h.procedimento?.procedimento}</div>
-                      <div style={{ fontSize: '.75rem', color: '#6B7280' }}>
-                        {h.procedimento?.tipo} · {fmtData(h.procedimento?.data)}
-                        {h.procedimento?.proximo && ` · próximo: ${fmtData(h.procedimento.proximo)}`}
-                      </div>
-                      {h.procedimento?.observacoes && <div style={{ fontSize: '.75rem', color: '#9CA3AF' }}>{h.procedimento.observacoes}</div>}
-                    </div>
-                  ))
-            }
-          </div>
-
+          {/* Linha de comparação com contemporâneos (2ª rodada da Fase 13) —
+              mescla a série do animal com a média dos contemporâneos por
+              DATA REAL (dataISO), não pela data já formatada (que não ordena
+              certo entre anos diferentes). Mesma função (agruparPesoPorData)
+              gera as duas séries, só variando o array de pesagens de entrada
+              — mesmo cálculo do gráfico principal, confirmado. */}
           {/* Genealogia */}
           <div className="card" style={{ marginTop: 14 }}>
             <div className="card-title"><i className="ti ti-sitemap" /> Genealogia</div>

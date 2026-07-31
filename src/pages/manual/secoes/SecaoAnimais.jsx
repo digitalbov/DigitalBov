@@ -124,10 +124,35 @@ export default function SecaoAnimais({ item }) {
       </p>
 
       <h4 style={{ fontSize: '.88rem', fontWeight: 700, color: '#1a1a1a', marginBottom: 8 }}>Gráfico de evolução de peso</h4>
-      <p style={{ color: '#374151', fontSize: '.85rem', lineHeight: 1.8, marginBottom: 18 }}>
+      <p style={{ color: '#374151', fontSize: '.85rem', lineHeight: 1.8, marginBottom: 10 }}>
         Ao lado da linha do tempo, a ficha mostra o mesmo gráfico de evolução de peso da consulta "Por Animal"
         em Pesagens — todas as pesagens do animal, na ordem em que aconteceram. Sem pesagem registrada, o
         espaço mostra "Nenhuma pesagem registrada para este animal" em vez de um gráfico vazio.
+      </p>
+      <p style={{ color: '#374151', fontSize: '.85rem', lineHeight: 1.8, marginBottom: 18 }}>
+        Quando existem pelo menos <strong>3 contemporâneos</strong> — animais da mesma fazenda, do mesmo sexo,
+        nascidos numa janela de ±3 meses ao redor da data de nascimento dele — o gráfico ganha uma 2ª linha,
+        tracejada e discreta, com a média de peso desses contemporâneos na mesma data. Com menos de 3
+        contemporâneos (a média de 1 ou 2 animais não representa nada), a linha não aparece e um aviso discreto
+        explica o motivo.
+      </p>
+
+      <h4 style={{ fontSize: '.88rem', fontWeight: 700, color: '#1a1a1a', marginBottom: 8 }}>Linha do tempo produtiva (só fêmeas com histórico)</h4>
+      <p style={{ color: '#374151', fontSize: '.85rem', lineHeight: 1.8, marginBottom: 18 }}>
+        Um gráfico de barras com uma safra por coluna, mostrando o desfecho de cada uma — pariu (com o peso do
+        terneiro ao desmame, quando já desmamado), abortou, prenha aguardando desfecho, falhou (foi exposta mas
+        não teve resultado) ou não foi exposta naquela safra. É a resposta rápida para "esta matriz é regular?":
+        barras altas e verdes seguidas mostram uma vaca que pare e desmama todo ano; barras baixas e de outras
+        cores mostram as falhas. Só aparece com pelo menos 2 safras no histórico — com 1 só, não haveria o que
+        comparar.
+      </p>
+
+      <h4 style={{ fontSize: '.88rem', fontWeight: 700, color: '#1a1a1a', marginBottom: 8 }}>Desempenho dos filhos, GMD (só fêmeas com histórico)</h4>
+      <p style={{ color: '#374151', fontSize: '.85rem', lineHeight: 1.8, marginBottom: 18 }}>
+        Um gráfico de barras com o GMD de cada cria (mesmo cálculo de Pesagens), na ordem em que nasceram — dá
+        pra ver se os filhos dela vêm melhorando ou piorando ao longo das safras. Só entram filhos com peso
+        suficiente pra calcular o GMD (2 ou mais pesagens); com menos de 2 filhos calculáveis, o gráfico não
+        aparece.
       </p>
 
       <h4 style={{ fontSize: '.88rem', fontWeight: 700, color: '#1a1a1a', marginBottom: 8 }}>Desempenho reprodutivo (histórico de vida)</h4>

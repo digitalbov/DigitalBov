@@ -249,6 +249,27 @@ export const calcGMD = (pesagens) => {
   return ((last.peso_kg - first.peso_kg) / dias).toFixed(3)
 }
 
+// Agrupa pesagens de um CONJUNTO de animais por data, tirando a média do peso
+// em cada data — vira a "curva do grupo" (mesmo formato {data,peso} do
+// gráfico individual, só que cada ponto é uma média em vez de um valor
+// único). Movida de Pesagens.jsx (Fase 13) pra ser reaproveitada também na
+// ficha do animal (linha de comparação com contemporâneos). `dataISO` vai
+// junto pra quem precisar mesclar duas séries por data real (a formatada
+// não ordena certo entre anos diferentes).
+export function agruparPesoPorData(pesagensGrupo) {
+  const porData = new Map()
+  pesagensGrupo.forEach(p => {
+    const peso = parseFloat(p.peso_kg)
+    if (!Number.isFinite(peso)) return
+    if (!porData.has(p.data)) porData.set(p.data, { soma: 0, qtd: 0 })
+    const e = porData.get(p.data)
+    e.soma += peso; e.qtd += 1
+  })
+  return [...porData.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([data, e]) => ({ dataISO: data, data: fmtData(data), peso: +(e.soma / e.qtd).toFixed(1) }))
+}
+
 // ── Percentual ───────────────────────────────────────────────────────────────
 export const pct = (a, b) => b > 0 ? Math.round((a / b) * 100) + '%' : '—'
 
