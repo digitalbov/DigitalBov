@@ -148,14 +148,18 @@ export function Confirm({ open, onClose, onConfirm, title, message, danger }) {
 }
 
 // ── Form field wrapper ────────────────────────────────────────────
-export function Field({ label, required, children, hint }) {
+// hintInline: hint sobe pro lado do label (mesma linha) em vez do padrão
+// (abaixo do campo) — usado quando o hint é curto e o valor calculado já
+// aparece dentro do próprio campo (ex: Categoria).
+export function Field({ label, required, children, hint, hintInline }) {
   return (
     <div>
-      <label>
+      <label style={hintInline ? { display:'flex', alignItems:'baseline', gap:6 } : undefined}>
         {label}{required && <span style={{ color:'#E24B4A', marginLeft:2 }}>*</span>}
+        {hintInline && hint && <span style={{ fontSize:'.72rem', fontWeight:400, color:'#9CA3AF' }}>{hint}</span>}
       </label>
       {children}
-      {hint && <div style={{ fontSize:'.72rem', color:'#9CA3AF', marginTop:3 }}>{hint}</div>}
+      {!hintInline && hint && <div style={{ fontSize:'.72rem', color:'#9CA3AF', marginTop:3 }}>{hint}</div>}
     </div>
   )
 }

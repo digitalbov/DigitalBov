@@ -7,7 +7,7 @@ import { fmtData, calcGMD, fmtPeso, numeroPositivo, dataNaoFutura, calcCategoria
 import { hoje as hojeAgora, hojeISO } from '../lib/hoje'
 import { registrarDesmame as gravarDesmame, desfazerDesmame } from '../lib/reprodutivoDesmame'
 import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, IndexCard, BotaoPDF, Confirm, ErroCarregamento, BadgeSomenteLeitura, SeletorCicloLocal } from '../components/UI'
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
+import GraficoEvolucaoPeso from '../components/GraficoEvolucaoPeso'
 
 const TABS  = ['Registrar','Por Animal','Por Lote','Por Categoria','Desempenho','Projeção','Desmame']
 // 'compra'/'venda' são gerados só pelas RPCs de transação (Bloco D3) — nunca
@@ -16,25 +16,6 @@ const TIPOS = ['nascimento','desmama','sobreano','intermediaria','compra','venda
 const TIPOS_MANUAIS = TIPOS.filter(t => t !== 'compra' && t !== 'venda')
 const TIPO_LABEL = { nascimento:'Nascimento', desmama:'Desmama', sobreano:'Sobreano', intermediaria:'Intermediária', compra:'Compra', venda:'Venda' }
 const TIPO_COR   = { compra:'blue', venda:'green' }
-
-// ── Gráfico de evolução de peso — reaproveitado por Por Animal/Por Lote/Por
-// Categoria (só muda o array `data` recebido: individual ou média do grupo).
-function GraficoEvolucaoPeso({ data, titulo }) {
-  return (
-    <div className="card" style={{ marginBottom:12 }}>
-      <div className="card-title"><i className="ti ti-chart-line"/> {titulo}</div>
-      <ResponsiveContainer width="100%" height={200}>
-        <LineChart data={data} margin={{top:5,right:10,left:-20,bottom:0}}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6"/>
-          <XAxis dataKey="data" tick={{fontSize:10}}/>
-          <YAxis tick={{fontSize:10}}/>
-          <Tooltip formatter={v=>`${v} kg`}/>
-          <Line type="monotone" dataKey="peso" name="Peso kg" stroke="#2B6CD9" strokeWidth={2} dot={{r:4}}/>
-        </LineChart>
-      </ResponsiveContainer>
-    </div>
-  )
-}
 
 // Agrupa pesagens de um CONJUNTO de animais por data, tirando a média do peso
 // em cada data — vira a "curva do grupo" (mesmo formato {data,peso} do gráfico

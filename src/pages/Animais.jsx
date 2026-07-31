@@ -2,13 +2,21 @@
 import { useNavigate, useLocation } from 'react-router-dom'
 import { usePermissoes } from '../lib/PermissoesContext'
 import { db } from '../lib/supabase'
-import { calcCategoria, calcCategoriaRebanho, idadeFormatada, fmtData, catCor, sitCor, repCor, sortBrinco, dataNaoFutura, algumErro, statusReprodutivoExibicao, statusReprodutivoDetalhado, statusReprodutivoCiclo, STATUS_CICLO_ANIMAL, PERDA_PRESUMIDA_DIAS_APOS_PREVISTO, paiEhMontaNaturalIndefinida, capitalizarPrimeira, capitalizarNome, sanidadeRealizada } from '../lib/helpers'
+import { calcCategoria, calcCategoriaRebanho, idadeFormatada, fmtData, catCor, sitCor, repCor, sortBrinco, dataNaoFutura, algumErro, statusReprodutivoExibicao, statusReprodutivoDetalhado, statusReprodutivoCiclo, STATUS_CICLO_ANIMAL, PERDA_PRESUMIDA_DIAS_APOS_PREVISTO, paiEhMontaNaturalIndefinida, capitalizarPrimeira, capitalizarNome, sanidadeRealizada, calcDesempenhoVidaFemea } from '../lib/helpers'
 import { hojeISO } from '../lib/hoje'
 import { confirmarPerdaPresumida } from '../lib/perdaGestacionalPresumida'
 import { Loading, EmptyState, Modal, Field, MicButton, Badge, toast, BotaoPDF, ErroCarregamento, Confirm } from '../components/UI'
 import { baixarModeloAnimais, lerPlanilhaAnimais, validarLinhas } from '../lib/importacaoAnimais'
+import GraficoEvolucaoPeso from '../components/GraficoEvolucaoPeso'
 
 const SITUACOES = ['ativo','vendido','morto']
+
+const CLASSIFICACAO_LABEL = {
+  PO: 'PO — Puro de Origem',
+  PA: 'PA — Puro por Cruzamento',
+  CO: 'CO — Controlado por Ascendência',
+  NA: 'N/A',
+}
 
 // ── Helpers de timeline ───────────────────────────────────────────
 const TL_ICONS = {
@@ -24,13 +32,13 @@ const TL_ICONS = {
 
 function TimelineCard({ timeline, loading }) {
   if (loading) return (
-    <div className="card" style={{ marginTop: 14 }}>
+    <div className="card">
       <div className="card-title"><i className="ti ti-timeline" /> Linha do tempo</div>
       <Loading text="Carregando histórico..." />
     </div>
   )
   return (
-    <div className="card" style={{ marginTop: 14 }}>
+    <div className="card">
       <div className="card-title"><i className="ti ti-timeline" /> Linha do tempo</div>
       {timeline.length === 0 ? (
         <div style={{ fontSize: '.83rem', color: '#9CA3AF', padding: '4px 0' }}>
@@ -344,6 +352,9 @@ export default function Animais() {
   // statusReprodutivoCiclo em helpers.js) — mesma fonte que já alimenta a
   // timeline, só guardada em bruto em vez de achatada em eventos.
   const [reprodutivoBruto, setReprodutivoBruto] = useState({ partos: [], inseminacoes: [], abortos: [] })
+  // Pesagens do animal selecionado, em bruto — alimenta o gráfico de evolução
+  // de peso (mesmo componente reaproveitado de Pesagens.jsx) ao lado da timeline.
+  const [pesagensAnimal, setPesagensAnimal] = useState([])
   // Registro do animal SELECIONADO como bezerro (db.partos.byBezerro) — usado
   // só pra resolver o clique em "Pai" quando é monta natural com paternidade
   // indefinida (leva pro lote via parto.lote_inseminacao_id, ver botaoPai abaixo).
@@ -463,6 +474,7 @@ export default function Animais() {
       abortos:       rAbortos.data   || [],
     })
     setPartoComoFilho(rPartoBezerro.data || null)
+    setPesagensAnimal(rPes.data || [])
 
     const eventos = []
 
@@ -727,7 +739,8 @@ export default function Animais() {
     setEditData({
       brinco:'', sexo:'F', data_nascimento:'', raca:'Angus', pelagem:'Preto',
       pai:'', mae_brinco:'', proprietario_id:'', lote_id:'',
-      situacao:'ativo', sit_reprodutiva:'vazia', is_touro: false
+      situacao:'ativo', sit_reprodutiva:'vazia', is_touro: false,
+      numero_registro:'', classificacao:'', sisbov:'',
     })
     setModal(true)
   }
@@ -738,7 +751,7 @@ export default function Animais() {
   }
 
   const limparVazios = (obj) => {
-    const camposNullable = ['data_baixa', 'mae_id', 'lote_id']
+    const camposNullable = ['data_baixa', 'mae_id', 'lote_id', 'numero_registro', 'classificacao', 'sisbov']
     const out = { ...obj }
     for (const c of camposNullable) if (out[c] === '') out[c] = null
     return out
@@ -758,6 +771,11 @@ export default function Animais() {
     if (!payload.proprietario_id) { toast('Selecione o proprietário.', 'error'); return }
     if (!payload.data_nascimento) { toast('Preencha a data de nascimento.', 'error'); return }
     if (!dataNaoFutura(payload.data_nascimento)) { toast('Data de nascimento não pode ser futura.', 'error'); return }
+    // SISBOV brasileiro tem 15 dígitos — avisa mas nunca bloqueia (formatos
+    // antigos/incompletos podem existir).
+    if (payload.sisbov && payload.sisbov.length !== 15) {
+      toast(`SISBOV com ${payload.sisbov.length} dígito${payload.sisbov.length!==1?'s':''} — o padrão brasileiro tem 15. Salvando mesmo assim.`, 'warning')
+    }
     setSaving(true)
     const { data: animalSalvo, error } = editData.id
       ? await db.animais.update(editData.id, payload)
@@ -825,6 +843,15 @@ export default function Animais() {
     const statusExib = statusReprodutivoExibicao(a, partosTodos)
     const rc  = repCor[statusExib] || repCor.nao_se_aplica
     const filhos = animais.filter(x => x.mae_brinco === a.brinco)
+
+    // Desempenho reprodutivo NA VIDA (Fase 13) — só pra fêmeas com algum
+    // histórico reprodutivo já registrado (parto, inseminação ou aborto).
+    const temHistoricoReprodutivo = a.sexo === 'F' && (
+      (reprodutivoBruto.partos?.length > 0) ||
+      (reprodutivoBruto.inseminacoes?.length > 0) ||
+      (reprodutivoBruto.abortos?.length > 0)
+    )
+    const desempenhoVida = temHistoricoReprodutivo ? calcDesempenhoVidaFemea(a, reprodutivoBruto) : null
 
     // Perda gestacional presumida (Fase 10) — mesmo helper do detalhe do
     // lote (statusReprodutivoDetalhado), mas aqui sem o escopo automático de
@@ -932,9 +959,12 @@ export default function Animais() {
               <div className="card-title"><i className="ti ti-id" /> Dados cadastrais</div>
               {[
                 ['Brinco',        a.brinco],
+                ['SISBOV',        a.sisbov || '—'],
                 ['Sexo',          a.sexo === 'F' ? 'Fêmea ♀' : 'Macho ♂'],
                 ['Nascimento',    `${fmtData(a.data_nascimento)} · ${idadeFormatada(a.data_nascimento)}`],
                 ['Categoria',     <Badge style={{ background: cc.bg, color: cc.text }}>{cat} <span style={{ fontSize: '.65rem', color: '#9CA3AF', marginLeft: 3 }}>automático</span></Badge>],
+                ['Nº Registro',   a.numero_registro || '—'],
+                ['Classificação', a.classificacao ? (CLASSIFICACAO_LABEL[a.classificacao] || a.classificacao) : '—'],
                 ['Raça',          a.raca],
                 ['Pelagem',       a.pelagem],
                 ['Pai',           paiValor],
@@ -1014,6 +1044,42 @@ export default function Animais() {
                 </div>
               )}
 
+              {desempenhoVida && (() => {
+                const d = desempenhoVida
+                const fmtMeses = m => m < 12 ? `${m}m` : `${Math.floor(m / 12)}a${m % 12 ? ` ${m % 12}m` : ''}`
+                const cards = [
+                  ['Intervalo entre partos',        d.intervaloPartosDias !== null ? `${d.intervaloPartosDias} dias` : null],
+                  ['Taxa de fecundidade',            d.taxaFecundidade !== null ? `${d.taxaFecundidade}%` : null],
+                  ['Taxa de perda gestacional',      d.taxaPerdaGestacional !== null ? `${d.taxaPerdaGestacional}%` : null],
+                  ['Taxa de perda pós-parto',        d.taxaPerdaPosParto !== null ? `${d.taxaPerdaPosParto}%` : null],
+                  ['GMD médio dos filhos',           d.gmdMedioFilhos !== null ? `${d.gmdMedioFilhos} kg/dia` : null],
+                  ['Fêmeas × machos (filhos)',       (d.filhasF + d.filhosM) > 0 ? `${d.filhasF}F × ${d.filhosM}M` : null],
+                  ['Peso médio ao nascer (filhos)',  d.pesoMedioNascimento !== null ? `${d.pesoMedioNascimento} kg` : null],
+                  ['Peso médio ao desmame (filhos)', d.pesoMedioDesmame !== null ? `${d.pesoMedioDesmame} kg` : null],
+                  ['Idade ao primeiro parto',        d.idadePrimeiroPartoMeses !== null ? fmtMeses(d.idadePrimeiroPartoMeses) : null],
+                  ['Nº de partos na vida',           String(d.numeroPartosVida)],
+                  ['Kg desmamado acumulado (vida)',  d.kgDesmamadoAcumulado !== null ? `${d.kgDesmamadoAcumulado} kg` : null],
+                  ['Kg desmamado por ano de vida',   d.kgDesmamadoPorAno !== null ? `${d.kgDesmamadoPorAno} kg/ano` : null],
+                  ['Taxa de desmame',                d.taxaDesmame !== null ? `${d.taxaDesmame}%` : null],
+                  ['Partos por ano exposta',         d.partosPorAnoExposta !== null ? d.partosPorAnoExposta : null],
+                ]
+                return (
+                  <div className="card" style={{ marginBottom: 12 }}>
+                    <div className="card-title"><i className="ti ti-chart-dots-3" /> Desempenho reprodutivo (histórico de vida)</div>
+                    <div className="kpi-grid" style={{ marginBottom: 0 }}>
+                      {cards.map(([l, v]) => (
+                        <div key={l} className="kpi-card" style={{ padding: '10px 12px' }}>
+                          <div className="kpi-value" style={{ fontSize: '1.05rem', color: v === null ? '#9CA3AF' : '#111827' }}>
+                            {v === null ? 'sem dados' : v}
+                          </div>
+                          <div className="kpi-label">{l}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })()}
+
               {filhos.length > 0 && (
                 <div className="card" style={{ marginBottom: 12 }}>
                   <div className="card-title"><i className="ti ti-users" /> Filhos cadastrados ({filhos.length})</div>
@@ -1047,8 +1113,26 @@ export default function Animais() {
             </div>
           </div>
 
-          {/* Linha do tempo (dentro do ref para PDF) */}
-          <TimelineCard timeline={timeline} loading={timelineLoading} />
+          {/* Linha do tempo + gráfico de evolução de peso lado a lado (dentro
+              do ref para PDF) — mesmo componente reaproveitado de Pesagens.jsx
+              "Por Animal", nunca duplicado. Empilha em tela estreita (grid-2). */}
+          <div className="grid-2" style={{ marginTop: 14, alignItems: 'start' }}>
+            <TimelineCard timeline={timeline} loading={timelineLoading} />
+            {timelineLoading ? null : (
+              pesagensAnimal.length > 0 ? (
+                <GraficoEvolucaoPeso
+                  data={[...pesagensAnimal].sort((p1, p2) => p1.data.localeCompare(p2.data))
+                    .map(p => ({ data: fmtData(p.data), peso: parseFloat(p.peso_kg) }))}
+                  titulo={`Evolução de peso — Brinco ${a.brinco}`}
+                />
+              ) : (
+                <div className="card">
+                  <div className="card-title"><i className="ti ti-chart-line" /> Evolução de peso</div>
+                  <div style={{ fontSize: '.82rem', color: '#9CA3AF' }}>Nenhuma pesagem registrada para este animal.</div>
+                </div>
+              )
+            )}
+          </div>
 
           {/* Histórico Sanitário */}
           <div className="card" style={{ marginTop: 14 }}>
@@ -1347,6 +1431,10 @@ export default function Animais() {
               <Field label="Brinco" required>
                 <input value={editData.brinco} onChange={e => setEditData(p => ({ ...p, brinco: e.target.value }))} placeholder="ex: 21" />
               </Field>
+              <Field label="SISBOV" hint={editData.sisbov && editData.sisbov.length !== 15 ? `${editData.sisbov.length} dígitos (padrão: 15)` : undefined}>
+                <input value={editData.sisbov || ''} inputMode="numeric" placeholder="15 dígitos"
+                  onChange={e => setEditData(p => ({ ...p, sisbov: e.target.value.replace(/\D/g, '') }))} />
+              </Field>
               <Field label="Sexo" required>
                 <select value={editData.sexo} onChange={e => setEditData(p => ({ ...p, sexo: e.target.value, sit_reprodutiva: e.target.value === 'M' ? 'nao_se_aplica' : 'vazia' }))}>
                   <option value="F">Fêmea ♀</option>
@@ -1356,10 +1444,22 @@ export default function Animais() {
               <Field label="Data de nascimento" required>
                 <input type="date" value={editData.data_nascimento || ''} onChange={e => setEditData(p => ({ ...p, data_nascimento: e.target.value }))} />
               </Field>
-              <Field label="Categoria" hint="Calculada automaticamente">
+              <Field label="Categoria" hint="Calculada automaticamente" hintInline>
                 <input readOnly value={editData.data_nascimento && editData.sexo
                   ? calcCategoriaRebanho(editData.data_nascimento, editData.sexo, editData.sit_reprodutiva, editData.is_touro)
                   : '—'} />
+              </Field>
+              <Field label="Número do Registro">
+                <input value={editData.numero_registro || ''} onChange={e => setEditData(p => ({ ...p, numero_registro: e.target.value }))} placeholder="ex: PO-12345" />
+              </Field>
+              <Field label="Classificação">
+                <select value={editData.classificacao || ''} onChange={e => setEditData(p => ({ ...p, classificacao: e.target.value }))}>
+                  <option value="">—</option>
+                  <option value="PO">PO — Puro de Origem</option>
+                  <option value="PA">PA — Puro por Cruzamento</option>
+                  <option value="CO">CO — Controlado por Ascendência</option>
+                  <option value="NA">N/A</option>
+                </select>
               </Field>
               {editData?.sexo === 'M' && (
                 <label style={{ display:'flex', alignItems:'center', gap:8, cursor:'pointer' }}>

@@ -236,9 +236,12 @@ export default function Backup() {
 
       const rows = (animais || []).map(a => ({
         'Brinco':           a.brinco,
+        'SISBOV':           a.sisbov || '',
         'Sexo':             a.sexo === 'F' ? 'Fêmea' : 'Macho',
         'Nascimento':       a.data_nascimento || '',
         'Categoria':        calcCategoria(a.data_nascimento, a.sexo),
+        'Nº Registro':      a.numero_registro || '',
+        'Classificação':    a.classificacao || '',
         'Raça':             a.raca || '',
         'Pelagem':          a.pelagem || '',
         'Pai':              a.pai || '',
@@ -251,7 +254,7 @@ export default function Backup() {
       }))
 
       const ws = XLSX.utils.json_to_sheet(rows)
-      ws['!cols'] = wch(9, 8, 13, 14, 10, 10, 18, 9, 22, 14, 10, 16, 35)
+      ws['!cols'] = wch(9, 16, 8, 13, 14, 14, 16, 10, 10, 18, 9, 22, 14, 10, 16, 35)
       const wb = XLSX.utils.book_new()
       XLSX.utils.book_append_sheet(wb, ws, 'Animais')
       XLSX.writeFile(wb, `animais-ventos-varzea-${dateStr()}.xlsx`)

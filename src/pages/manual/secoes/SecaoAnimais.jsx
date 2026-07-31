@@ -5,7 +5,7 @@ import { Field, AlertBox } from '../../../components/UI'
 // campos e componente <Field>, estado 100% local, não grava nada. Mesma
 // convenção de demonstração usada nas outras seções do manual.
 function DemoNovoAnimal() {
-  const [demo, setDemo] = useState({ brinco: '', sexo: 'F', data_nascimento: '', pai: '', mae_brinco: '' })
+  const [demo, setDemo] = useState({ brinco: '', sisbov: '', sexo: 'F', data_nascimento: '', numero_registro: '', classificacao: '', pai: '', mae_brinco: '' })
 
   return (
     <div data-pdf-shot="true" style={{
@@ -23,6 +23,10 @@ function DemoNovoAnimal() {
         <Field label="Brinco" required>
           <input value={demo.brinco} onChange={e => setDemo(p => ({ ...p, brinco: e.target.value }))} placeholder="ex: 0231" />
         </Field>
+        <Field label="SISBOV" hint="Opcional — só números, 15 dígitos no padrão brasileiro (avisa se for diferente, não bloqueia).">
+          <input value={demo.sisbov} inputMode="numeric" placeholder="15 dígitos"
+            onChange={e => setDemo(p => ({ ...p, sisbov: e.target.value.replace(/\D/g, '') }))} />
+        </Field>
         <Field label="Sexo" required>
           <select value={demo.sexo} onChange={e => setDemo(p => ({ ...p, sexo: e.target.value }))}>
             <option value="F">Fêmea</option>
@@ -32,8 +36,20 @@ function DemoNovoAnimal() {
         <Field label="Data de nascimento" required>
           <input type="date" value={demo.data_nascimento} onChange={e => setDemo(p => ({ ...p, data_nascimento: e.target.value }))} />
         </Field>
-        <Field label="Categoria" hint="Calculada automaticamente pela data de nascimento — você não escolhe.">
+        <Field label="Categoria" hint="Calculada automaticamente" hintInline>
           <input type="text" readOnly value="—" style={{ background: '#F3F4F6', color: '#9CA3AF', cursor: 'default' }} />
+        </Field>
+        <Field label="Número do Registro" hint="Opcional — texto livre.">
+          <input value={demo.numero_registro} onChange={e => setDemo(p => ({ ...p, numero_registro: e.target.value }))} placeholder="ex: PO-12345" />
+        </Field>
+        <Field label="Classificação" hint="Opcional.">
+          <select value={demo.classificacao} onChange={e => setDemo(p => ({ ...p, classificacao: e.target.value }))}>
+            <option value="">—</option>
+            <option value="PO">PO — Puro de Origem</option>
+            <option value="PA">PA — Puro por Cruzamento</option>
+            <option value="CO">CO — Controlado por Ascendência</option>
+            <option value="NA">N/A</option>
+          </select>
         </Field>
         <Field label="Pai" hint="Texto livre — nome do touro, não um cadastro de animal.">
           <input value={demo.pai} onChange={e => setDemo(p => ({ ...p, pai: e.target.value }))} placeholder="Nome do touro" />
@@ -64,6 +80,7 @@ export default function SecaoAnimais({ item }) {
       <ol style={{ color: '#374151', fontSize: '.85rem', lineHeight: 1.8, marginBottom: 8, paddingLeft: 20 }}>
         <li>Clique em <strong>"Novo animal"</strong>.</li>
         <li>Preencha <strong>brinco</strong>, <strong>sexo</strong> e <strong>data de nascimento</strong> — a <strong>categoria</strong> é calculada sozinha a partir da data de nascimento, você não escolhe.</li>
+        <li><strong>SISBOV</strong>, <strong>Número do Registro</strong> e <strong>Classificação</strong> (PO/PA/CO/N-A) são opcionais. O SISBOV só aceita números; o padrão brasileiro tem 15 dígitos — se você digitar um número diferente disso, o sistema avisa mas deixa salvar do mesmo jeito (útil para registros em formato antigo).</li>
         <li>Se for um macho reprodutor, marque <strong>"É touro"</strong> — isso faz ele contar como Touro para sempre, não importa a idade.</li>
         <li>Preencha raça, pelagem, proprietário e, se já existir, o lote.</li>
         <li><strong>Pai</strong> e <strong>Mãe (brinco)</strong> são campos de texto livre, não uma busca no cadastro — preencha com cuidado, porque é esse texto que a árvore genealógica usa para tentar achar a mãe entre os animais já cadastrados.</li>
@@ -78,11 +95,12 @@ export default function SecaoAnimais({ item }) {
       <p style={{ color: '#374151', fontSize: '.85rem', lineHeight: 1.8, marginBottom: 18 }}>
         Para cadastrar muitos animais de uma vez: clique em <strong>"Plan. cadastro lote"</strong> para baixar
         a planilha modelo, preencha uma linha por animal (as mesmas colunas do formulário: brinco, sexo, data
-        de nascimento, proprietário, raça, pelagem, pai, mãe, lote, situação), e depois clique em
+        de nascimento, proprietário, raça, pelagem, pai, mãe, lote, situação, e opcionalmente número do
+        registro, classificação e SISBOV), e depois clique em
         <strong> "Importar plan. cad. lote"</strong> e escolha o arquivo preenchido. O sistema mostra uma
         prévia com quantas linhas estão certas e quais têm erro (proprietário ou lote com nome que não bate
-        com o cadastro, data em formato errado, sexo/situação inválidos, etc.) antes de importar — linhas com
-        erro são ignoradas, o resto entra normalmente.
+        com o cadastro, data em formato errado, sexo/situação/classificação inválidos, etc.) antes de
+        importar — linhas com erro são ignoradas, o resto entra normalmente.
       </p>
 
       <h4 style={{ fontSize: '.88rem', fontWeight: 700, color: '#1a1a1a', marginBottom: 8 }}>Genealogia e monta natural com vários touros</h4>
@@ -104,6 +122,27 @@ export default function SecaoAnimais({ item }) {
         aborto. Você não lança nada aqui — a linha do tempo só reúne o que já foi registrado nas telas
         Pesagens, Reprodutivo e no próprio Cadastro de Animais.
       </p>
+
+      <h4 style={{ fontSize: '.88rem', fontWeight: 700, color: '#1a1a1a', marginBottom: 8 }}>Gráfico de evolução de peso</h4>
+      <p style={{ color: '#374151', fontSize: '.85rem', lineHeight: 1.8, marginBottom: 18 }}>
+        Ao lado da linha do tempo, a ficha mostra o mesmo gráfico de evolução de peso da consulta "Por Animal"
+        em Pesagens — todas as pesagens do animal, na ordem em que aconteceram. Sem pesagem registrada, o
+        espaço mostra "Nenhuma pesagem registrada para este animal" em vez de um gráfico vazio.
+      </p>
+
+      <h4 style={{ fontSize: '.88rem', fontWeight: 700, color: '#1a1a1a', marginBottom: 8 }}>Desempenho reprodutivo (histórico de vida)</h4>
+      <p style={{ color: '#374151', fontSize: '.85rem', lineHeight: 1.8, marginBottom: 10 }}>
+        Só aparece na ficha de <strong>fêmeas com algum histórico reprodutivo</strong> (pelo menos um parto,
+        inseminação ou aborto registrado). São 14 indicadores calculados sobre a vida inteira da matriz, não
+        só o ciclo atual: intervalo entre partos, taxa de fecundidade, taxa de perda gestacional, taxa de
+        perda pós-parto, GMD médio dos filhos, fêmeas × machos entre os filhos, peso médio dos filhos ao
+        nascer e ao desmame, idade ao primeiro parto, número de partos na vida, kg de terneiro desmamado
+        acumulado na vida, kg desmamado por ano de vida (normaliza pela idade — sem isso uma vaca mais velha
+        sempre pareceria "melhor" só por ter tido mais partos), taxa de desmame e partos por ano exposta.
+      </p>
+      <AlertBox type="green" icon="ti-info-circle"
+        title='Cartão mostra "sem dados", nunca zero'
+        body="Quando não há histórico suficiente para calcular um indicador específico (ex: só um parto registrado, sem intervalo pra medir), o cartão mostra “sem dados” em vez de 0 — um zero ali poderia ser lido como resultado ruim de verdade, e não é isso." />
 
       <h4 style={{ fontSize: '.88rem', fontWeight: 700, color: '#1a1a1a', marginBottom: 8 }}>Como a categoria é calculada</h4>
       <p style={{ color: '#374151', fontSize: '.85rem', lineHeight: 1.6, marginBottom: 10 }}>

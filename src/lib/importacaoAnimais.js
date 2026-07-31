@@ -3,11 +3,15 @@
 // dentro de lerPlanilhaAnimais, em vez de estática no topo do arquivo (o que
 // forçaria o download em toda visita à tela de Animais).
 
-// Colunas da planilha modelo (ordem e nomes exatos)
+// Colunas da planilha modelo (ordem e nomes exatos). numero_registro/
+// classificacao/sisbov (Fase 13) foram adicionadas no FIM de propósito —
+// templates antigos (sem essas 3 colunas) continuam funcionando, só vêm com
+// esses campos vazios (todos opcionais).
 export const COLUNAS = [
   'brinco', 'sexo', 'data_nascimento', 'proprietario',
   'raca', 'pelagem', 'pai', 'mae_brinco', 'lote',
-  'situacao', 'sit_reprodutiva'
+  'situacao', 'sit_reprodutiva',
+  'numero_registro', 'classificacao', 'sisbov',
 ]
 
 // Baixa o modelo pronto (formatado manualmente, com título, cores e
@@ -93,6 +97,13 @@ export function validarLinhas(linhas, proprietarios, lotes) {
       sitRep = 'nao_se_aplica'
     }
 
+    // Classificação (Fase 13) — opcional; se preenchida, precisa ser um dos
+    // códigos válidos (não bloqueia a linha inteira por um valor vazio).
+    const classifRaw = String(linha.classificacao || '').trim().toUpperCase()
+    if (classifRaw && !['PO','PA','CO','NA'].includes(classifRaw)) {
+      erros.push({ linha: nLinha, motivo: 'classificacao deve ser PO, PA, CO ou N/A' }); return
+    }
+
     validos.push({
       brinco, sexo, data_nascimento: dataNasc,
       raca: String(linha.raca || '').trim() || 'Angus',
@@ -103,6 +114,12 @@ export function validarLinhas(linhas, proprietarios, lotes) {
       lote_id: loteId,
       situacao,
       sit_reprodutiva: sitRep,
+      numero_registro: String(linha.numero_registro || '').trim() || null,
+      classificacao: classifRaw || null,
+      // SISBOV: só dígitos — planilha pode trazer formatação/espaços por engano.
+      // Sem validação de tamanho aqui (mesma regra do cadastro manual: avisa,
+      // nunca bloqueia — e numa importação em lote nem daria pra avisar por linha).
+      sisbov: String(linha.sisbov || '').replace(/\D/g, '') || null,
     })
   })
 

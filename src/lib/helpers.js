@@ -419,6 +419,102 @@ export function calcIntervaloPartos(partosArr, minDias = 300, maxDias = 700) {
   return { intervalos, media }
 }
 
+// ── Desempenho reprodutivo NA VIDA de uma fêmea (Fase 13 — Ficha do Animal) ──
+// Agrega o histórico completo (partos como mãe, inseminações e abortos DELA)
+// num só objeto de cards pra ficha. Reaproveita calcIntervaloPartos,
+// calcDesmameMetrics e calcGMD pro que já está resolvido — só soma/divide
+// contagens novas em cima dos MESMOS campos já usados no resto do app
+// (diagnostico==='P', natimorto, bezerro.situacao, bezerro.pesagens).
+// Cada campo é `null` (nunca 0) quando não há dado suficiente pra calcular —
+// quem exibe decide o texto "sem dados".
+export function calcDesempenhoVidaFemea(animal, { partos = [], inseminacoes = [], abortos = [] } = {}) {
+  const round1 = v => Math.round(v * 10) / 10
+
+  // 1) Intervalo entre partos (dias) — reaproveita calcIntervaloPartos.
+  const intervaloPartosDias = calcIntervaloPartos(partos).media
+
+  // 2) Taxa de fecundidade = fecundações (diagnóstico "P") ÷ inseminações na vida.
+  const fecundacoes = inseminacoes.filter(i => i.diagnostico === 'P').length
+  const taxaFecundidade = inseminacoes.length > 0 ? Math.round(fecundacoes / inseminacoes.length * 100) : null
+
+  // 3) Taxa de perda gestacional = abortos ÷ prenhezes (mesmas prenhezes do item 2).
+  const taxaPerdaGestacional = fecundacoes > 0 ? Math.round(abortos.length / fecundacoes * 100) : null
+
+  // 4) Taxa de perda pós-parto = filhos nascidos vivos que depois morreram ÷
+  // nascidos vivos (natimorto é perda NO parto, não pós-parto — fica de fora
+  // dos dois lados da conta).
+  const nascidosVivos = partos.filter(p => !p.natimorto)
+  const perdasPosParto = nascidosVivos.filter(p => p.bezerro?.situacao === 'morto').length
+  const taxaPerdaPosParto = nascidosVivos.length > 0 ? Math.round(perdasPosParto / nascidosVivos.length * 100) : null
+
+  // 5) GMD médio dos filhos — calcGMD por filho (precisa 2+ pesagens), depois média.
+  const gmdsFilhos = partos
+    .map(p => calcGMD(p.bezerro?.pesagens))
+    .filter(g => g !== null)
+    .map(g => parseFloat(g))
+  const gmdMedioFilhos = gmdsFilhos.length > 0 ? round1(gmdsFilhos.reduce((s, v) => s + v, 0) / gmdsFilhos.length * 1000) / 1000 : null
+
+  // 6) Fêmeas × machos entre os filhos.
+  const filhosComSexo = partos.filter(p => p.bezerro?.sexo)
+  const filhasF = filhosComSexo.filter(p => p.bezerro.sexo === 'F').length
+  const filhosM = filhosComSexo.filter(p => p.bezerro.sexo === 'M').length
+
+  // 7/8/11/13) Peso ao nascer/desmame, kg acumulado e taxa de desmame —
+  // reaproveita calcDesmameMetrics (o 2º argumento, totalInseminadas, só
+  // afeta os campos txDesmama/kgPorMatrizExposta DELE, que a ficha não usa:
+  // aqui a taxa de desmame e o kg acumulado são ÷ partos, formato pedido
+  // para o histórico individual, não ÷ matrizes expostas do rebanho).
+  const desmame = calcDesmameMetrics(partos, inseminacoes.length)
+  const taxaDesmame = partos.length > 0 ? Math.round(desmame.desmamados / partos.length * 100) : null
+  const kgDesmamadosBrutos = partos
+    .map(p => p.bezerro?.pesagens?.find(ps => ps.tipo === 'desmama'))
+    .filter(Boolean)
+    .map(ps => parseFloat(ps.peso_kg))
+    .filter(Number.isFinite)
+  const kgDesmamadoAcumulado = kgDesmamadosBrutos.length > 0 ? round1(kgDesmamadosBrutos.reduce((s, v) => s + v, 0)) : null
+
+  // 9) Idade ao primeiro parto (meses) — reaproveita mesesDeVida.
+  const partosOrdenados = [...partos].filter(p => p.data_parto).sort((a, b) => a.data_parto.localeCompare(b.data_parto))
+  const idadePrimeiroPartoMeses = (partosOrdenados[0] && animal?.data_nascimento)
+    ? mesesDeVida(animal.data_nascimento, parseISO(partosOrdenados[0].data_parto))
+    : null
+
+  // 10) Número de partos na vida — contagem direta, 0 é uma resposta real
+  // (nunca "sem dados" quando o histórico já foi carregado).
+  const numeroPartosVida = partos.length
+
+  // 12) Kg desmamado por ano de vida — normaliza pela idade atual, senão vaca
+  // velha sempre parece "melhor" que novilha só por ter tido mais partos.
+  const idadeAnosAtual = animal?.data_nascimento ? mesesDeVida(animal.data_nascimento) / 12 : null
+  const kgDesmamadoPorAno = (kgDesmamadoAcumulado !== null && idadeAnosAtual > 0)
+    ? round1(kgDesmamadoAcumulado / idadeAnosAtual) : null
+
+  // 14) Partos por ano exposta — "exposta" começa na 1ª inseminação/monta
+  // registrada; sem nenhuma inseminação registrada (só partos órfãos/legados),
+  // não dá pra saber quando ela começou a ser exposta — fica "sem dados" (não
+  // inventa uma data).
+  const datasExposicao = inseminacoes.map(i => i.lote?.data).filter(Boolean).sort()
+  const anosExposta = datasExposicao[0] ? differenceInDays(hojeAgora(), parseISO(datasExposicao[0])) / 365 : null
+  const partosPorAnoExposta = (anosExposta > 0) ? round1(partos.length / anosExposta) : null
+
+  return {
+    intervaloPartosDias,
+    taxaFecundidade,
+    taxaPerdaGestacional,
+    taxaPerdaPosParto,
+    gmdMedioFilhos,
+    filhasF, filhosM,
+    pesoMedioNascimento: desmame.pesoMedioNascimento,
+    pesoMedioDesmame: desmame.pesoMedioDesmame,
+    idadePrimeiroPartoMeses,
+    numeroPartosVida,
+    kgDesmamadoAcumulado,
+    kgDesmamadoPorAno,
+    taxaDesmame,
+    partosPorAnoExposta,
+  }
+}
+
 // ── Estoque: saldo por lote (FEFO) ─────────────────────────────────────────────
 // Recebe as movimentações de UM item (tipo 'E'/'S') e devolve o saldo por lote de
 // validade, consumindo primeiro os lotes que vencem antes (First Expired, First

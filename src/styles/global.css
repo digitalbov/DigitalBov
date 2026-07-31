@@ -445,6 +445,7 @@ tbody tr:hover td { background: #EAF0FB; transition: background 0.15s; }
 }
 .toast-success { background: var(--brand-green); }
 .toast-error   { background: #C0392B; }
+.toast-warning { background: var(--warning-border); }
 @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } }
 
 /* ── Login page ─────────────────────────────────────────────────── */
