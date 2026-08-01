@@ -2,7 +2,7 @@
 import { useNavigate, useLocation } from 'react-router-dom'
 import { usePermissoes } from '../lib/PermissoesContext'
 import { db } from '../lib/supabase'
-import { calcCategoria, calcCategoriaRebanho, idadeFormatada, fmtData, catCor, sitCor, repCor, sortBrinco, dataNaoFutura, algumErro, statusReprodutivoExibicao, statusReprodutivoDetalhado, statusReprodutivoCiclo, STATUS_CICLO_ANIMAL, PERDA_PRESUMIDA_DIAS_APOS_PREVISTO, paiEhMontaNaturalIndefinida, capitalizarPrimeira, capitalizarNome, sanidadeRealizada, calcDesempenhoVidaFemea, agruparPesoPorData, calcGMD, classificarDesfechosPorSafra, CORES_DESFECHO, ROTULOS_DESFECHO } from '../lib/helpers'
+import { calcCategoria, calcCategoriaRebanho, idadeFormatada, fmtData, catCor, sitCor, repCor, sortBrinco, dataNaoFutura, algumErro, statusReprodutivoExibicao, statusReprodutivoDetalhado, statusReprodutivoCiclo, STATUS_CICLO_ANIMAL, desfechoReprodutivo, FALHA_MOTIVO_LABEL, PERDA_PRESUMIDA_DIAS_APOS_PREVISTO, paiEhMontaNaturalIndefinida, capitalizarPrimeira, capitalizarNome, sanidadeRealizada, calcDesempenhoVidaFemea, agruparPesoPorData, calcGMD, classificarDesfechosPorSafra, CORES_DESFECHO, ROTULOS_DESFECHO } from '../lib/helpers'
 import { hojeISO } from '../lib/hoje'
 import { confirmarPerdaPresumida } from '../lib/perdaGestacionalPresumida'
 import { Loading, EmptyState, Modal, Field, MicButton, Badge, toast, BotaoPDF, ErroCarregamento, Confirm } from '../components/UI'
@@ -865,9 +865,9 @@ export default function Animais() {
     const cat = calcCategoriaRebanho(a.data_nascimento, a.sexo, a.sit_reprodutiva, a.is_touro)
     const cc  = catCor[cat]             || catCor.Vaca
     const sc  = sitCor[a.situacao]      || sitCor.ativo
-    // Exibição: "Lactante" em cima de 'vazia' quando o último parto ainda não foi
-    // desmamado — só visual, calcCategoriaRebanho/filtros continuam usando
-    // a.sit_reprodutiva real (statusExib nunca é gravado no banco).
+    // Exibição: "Com cria ao pé" em cima de 'vazia' quando o último parto ainda
+    // não foi desmamado — só visual, calcCategoriaRebanho/filtros continuam
+    // usando a.sit_reprodutiva real (statusExib nunca é gravado no banco).
     const statusExib = statusReprodutivoExibicao(a, partosTodos)
     const rc  = repCor[statusExib] || repCor.nao_se_aplica
     const filhos = animais.filter(x => x.mae_brinco === a.brinco)
@@ -899,6 +899,27 @@ export default function Animais() {
     const perdaDetalhe = dataMontaAtual
       ? statusReprodutivoDetalhado({ id: a.id, sit_reprodutiva: a.sit_reprodutiva }, partosDestaGestacao, dataMontaAtual)
       : null
+
+    // Item 5 — "Falhada": desfecho consolidado (desfechoReprodutivo,
+    // helpers.js — MESMA função dos filtros de venda e da sequência do lote,
+    // nunca duplicada) na ÚLTIMA estação em que ela foi exposta, com o
+    // motivo (não emprenhou / aborto / perda gestacional). "Última" = a
+    // estação do lote mais recente (por data) entre as inseminações dela que
+    // têm estação vinculada (lote.estacao_monta_id, ver db.inseminacoes.
+    // byAnimal) — inseminações de lotes sem estação (dado antigo) não entram
+    // nesta conta. Puramente derivado; a marcação manual (botão "Marcar
+    // Falhada") mora na sequência do lote, não aqui — ficha é só leitura.
+    const insComEstacao = (reprodutivoBruto.inseminacoes || []).filter(i => i.lote?.estacao_monta_id)
+    const ultimaEstacaoIdAnimal = [...insComEstacao]
+      .sort((x, y) => (y.lote?.data || '').localeCompare(x.lote?.data || ''))[0]?.lote?.estacao_monta_id || null
+    const desfechoUltimaEstacaoAnimal = ultimaEstacaoIdAnimal
+      ? desfechoReprodutivo(a.id, {
+          inseminacoes: insComEstacao.filter(i => i.lote.estacao_monta_id === ultimaEstacaoIdAnimal),
+          partos:  (reprodutivoBruto.partos  || []).filter(p => p.lote?.estacao_monta_id === ultimaEstacaoIdAnimal),
+          abortos: (reprodutivoBruto.abortos || []).filter(ab => ab.lote?.estacao_monta_id === ultimaEstacaoIdAnimal),
+        })
+      : null
+    const falhouUltimaEstacaoAnimal = desfechoUltimaEstacaoAnimal?.resultado === 'falhou' ? desfechoUltimaEstacaoAnimal : null
 
     // "Vaca falhada" — status reprodutivo por ciclo, 100% derivado na leitura
     // (statusReprodutivoCiclo, helpers.js) a partir dos eventos já carregados
@@ -1080,6 +1101,23 @@ export default function Animais() {
                     </span>
                   </div>
 
+                  {/* Item 5 — "Falhada" (guarda-chuva) na última estação em que
+                      foi exposta, com o motivo: mesmo desfecho consolidado da
+                      sequência do lote e dos filtros de venda
+                      (desfechoReprodutivo, helpers.js). Só leitura aqui — a
+                      marcação manual mora na sequência do lote
+                      (Reprodutivo.jsx), não na ficha. */}
+                  {falhouUltimaEstacaoAnimal && (
+                    <div className="row">
+                      <span className="row-label">Última estação de monta</span>
+                      <span className="row-value">
+                        <Badge style={{ background: repCor.Falhada.bg, color: repCor.Falhada.text }}>
+                          Falhada — {FALHA_MOTIVO_LABEL[falhouUltimaEstacaoAnimal.motivo]}
+                        </Badge>
+                      </span>
+                    </div>
+                  )}
+
                   {perdaDetalhe?.perdaPresumida && (
                     // Sinal FORTE (estágio 2 da escala — ver PERDA_PRESUMIDA_DIAS_APOS_PREVISTO,
                     // helpers.js). Puramente derivado até o clique em "Confirmar perda": nada
@@ -1117,7 +1155,8 @@ export default function Animais() {
                             <span className="row-label">{h.ciclo.nome}</span>
                             <span className="row-value">
                               <Badge style={{ background: sty.bg, color: sty.text }}>
-                                {sty.label}{h.data ? ` — ${fmtData(h.data)}` : ''}
+                                {sty.label}{h.status === 'falhada' && h.motivo ? ` — ${FALHA_MOTIVO_LABEL[h.motivo]}` : ''}
+                                {h.data ? ` — ${fmtData(h.data)}` : ''}
                               </Badge>
                             </span>
                           </div>

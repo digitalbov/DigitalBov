@@ -155,6 +155,18 @@ export const db = {
       if (cicloId) q = q.eq('ciclo_id', cicloId)
       return q.order('data', { ascending: false })
     },
+    // Item 5 (Financeiro.jsx — filtros "Falhada — motivo" na venda): só o
+    // necessário pra atribuir cada diagnóstico/parto/aborto ao lote (e, por
+    // ele, à estação) em que aconteceu, e pra classificar o desfecho
+    // (desfechoReprodutivo, helpers.js) — sem embed de bezerro/pesagens (não
+    // usado por este filtro). `data` do lote é a data da MONTA (não a do
+    // diagnóstico), usada pra calcular o prazo de perda gestacional
+    // presumida. Histórico completo, sem escopo de ciclo: a última estação de
+    // monta pode ser de qualquer ciclo. Só lotes COM estação (estacao_monta_id)
+    // — lote sem estação nunca pode ser "a última estação".
+    listParaDescarte: () => T('lotes_inseminacao')
+      .select('id, data, estacao_monta_id, inseminacoes(animal_id,diagnostico,data_diagnostico), partos(mae_id), abortos(animal_id,data)')
+      .not('estacao_monta_id', 'is', null),
   },
 
   loteTouros: {
@@ -176,14 +188,13 @@ export const db = {
 
   abortos: {
     list:     (cicloId)   => T('abortos').select('*, animal:animais(brinco), lote:lotes_inseminacao(numero,touro)').eq('ciclo_id', cicloId).order('data', { ascending: false }),
-    byAnimal: (animalId)  => T('abortos').select('*, lote:lotes_inseminacao(numero,touro)').eq('animal_id', animalId).order('data', { ascending: false }),
+    // lote.estacao_monta_id: usado por Animais.jsx (ficha) pra saber a que
+    // ESTAÇÃO este aborto pertence — a "Falhada"/desfecho consolidado (ver
+    // desfechoReprodutivo, helpers.js) é por estação, não por lote.
+    byAnimal: (animalId)  => T('abortos').select('*, lote:lotes_inseminacao(numero,touro,estacao_monta_id)').eq('animal_id', animalId).order('data', { ascending: false }),
     insert:   (data)      => T('abortos').insertOne(data).select().single(),
     update:   (id, d)     => escopo(T('abortos').raw().update(d).eq('id', id)).select().single(),
     delete:   (id)        => escopo(T('abortos').raw().delete().eq('id', id)),
-    // Item 7 (Financeiro.jsx — filtro "aborto registrado" na venda): todo o
-    // histórico, sem escopo de ciclo — o que importa é a data do aborto vs.
-    // a data da venda, nunca o ciclo financeiro atual.
-    listAll:  ()          => T('abortos').select('animal_id,data'),
   },
 
   inseminacoes: {
@@ -195,20 +206,17 @@ export const db = {
     ).select(),
     delete:       (id)        => escopo(T('inseminacoes').raw().delete().eq('id', id)),
     deleteVarios: (ids)       => escopo(T('inseminacoes').raw().delete().in('id', ids)),
-    byAnimal:     (animalId)  => T('inseminacoes').select('*, lote:lotes_inseminacao(numero,touro,data)').eq('animal_id', animalId).order('criado_em', { ascending: true }),
-    // Item 7 (Financeiro.jsx — filtro "sem cria em nenhum lote" na venda):
-    // só as que já têm diagnóstico (P ou V), com a data do próprio exame —
-    // histórico completo, sem escopo de ciclo (mesmo motivo do abortos.listAll).
-    listAllComDiagnostico: () => T('inseminacoes').select('animal_id,diagnostico,data_diagnostico').not('diagnostico', 'is', null),
+    // lote.estacao_monta_id: mesmo motivo do abortos.byAnimal acima.
+    byAnimal:     (animalId)  => T('inseminacoes').select('*, lote:lotes_inseminacao(numero,touro,data,estacao_monta_id)').eq('animal_id', animalId).order('criado_em', { ascending: true }),
   },
 
   partos: {
     list:      (cicloId)    => T('partos').select('*, mae:animais!mae_id(brinco,proprietario_id,proprietario:proprietarios(id,nome)), bezerro:animais!bezerro_id(brinco,sexo)').eq('ciclo_id', cicloId).order('data_parto', { ascending: false }),
     // bezerro.data_desmame: usado por statusReprodutivoExibicao (helpers.js) pra
-    // saber se o último parto da vaca já foi desmamado ("Lactante" na tela).
-    // natimorto/bezerro.situacao: mesma função usa pra NÃO mostrar "Lactante"
+    // saber se o último parto da vaca já foi desmamado ("Com cria ao pé" na tela).
+    // natimorto/bezerro.situacao: mesma função usa pra NÃO mostrar "Com cria ao pé"
     // quando o bezerro nasceu morto (Fase 10 — etapa B; sem isso, um natimorto
-    // nunca tem data_desmame preenchida e cairia como "Lactante" pra sempre).
+    // nunca tem data_desmame preenchida e cairia como "Com cria ao pé" pra sempre).
     // bezerro_id: usado pelo cohort de GMD Terneiros (Metas.jsx/Rebanho.jsx) pra
     // ancorar na safra da monta (via lote_inseminacao_id) em vez do nascimento.
     // lote:tipo — usado por Metas.jsx pra separar intervalo_partos por modo
@@ -218,7 +226,10 @@ export const db = {
     // bezerro: id/situacao/data_desmame/pesagens — usado por
     // statusReprodutivoDetalhado (Animais.jsx, ficha do animal) além dos
     // campos já usados (brinco/sexo pra timeline).
-    byMae:     (maeId)      => T('partos').select('*, bezerro:animais!bezerro_id(id,brinco,sexo,situacao,data_desmame,pesagens(id,data,tipo,peso_kg))').eq('mae_id', maeId).order('data_parto', { ascending: true }),
+    // lote.estacao_monta_id: usado por Animais.jsx (ficha) pra saber se um
+    // parto pertence à ESTAÇÃO avaliada em desfechoReprodutivo (helpers.js) —
+    // mesmo motivo do embed em inseminacoes.byAnimal/abortos.byAnimal.
+    byMae:     (maeId)      => T('partos').select('*, bezerro:animais!bezerro_id(id,brinco,sexo,situacao,data_desmame,pesagens(id,data,tipo,peso_kg)), lote:lotes_inseminacao(estacao_monta_id)').eq('mae_id', maeId).order('data_parto', { ascending: true }),
     // lote: usado por Animais.jsx pra resolver o clique em "pai" quando o valor
     // é "Monta natural — Lote N" (paternidade indefinida) — leva pro detalhe do
     // lote em vez de tentar achar um animal com esse nome (ver PAI_MONTA_NATURAL_PREFIX).

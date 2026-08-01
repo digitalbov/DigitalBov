@@ -9,7 +9,7 @@ import { useCicloLocal } from '../lib/useCicloLocal'
 import {
   fmtData, pct, contarMatrizes, contarExpostas, contarPrenhas, calcTaxaPrenhez, calcCategoriaRebanho, algumErro,
   GESTACAO_MAX_DIAS, GESTACAO_ANGUS_DIAS, PERDA_PRESUMIDA_DIAS_APOS_PREVISTO, calcGestacaoLote, calcTaxaParicao, calcDesmameMetrics,
-  calcIntervaloPartos, statusReprodutivoExibicao, statusReprodutivoDetalhado,
+  calcIntervaloPartos, statusReprodutivoExibicao, statusReprodutivoDetalhado, desfechoReprodutivo, FALHA_MOTIVO_LABEL,
   dataNaoFutura, resolverPaiDerivado, mesesDeVida, capitalizarPrimeira, capitalizarNome, numeroPositivo,
 } from '../lib/helpers'
 import { hoje as hojeAgora, hojeISO } from '../lib/hoje'
@@ -981,6 +981,24 @@ export default function Reprodutivo() {
     setTodosStale(true)
     if (recarregar) await loadAll(false)
     return true
+  }
+
+  // Item 5 — desfaz "Falhada — não emprenhou": volta o diagnóstico desta
+  // linha pra Pendente (null). Não existe um estado "falhada" gravado à
+  // parte (é 100% derivado — ver desfechoReprodutivo, helpers.js), então
+  // desfazer é só limpar o diagnóstico desta linha, igual "Remover" já faz
+  // pra uma linha sem diagnóstico nenhum. Só faz sentido pro motivo "não
+  // emprenhou" (os outros dois motivos se desfazem pelos próprios fluxos:
+  // excluir aborto / não confirmar a perda presumida). Não mexe em
+  // animais.sit_reprodutiva (mesmo padrão de executarRemoverInsem, que
+  // também não mexe) — quem depender do status atual da vaca já lê de outro
+  // lote/diagnóstico, se houver.
+  const desfazerFalhada = async (ins) => {
+    if (!podeEditarReprodCiclo) return
+    const { error } = await db.inseminacoes.update(ins.id, { diagnostico: null, data_diagnostico: null })
+    if (error) { toast('Erro ao desfazer: ' + error.message, 'error'); return }
+    toast('Diagnóstico voltou para Pendente.')
+    await loadAll(false)
   }
 
   // Diagnóstico em lote (Fase 10 — etapa C): mesmo resultado (Prenha/Vazia)
@@ -2301,6 +2319,21 @@ export default function Reprodutivo() {
               const insLoteFiltradas = filtroPropLote
                 ? (selLote.inseminacoes || []).filter(i => i.animal?.proprietario_id === filtroPropLote)
                 : (selLote.inseminacoes || [])
+              // Status "Falhada" (item 5) — desfecho CONSOLIDADO na ESTAÇÃO
+              // inteira deste lote (desfechoReprodutivo, helpers.js), não só
+              // neste lote: junta inseminações/partos/abortos de TODOS os
+              // lotes com o mesmo estacao_monta_id (já carregados em `lotes`,
+              // sem fetch extra). Lote sem estação vinculada (dado antigo)
+              // usa só a si mesmo — não há o que consolidar. Cada inseminação
+              // carrega lote.data (a data da MONTA) — desfechoReprodutivo
+              // precisa disso pra calcular o prazo de perda gestacional.
+              const lotesDaEstacaoSel = selLote.estacao_monta_id
+                ? lotes.filter(l => l.estacao_monta_id === selLote.estacao_monta_id)
+                : [selLote]
+              const insEstacaoSel = lotesDaEstacaoSel.flatMap(l =>
+                (l.inseminacoes || []).map(i => ({ ...i, lote: { data: l.data } })))
+              const partosEstacaoSel  = lotesDaEstacaoSel.flatMap(l => l.partos  || [])
+              const abortosEstacaoSel = lotesDaEstacaoSel.flatMap(l => l.abortos || [])
               return (
                 <>
                   {podeEditarReprodCiclo && insLoteFiltradas.length > 0 && (
@@ -2328,7 +2361,7 @@ export default function Reprodutivo() {
                 : abortoReg
                   ? 'Esta vaca teve aborto registrado neste lote — diagnóstico bloqueado'
                   : undefined
-              // "Lactante" é só exibição (statusReprodutivoExibicao, helpers.js):
+              // "Com cria ao pé" é só exibição (statusReprodutivoExibicao, helpers.js):
               // vaca 'vazia' cujo último parto NESTE lote ainda não foi desmamado.
               // Nunca sobrescreve sit_reprodutiva no banco.
               const situacaoAtual = statusReprodutivoExibicao(
@@ -2361,6 +2394,25 @@ export default function Reprodutivo() {
               )
               const partoAtrasado = detalheVaca.etapa === 'prenha_sem_parto'
                 && detalheVaca.dataPrevistaParto && detalheVaca.dataPrevistaParto < hojeISO()
+              // "Falhada" (item 5) — GUARDA-CHUVA: desfecho consolidado na
+              // estação inteira (não só neste lote, ver lotesDaEstacaoSel
+              // acima), com o motivo junto (não emprenhou / aborto / perda
+              // gestacional). Quem pariu em QUALQUER lote da estação nunca é
+              // falhada, mesmo tendo falhado num lote anterior — isso já vem
+              // de graça de desfechoReprodutivo (helpers.js), a MESMA função
+              // usada nos filtros de venda e na ficha do animal.
+              const desfechoVaca = desfechoReprodutivo(ins.animal_id,
+                { inseminacoes: insEstacaoSel, partos: partosEstacaoSel, abortos: abortosEstacaoSel })
+              const falhouEstacaoVaca = desfechoVaca.resultado === 'falhou'
+              // Botão "Marcar Falhada" só aparece na linha ainda Pendente (sem
+              // diagnóstico neste lote) de uma vaca que não tem NENHUM 'P' em
+              // nenhum lote da estação — clicar chama exatamente salvarDiag(...,'V',...),
+              // a MESMA gravação do botão "Vazia" logo abaixo (sem coluna nova,
+              // sem estado que possa divergir do que é exibido). Resulta
+              // sempre no motivo "não emprenhou" (os outros dois motivos têm
+              // seus próprios fluxos: Registrar aborto / Confirmar perda).
+              const podeMarcarFalhada = !d && !diagBloqueado
+                && !insEstacaoSel.some(i => i.animal_id === ins.animal_id && i.diagnostico === 'P')
               return (
                 <div key={ins.id} style={{
                   display:'flex', alignItems:'center', justifyContent:'space-between',
@@ -2375,8 +2427,8 @@ export default function Reprodutivo() {
                     <div>
                       <span style={{ fontWeight:500, minWidth:50, display:'inline-block' }}>{br}</span>
                       {situacaoAtual && (
-                        <Badge color={situacaoAtual === 'prenha' ? 'blue' : situacaoAtual === 'Lactante' ? 'purple' : 'gray'} style={{ marginLeft:6 }}>
-                          {situacaoAtual === 'prenha' ? 'Prenha (atual)' : situacaoAtual === 'vazia' ? 'Vazia (atual)' : situacaoAtual === 'Lactante' ? 'Lactante' : situacaoAtual}
+                        <Badge color={situacaoAtual === 'prenha' ? 'blue' : situacaoAtual === 'Com cria ao pé' ? 'purple' : 'gray'} style={{ marginLeft:6 }}>
+                          {situacaoAtual === 'prenha' ? 'Prenha (atual)' : situacaoAtual === 'vazia' ? 'Vazia (atual)' : situacaoAtual === 'Com cria ao pé' ? 'Com cria ao pé' : situacaoAtual}
                         </Badge>
                       )}
                       {detalheVaca.etapa === 'pariu_morto' && (
@@ -2393,7 +2445,7 @@ export default function Reprodutivo() {
                               style={{ background:'none', border:'none', padding:0, font:'inherit', fontWeight:700, color:'#166534', textDecoration:'underline', cursor:'pointer' }}>
                               {detalheVaca.bezerro.brinco}
                             </button>
-                            {' '}· Lactante
+                            {' '}· Com cria ao pé
                           </span>
                           {/* Item 6 — desfazer nascimento, mesmo padrão do
                               "Desfazer desmame" logo abaixo: reusa
@@ -2413,6 +2465,26 @@ export default function Reprodutivo() {
                           {podeEditarReprod && partoReg && (
                             <button className="btn-icon" title="Desfazer desmame" disabled={salvandoDesmameId === partoReg.id}
                               onClick={() => desfazerDesmameLote(partoReg)}>
+                              <i className="ti ti-x" style={{ fontSize:12 }} />
+                            </button>
+                          )}
+                        </div>
+                      )}
+                      {/* Item 5 — "Falhada": GUARDA-CHUVA (não entregou terneiro
+                          na estação, qualquer que seja o motivo), desfecho
+                          consolidado na estação inteira (desfechoVaca acima),
+                          não só neste lote — pode aparecer junto de "Aborto
+                          registrado"/"Perda gestacional presumida" abaixo (o
+                          motivo é o mesmo evento, mostrado em dois níveis de
+                          detalhe). Nunca aparece se ela pariu em QUALQUER lote
+                          da estação — isso já vem de graça de
+                          desfechoReprodutivo (helpers.js). */}
+                      {falhouEstacaoVaca && (
+                        <div style={{ fontSize:'.72rem', color:'#791F1F', marginTop:2, fontWeight:600, display:'flex', alignItems:'center', gap:4 }}>
+                          <span><i className="ti ti-circle-x" style={{ fontSize:11 }} /> Falhada — {FALHA_MOTIVO_LABEL[desfechoVaca.motivo]}{selLote.estacao?.nome ? ` (${selLote.estacao.nome})` : ''}</span>
+                          {podeEditarReprodCiclo && d === 'V' && (
+                            <button className="btn-icon" title="Desfazer falhada (volta para Pendente)"
+                              onClick={() => desfazerFalhada(ins)}>
                               <i className="ti ti-x" style={{ fontSize:12 }} />
                             </button>
                           )}
@@ -2521,6 +2593,25 @@ export default function Reprodutivo() {
                         onClick={() => abrirRegistrarAborto(ins, selLote)}
                         style={{ fontSize:'.72rem', color:'#791F1F' }}>
                         <i className="ti ti-alert-circle" /> Registrar aborto
+                      </button>
+                    )}
+                    {/* Item 5 — "Marcar Falhada": atalho pra fechar o desfecho
+                        desta vaca ANTES do fim da estação, quando ela nunca vai
+                        mais voltar a ser testada (ex: repasse encerrado sem
+                        diagnóstico). Grava exatamente o mesmo que o botão
+                        "Vazia" logo abaixo (salvarDiag ...,'V',...) — não existe
+                        um estado "falhada" separado no banco, então o rótulo é
+                        só um atalho com nome mais claro pro caso de uso, nunca
+                        diverge do que fica exibido (falhouEstacaoVaca deriva
+                        sempre dos mesmos diagnósticos). Só aparece quando ainda
+                        não há diagnóstico nesta linha E a vaca não tem nenhum
+                        'P' em outro lote da estação (senão marcar Vazia aqui
+                        contradiria uma gestação já confirmada em outro lote). */}
+                    {podeEditarReprodCiclo && podeMarcarFalhada && (
+                      <button className="btn btn-secondary btn-xs"
+                        onClick={() => salvarDiag(selLote.id, ins.animal_id, 'V', dataAcaoLote)}
+                        style={{ fontSize:'.72rem', color:'#791F1F' }}>
+                        <i className="ti ti-circle-x" /> Marcar Falhada
                       </button>
                     )}
                     {/* Fase 10.1 — desmame na sequência da linha (mesmo padrão de
@@ -2813,7 +2904,7 @@ export default function Reprodutivo() {
                           })() : '—'
                           // Brinco da mãe/terneiro clicáveis (Fase 10 — etapa D): abrem
                           // a ficha do animal, mesmo padrão de navigate('/animais',
-                          // {state:{abrirAnimalId}}) já usado no card "Lactante".
+                          // {state:{abrirAnimalId}}) já usado no card "Com cria ao pé".
                           return (
                           <tr key={p.id}>
                             <td style={{ whiteSpace:'nowrap' }}>{fmtData(p.data_parto)}</td>

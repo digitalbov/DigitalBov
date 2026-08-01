@@ -170,8 +170,8 @@ export default function SecaoReprodutivo({ item }) {
       <div id="reprodutivo-linha-tempo" style={{ scrollMarginTop: 90, marginTop: 18 }}>
         <h4 style={H4}>Linha do tempo por vaca e progresso da safra</h4>
         <p style={P}>
-          No detalhe do lote, logo abaixo do badge de situação (Prenha/Vazia/Lactante), cada fêmea mostra sua
-          etapa atual dentro da safra:
+          No detalhe do lote, logo abaixo do badge de situação (Prenha/Vazia/Com cria ao pé), cada fêmea mostra
+          sua etapa atual dentro da safra:
         </p>
         <ul style={{ ...OL, listStyle: 'disc' }}>
           <li><strong>Prenha, sem parto ainda</strong> — "Prevista para dd/mm/aaaa" (data da monta + 283
@@ -179,8 +179,8 @@ export default function SecaoReprodutivo({ item }) {
             vermelho e negrito, como aviso de atraso. Se um aborto já foi registrado para essa gestação, a
             previsão de parto some — aborto encerra a gestação, então não há mais parto previsto (só o aviso de
             "Aborto registrado em dd/mm/aaaa" continua aparecendo).</li>
-          <li><strong>Pariu, bezerro vivo, ainda não desmamado</strong> — "Pariu em dd/mm/aaaa · BRINCO ·
-            Lactante", com o brinco do terneiro clicável: abre o cadastro dele direto na tela Animais, e um
+          <li><strong>Pariu, bezerro vivo, ainda não desmamado</strong> — "Pariu em dd/mm/aaaa · BRINCO · Com
+            cria ao pé", com o brinco do terneiro clicável: abre o cadastro dele direto na tela Animais, e um
             botão pequeno de <strong>"Desfazer nascimento"</strong> ao lado, para corrigir um lançamento por
             engano (mesmo padrão do desfazer desmame — só funciona se o bezerro ainda não tiver histórico
             próprio: pesagem além da de nascimento, procedimento sanitário ou venda; se tiver, o sistema explica
@@ -191,6 +191,9 @@ export default function SecaoReprodutivo({ item }) {
             morto", sem oferecer desmame — não faz sentido desmamar um bezerro que não sobreviveu.</li>
           <li><strong>Desmamado</strong> — "Desmamado em dd/mm/aaaa · Xkg" (o peso some se não foi
             informado), com um botão pequeno de desfazer ao lado, pra corrigir um lançamento por engano.</li>
+          <li><strong>Falhada</strong> — "Falhada — [motivo] (nome da estação)", quando a vaca foi exposta na
+            estação de monta e <strong>não entregou terneiro nela</strong>, qualquer que seja o motivo. Ver a
+            seção seguinte para os 3 motivos e como marcar manualmente.</li>
         </ul>
         <p style={P}>
           O topo do card "Diagnóstico de gestação" tem <strong>um único campo de data</strong>, usado tanto
@@ -209,8 +212,69 @@ export default function SecaoReprodutivo({ item }) {
         </p>
       </div>
 
+      <div id="reprodutivo-falhada" style={{ scrollMarginTop: 90, marginTop: 18 }}>
+        <h4 style={H4}>Falhada — guarda-chuva, não estado exclusivo</h4>
+        <p style={P}>
+          <strong>Vaca Falhada</strong> = vaca que não entregou terneiro na estação de monta, qualquer que seja
+          o motivo. É assim que se usa no campo, e é o que importa pra decisão de descarte — abortar também é
+          falhar. "Falhada" não é um estado a mais que compete com os outros: é um GUARDA-CHUVA sobre 3 motivos
+          diferentes, sempre exibido com o motivo junto:
+        </p>
+        <ul style={{ ...OL, listStyle: 'disc' }}>
+          <li><strong>Falhada — não emprenhou</strong> — foi exposta e <strong>nunca ficou prenha em nenhum
+            lote da estação</strong> (nem na IATF, nem num repasse). Não existe diagnóstico "Prenha" nenhum pra
+            ela nessa estação.</li>
+          <li><strong>Falhada — aborto</strong> — engravidou e a gestação mais recente terminou em aborto, sem
+            uma gestação posterior na mesma estação que substitua esse resultado.</li>
+          <li><strong>Falhada — perda gestacional</strong> — engravidou e o prazo esperado passou sem parto nem
+            aborto registrado (descrito em detalhe na seção seguinte — é a "perda gestacional presumida").</li>
+        </ul>
+        <p style={P}>
+          <strong>Quem pariu não é falhada</strong>, mesmo tendo falhado numa tentativa anterior da mesma
+          estação — o status olha sempre o resultado consolidado da ESTAÇÃO inteira, não do lote isolado: uma
+          vaca vazia na IATF que engravidou e pariu no repasse <strong>não</strong> é "Falhada". Se ela
+          engravidou de novo depois de abortar, o aborto deixa de ser o motivo (o motivo mostrado é sempre o da
+          tentativa mais recente).
+        </p>
+        <p style={P}>
+          O status aparece na sequência do lote (mesmo lugar de Prenha/Pariu/Com cria ao pé/Desmamado/Abortou) e
+          na ficha do animal (Cadastro de Animais → Histórico reprodutivo). É <strong>derivado</strong>
+          (recalculado toda vez que a tela abre, a partir dos diagnósticos/partos/abortos já lançados) — não
+          existe uma coluna "falhada" separada no banco, então a exibição nunca diverge do que foi realmente
+          registrado. O botão <strong>"Marcar Falhada"</strong>, na sequência do lote, aparece numa linha ainda
+          sem diagnóstico (Pendente) de uma vaca que não tem nenhum "Prenha" em outro lote da mesma estação —
+          serve pra fechar o resultado ("não emprenhou") antes do fim da estação (ex: um repasse que não vai
+          mais ser testado), e grava exatamente o mesmo que o botão "Vazia" já grava. Pra desfazer, use o "x" ao
+          lado do rótulo "Falhada" — volta o diagnóstico daquela linha para Pendente. Os outros dois motivos se
+          desfazem pelos próprios fluxos: excluir o aborto, ou simplesmente não confirmar a perda presumida.
+        </p>
+        <p style={P}>
+          Na tela de <strong>Compra & Venda</strong> (Gestão Financeira), o formulário de venda tem os 3 motivos
+          como filtros separados — úteis pra decidir separadamente (quem não emprenha é um problema diferente
+          de quem aborta) — mais um atalho <strong>"Todas as falhadas na última estação"</strong> pra pegar as
+          3 de uma vez, sem marcar uma por uma.
+        </p>
+        <p style={P}>
+          A tabela <strong>"Por ciclo"</strong>, mais abaixo na ficha do animal, usa a MESMA classificação, só
+          que consolidando ESTAÇÕES dentro do ciclo (um ciclo pode ter 2 ou mais: ex. IA em out/nov + repasse
+          com touro em jan/fev) — mesmo princípio de "quem pariu não é falhada" aplicado um nível acima:
+        </p>
+        <ul style={{ ...OL, listStyle: 'disc' }}>
+          <li>Pariu em <strong>qualquer</strong> estação do ciclo → não é falhada, mesmo tendo falhado numa
+            estação anterior.</li>
+          <li>Falhou na única estação em que foi exposta (mesmo que o ciclo tenha tido outra estação em que ela
+            não participou) → falhada.</li>
+          <li>Exposta só numa estação do meio do ciclo (ex: comprada depois da 1ª) e falhou → falhada, sem
+            penalizar por não ter participado da estação anterior.</li>
+          <li><strong>Não exposta em nenhuma estação do ciclo</strong> → status próprio "Não exposta", nunca
+            confundido com falha: quem não participou não fracassou.</li>
+          <li>Falhou numa estação e está prenha noutra, ainda sem desfecho → "Gestação em aberto", não falhada
+            ainda — só vira falhada se essa gestação se resolver sem terneiro.</li>
+        </ul>
+      </div>
+
       <div id="reprodutivo-perda-presumida" style={{ scrollMarginTop: 90, marginTop: 18 }}>
-        <h4 style={H4}>Perda gestacional presumida</h4>
+        <h4 style={H4}>Perda gestacional presumida (motivo "perda gestacional" de Falhada)</h4>
         <p style={P}>
           O sistema tem <strong>duas réguas</strong> pra uma vaca prenha sem desfecho — uma escala em dois
           estágios, ancorados na mesma data (a da monta), não dois conceitos concorrentes:
@@ -229,7 +293,8 @@ export default function SecaoReprodutivo({ item }) {
         </ul>
         <p style={P}>
           Até você clicar em <strong>"Confirmar perda"</strong>, nada é gravado — o aviso é só um sinal
-          calculado na hora de exibir a tela (mesmo princípio do "Lactante": nunca mexe no cadastro sozinho).
+          calculado na hora de exibir a tela (mesmo princípio do "Com cria ao pé": nunca mexe no cadastro
+          sozinho).
           Confirmando, o sistema mostra um resumo do que vai mudar e só grava depois desse clique:
         </p>
         <div style={{ background:'#F3F4F6', borderRadius:8, padding:'10px 14px', fontSize:'.82rem', color:'#111827', marginBottom:18, lineHeight:1.7 }}>

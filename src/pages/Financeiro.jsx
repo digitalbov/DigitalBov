@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, Fragment } from 'react'
 import { useLocation } from 'react-router-dom'
 import { db } from '../lib/supabase'
-import { fmtMoeda, fmtData, GRUPOS_REC, GRUPOS_DES, valorPropLanc, calcResultadoFinanceiro, numeroPositivo, algumErro, calcCategoriaRebanho, CATEGORIAS_VALOR, estimarDataNascimentoPorCategoria, CATS_ESTOQUE, GRUPO_SUGERIDO_POR_CATEGORIA, capitalizarPrimeira, capitalizarNome, gruposPorValor, parsePesoIndividual, pesoIndividualInvalido, PESO_INDIVIDUAL_MAX_KG, GESTACAO_ANGUS_DIAS } from '../lib/helpers'
+import { fmtMoeda, fmtData, GRUPOS_REC, GRUPOS_DES, valorPropLanc, calcResultadoFinanceiro, numeroPositivo, algumErro, calcCategoriaRebanho, CATEGORIAS_VALOR, estimarDataNascimentoPorCategoria, CATS_ESTOQUE, GRUPO_SUGERIDO_POR_CATEGORIA, capitalizarPrimeira, capitalizarNome, gruposPorValor, parsePesoIndividual, pesoIndividualInvalido, PESO_INDIVIDUAL_MAX_KG, GESTACAO_ANGUS_DIAS, desfechoReprodutivo, FALHA_MOTIVO_LABEL } from '../lib/helpers'
 import { validarSaldoEstoque, aplicarMovimentacaoEstoque, reverterCascata, buscarMovsVinculadas, criarLancamentoRateado, carregarGruposExtras, gruposDisponiveis as gruposDisponiveisShared, comGrupoExtra } from '../lib/estoqueFinanceiro'
 import { derivarDatasGestacao, criarPrenhezAdquirida, PRENHEZ_ADQUIRIDA_LABEL } from '../lib/prenhezAdquirida'
 import RateioProprietarios from '../components/RateioProprietarios'
@@ -112,23 +112,46 @@ export default function Financeiro() {
   useEffect(() => { if (cicloLocal) loadCiclo() }, [cicloLocal?.id])
   useEffect(() => { if (tab === 3 && ciclos.length > 0) loadResultadosPorCiclo() }, [tab, ciclos.length, filtProp])
 
-  // Item 7 — carrega inseminações/partos/abortos (histórico completo, sem
-  // escopo de ciclo: o que importa é a data de cada evento vs. a data da
-  // venda, não o ciclo financeiro atual) só quando o modal de venda é aberto
-  // pela 1ª vez nesta visita à tela — nunca no loadBase() geral.
+  // Item 5 — carrega estações de monta + lotes (histórico completo, sem
+  // escopo de ciclo: a última estação pode ser de qualquer ciclo) só quando o
+  // modal de venda é aberto pela 1ª vez nesta visita à tela — nunca no
+  // loadBase() geral. Determina aqui a "última estação de monta" da fazenda —
+  // a mais recente (maior inicio) que já tem PELO MENOS 1 diagnóstico
+  // registrado num dos seus lotes. Estação em andamento sem nenhum
+  // diagnóstico ainda não conta: não há o que descartar dela.
   useEffect(() => {
     if (modal !== 'transac' || !(form.tipo === 'V' || form.tipo === 'venda_sim')) return
     if (reprodutivoVenda || carregandoReprodVenda) return
     setCarregandoReprodVenda(true)
     Promise.all([
-      db.inseminacoes.listAllComDiagnostico(),
-      db.partos.listAll(),
-      db.abortos.listAll(),
-    ]).then(([ri, rp, ra]) => {
+      db.estacoesMonta.listAll(),
+      db.lotesInseminacao.listParaDescarte(),
+    ]).then(([re, rl]) => {
+      const estacoes = re.data || []
+      const lotes    = rl.data || []
+      const lotesPorEstacao = new Map()
+      lotes.forEach(l => {
+        if (!lotesPorEstacao.has(l.estacao_monta_id)) lotesPorEstacao.set(l.estacao_monta_id, [])
+        lotesPorEstacao.get(l.estacao_monta_id).push(l)
+      })
+      const temDiagnostico = (estId) =>
+        (lotesPorEstacao.get(estId) || []).some(l => (l.inseminacoes || []).some(i => i.diagnostico))
+      const ultimaEstacao = [...estacoes]
+        .filter(es => temDiagnostico(es.id))
+        .sort((a, b) => (b.inicio || '').localeCompare(a.inicio || ''))[0] || null
+      const lotesUltimaEstacao = ultimaEstacao ? (lotesPorEstacao.get(ultimaEstacao.id) || []) : []
+      // Achatado uma vez aqui (todos os lotes da estação juntos) — o desfecho
+      // é da VACA NA ESTAÇÃO, não do lote: uma vaca pode ter diagnóstico 'V'
+      // na IATF e 'P' no repasse (mesma estação, lotes diferentes). Cada
+      // inseminação carrega lote.data (a data da MONTA, não do diagnóstico)
+      // — desfechoReprodutivo (helpers.js) precisa disso pra calcular o prazo
+      // de perda gestacional presumida.
       setReprodutivoVenda({
-        inseminacoes: ri.data || [],
-        partos:       rp.data || [],
-        abortos:      ra.data || [],
+        ultimaEstacao,
+        inseminacoesUltimaEstacao: lotesUltimaEstacao.flatMap(l =>
+          (l.inseminacoes || []).map(i => ({ ...i, lote: { data: l.data } }))),
+        partosUltimaEstacao:  lotesUltimaEstacao.flatMap(l => l.partos  || []),
+        abortosUltimaEstacao: lotesUltimaEstacao.flatMap(l => l.abortos || []),
       })
       setCarregandoReprodVenda(false)
     })
@@ -344,38 +367,29 @@ export default function Financeiro() {
   const vendaFiltroCategoria    = form.vendaFiltroCategoria    || ''
   const vendaFiltroProprietario = form.vendaFiltroProprietario || ''
   const vendaFiltroLote         = form.vendaFiltroLote         || ''
-  const vendaFiltroSemCria      = !!form.vendaFiltroSemCria
-  const vendaFiltroAborto       = !!form.vendaFiltroAborto
+  // Item 5 — "Falhada" é guarda-chuva (não emprenhou / aborto / perda
+  // gestacional), com opção de pegar todas de uma vez — ver
+  // vendaFiltroFalhadaMotivos abaixo.
+  const vendaFiltroFalhadaMotivos = form.vendaFiltroFalhadaMotivos || []
+  const vendaFiltroTodasFalhadas  = !!form.vendaFiltroTodasFalhadas
   const vendaSelecionados = form.vendaSelecionados || []
 
-  // Item 7 — "sem cria em nenhum lote": nunca teve diagnóstico 'P' (IA ou
-  // monta natural) com data_diagnostico até a data da venda. Com
-  // reprodutivoVenda ainda carregando, não filtra ninguém por engano (melhor
-  // mostrar de mais por um instante do que esconder animal por engano).
-  const naoTemCriaAteData = (animalId, dataRef) => {
-    if (!reprodutivoVenda) return true
-    return !reprodutivoVenda.inseminacoes.some(i =>
-      i.animal_id === animalId && i.diagnostico === 'P' && i.data_diagnostico && i.data_diagnostico <= dataRef)
-  }
-  // Item 7 — "aborto registrado, considerando o último status": olha os 3
-  // tipos de evento reprodutivo (diagnóstico, parto, aborto) até a data da
-  // venda e pega o mais recente — só qualifica se ESSE for um aborto (uma
-  // vaca que abortou mas depois foi diagnosticada prenha de novo, ou pariu
-  // de novo, não entra: o aborto não é mais o status atual dela).
-  const ultimoEventoEhAborto = (animalId, dataRef) => {
-    if (!reprodutivoVenda) return false
-    const eventos = [
-      ...reprodutivoVenda.inseminacoes
-        .filter(i => i.animal_id === animalId && i.data_diagnostico && i.data_diagnostico <= dataRef)
-        .map(i => ({ data: i.data_diagnostico, aborto: false })),
-      ...reprodutivoVenda.partos
-        .filter(p => p.mae_id === animalId && p.data_parto && p.data_parto <= dataRef)
-        .map(p => ({ data: p.data_parto, aborto: false })),
-      ...reprodutivoVenda.abortos
-        .filter(ab => ab.animal_id === animalId && ab.data && ab.data <= dataRef)
-        .map(ab => ({ data: ab.data, aborto: true })),
-    ].sort((x, y) => (y.data || '').localeCompare(x.data || ''))
-    return eventos.length > 0 && eventos[0].aborto
+  // Item 5 — seleção de DESCARTE: o desfecho CONSOLIDADO da vaca na ÚLTIMA
+  // ESTAÇÃO DE MONTA inteira, nunca lote a lote e nunca a situação reprodutiva
+  // atual — reaproveita desfechoReprodutivo (helpers.js), a MESMA função usada
+  // no status "Falhada" da sequência do lote e da ficha do animal
+  // (Reprodutivo.jsx/Animais.jsx) — não duplicar essa lógica aqui. "Falhada" é
+  // guarda-chuva: não entregou terneiro na estação, qualquer que seja o
+  // motivo — quem pariu não é falhada, mesmo tendo falhado numa tentativa
+  // anterior da mesma estação (isso já vem de graça de desfechoReprodutivo).
+  const motivoFalhaUltimaEstacao = (animalId) => {
+    if (!reprodutivoVenda?.ultimaEstacao) return null
+    const d = desfechoReprodutivo(animalId, {
+      inseminacoes: reprodutivoVenda.inseminacoesUltimaEstacao,
+      partos:       reprodutivoVenda.partosUltimaEstacao,
+      abortos:      reprodutivoVenda.abortosUltimaEstacao,
+    })
+    return d.resultado === 'falhou' ? d.motivo : null
   }
   // Nunca oferece pra venda um animal que ainda nem tinha nascido na data da
   // venda (bug real já visto em produção: 32 animais vendidos meses antes de
@@ -388,9 +402,11 @@ export default function Financeiro() {
     if (vendaFiltroProprietario && a.proprietario_id !== vendaFiltroProprietario) return false
     if (vendaFiltroLote && a.lote_id !== vendaFiltroLote) return false
     if (form.data && a.data_nascimento && a.data_nascimento > form.data) return false
-    const dataRefReprod = form.data || hojeISO()
-    if (vendaFiltroSemCria && !naoTemCriaAteData(a.id, dataRefReprod)) return false
-    if (vendaFiltroAborto && !ultimoEventoEhAborto(a.id, dataRefReprod)) return false
+    if (vendaFiltroTodasFalhadas || vendaFiltroFalhadaMotivos.length > 0) {
+      const motivo = motivoFalhaUltimaEstacao(a.id)
+      if (!motivo) return false
+      if (!vendaFiltroTodasFalhadas && !vendaFiltroFalhadaMotivos.includes(motivo)) return false
+    }
     return true
   })
   const animaisSelecionadosObjs = animaisAtivos.filter(a => vendaSelecionados.includes(a.id))
@@ -1670,23 +1686,46 @@ export default function Financeiro() {
                 {lotes.map(l=><option key={l.id} value={l.id}>{l.nome}</option>)}
               </select>
             </div>
-            {/* Item 7 — filtros reprodutivos, combináveis com os de cima
-                (categoria/proprietário/lote) e entre si (E lógico). Dados
-                carregados sob demanda (ver useEffect de reprodutivoVenda) —
-                desabilitados enquanto carrega pra não sugerir um resultado
-                que ainda não reflete a data escolhida. */}
-            <div style={{display:'flex',gap:14,marginBottom:10,flexWrap:'wrap',alignItems:'center'}}>
-              <label style={{display:'flex',alignItems:'center',gap:6,fontSize:'.82rem',color:'#374151',whiteSpace:'nowrap',cursor:carregandoReprodVenda?'default':'pointer',opacity:carregandoReprodVenda?0.6:1}}>
-                <input type="checkbox" checked={vendaFiltroSemCria} disabled={carregandoReprodVenda}
-                  onChange={e=>setForm(p=>({...p,vendaFiltroSemCria:e.target.checked}))} />
-                Sem cria (nenhum lote) até a data
-              </label>
-              <label style={{display:'flex',alignItems:'center',gap:6,fontSize:'.82rem',color:'#374151',whiteSpace:'nowrap',cursor:carregandoReprodVenda?'default':'pointer',opacity:carregandoReprodVenda?0.6:1}}>
-                <input type="checkbox" checked={vendaFiltroAborto} disabled={carregandoReprodVenda}
-                  onChange={e=>setForm(p=>({...p,vendaFiltroAborto:e.target.checked}))} />
-                Aborto registrado até a data
-              </label>
-              {carregandoReprodVenda && <span style={{fontSize:'.76rem',color:'#9CA3AF'}}>carregando histórico reprodutivo...</span>}
+            {/* Item 5 — seleção de descarte pela última estação de monta,
+                combinável com os filtros de cima (categoria/proprietário/lote)
+                e entre si (E lógico). Dados carregados sob demanda (ver
+                useEffect de reprodutivoVenda) — desabilitados enquanto carrega
+                pra não sugerir um resultado incompleto. "Falhada" é
+                guarda-chuva (não entregou terneiro na estação, qualquer que
+                seja o motivo) — os 3 motivos são úteis separados pra decisão
+                (quem não emprenha é problema diferente de quem aborta), com
+                "Todas as falhadas" como atalho pra pegar as 3 de uma vez, sem
+                precisar marcar uma por uma. Pills (.pill/.pill-group,
+                global.css) — mesmo padrão visual usado nos outros filtros do
+                app (proprietário/tipo/situação em Financeiro/Animais/etc.),
+                aqui com seleção MÚLTIPLA (toggle por clique) em vez de
+                exclusiva, já que os motivos são combináveis entre si. */}
+            <div className="pill-group" style={{marginBottom:10}}>
+              <button type="button" className={`pill ${vendaFiltroTodasFalhadas ? 'active' : ''}`}
+                disabled={carregandoReprodVenda}
+                style={{opacity: carregandoReprodVenda ? 0.5 : 1, fontWeight: 600}}
+                onClick={() => setForm(p => ({ ...p, vendaFiltroTodasFalhadas: !p.vendaFiltroTodasFalhadas }))}>
+                Todas as falhadas
+              </button>
+              {[
+                ['nao_emprenhou', 'Não emprenhou'],
+                ['aborto', 'Aborto'],
+                ['perda_gestacional', 'Perda gestacional'],
+              ].map(([motivo, texto]) => (
+                <button key={motivo} type="button"
+                  className={`pill ${vendaFiltroFalhadaMotivos.includes(motivo) ? 'active' : ''}`}
+                  disabled={carregandoReprodVenda || vendaFiltroTodasFalhadas}
+                  style={{opacity: (carregandoReprodVenda || vendaFiltroTodasFalhadas) ? 0.5 : 1}}
+                  onClick={() => setForm(p => {
+                    const atuais = p.vendaFiltroFalhadaMotivos || []
+                    return { ...p, vendaFiltroFalhadaMotivos: atuais.includes(motivo) ? atuais.filter(m=>m!==motivo) : [...atuais, motivo] }
+                  })}>
+                  {texto}
+                </button>
+              ))}
+              {carregandoReprodVenda && <span style={{fontSize:'.76rem',color:'#9CA3AF',alignSelf:'center'}}>carregando histórico reprodutivo...</span>}
+              {!carregandoReprodVenda && reprodutivoVenda && !reprodutivoVenda.ultimaEstacao &&
+                <span style={{fontSize:'.76rem',color:'#9CA3AF',alignSelf:'center'}}>nenhuma estação de monta com diagnóstico registrado ainda</span>}
             </div>
 
             {animaisFiltradosVenda.length > 0 && (

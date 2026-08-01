@@ -569,13 +569,13 @@ export const ROTULOS_DESFECHO = {
 
 // Classifica, safra a safra (do primeiro ciclo em que a fêmea era matriz até
 // hoje), o desfecho reprodutivo dela — reaproveita statusReprodutivoCiclo
-// (já resolvido: pariu/perda_gestacional/gestacao_aberta/em_andamento/
-// falhada) e só ACRESCENTA uma distinção que os dados já permitem sem
-// heurística nova: 'falhada' vira 'falhou' (teve inseminação no ciclo, sem
-// resultado) ou 'nao_exposta' (zero inseminação no ciclo), conforme
-// reprodutivoBruto.inseminacoes. Usada pelo gráfico "Linha do tempo
-// produtiva" (Animais.jsx) e pelo Ranking de Matrizes (Rebanho.jsx) — extraída
-// pra cá (Fase 14) pra nunca divergir entre os dois lugares.
+// (já resolvido: pariu/gestacao_aberta/em_andamento/nao_exposta/falhada+motivo).
+// Usada pelo gráfico "Linha do tempo produtiva" (Animais.jsx) e pelo Ranking
+// de Matrizes (Rebanho.jsx) — extraída pra cá (Fase 14) pra nunca divergir
+// entre os dois lugares. Motivo 'aborto' vira desfecho 'abortou' (vermelho);
+// os outros dois motivos de falha ('nao_emprenhou'/'perda_gestacional') caem
+// no mesmo 'falhou' genérico (laranja) — o gráfico não distingue motivo, só a
+// ficha (tabela "Por ciclo") e a sequência do lote mostram o motivo explícito.
 // `ciclosFazenda` = TODOS os ciclos da fazenda (mesmo array já carregado em
 // CicloContext/Rebanho/Animais); `reprodutivoBruto` = { partos, inseminacoes,
 // abortos } DESTA fêmea. 'em_andamento' (ciclo ainda não fechou) nunca entra
@@ -597,11 +597,9 @@ export function classificarDesfechosPorSafra(animal, ciclosFazenda, reprodutivoB
         const peso = pesoDesmame ? parseFloat(pesoDesmame.peso_kg) : null
         return { ciclo: h.ciclo, safra: h.ciclo.nome, valor: peso ?? 8, peso, desfecho: peso !== null ? 'pariu' : 'pariu_aguardando' }
       }
-      if (h.status === 'perda_gestacional') return { ciclo: h.ciclo, safra: h.ciclo.nome, valor: 8, peso: null, desfecho: 'abortou' }
-      if (h.status === 'gestacao_aberta')   return { ciclo: h.ciclo, safra: h.ciclo.nome, valor: 8, peso: null, desfecho: 'prenha' }
-      const teveInseminacao = (reprodutivoBruto.inseminacoes || [])
-        .some(i => i.lote?.data && i.lote.data >= h.ciclo.inicio && i.lote.data <= h.ciclo.fim)
-      return { ciclo: h.ciclo, safra: h.ciclo.nome, valor: 8, peso: null, desfecho: teveInseminacao ? 'falhou' : 'nao_exposta' }
+      if (h.status === 'gestacao_aberta') return { ciclo: h.ciclo, safra: h.ciclo.nome, valor: 8, peso: null, desfecho: 'prenha' }
+      if (h.status === 'falhada') return { ciclo: h.ciclo, safra: h.ciclo.nome, valor: 8, peso: null, desfecho: h.motivo === 'aborto' ? 'abortou' : 'falhou' }
+      return { ciclo: h.ciclo, safra: h.ciclo.nome, valor: 8, peso: null, desfecho: 'nao_exposta' }
     })
 }
 
@@ -680,20 +678,22 @@ export const repCor = {
   prenha:  { bg: '#EAF3DE', text: '#27500A' },
   vazia:   { bg: '#FCEBEB', text: '#791F1F' },
   nao_se_aplica: { bg: '#F3F4F6', text: '#9CA3AF' },
-  Lactante: { bg: '#EEEDFE', text: '#3C3489' },
+  'Com cria ao pé': { bg: '#EEEDFE', text: '#3C3489' },
+  Falhada: { bg: '#FCEBEB', text: '#791F1F' },
 }
 
 // ── Situação reprodutiva de EXIBIÇÃO (não é um valor do banco) ────────────────
-// "Lactante" é só uma camada visual sobre sit_reprodutiva === 'vazia': aparece
+// "Com cria ao pé" (antigo rótulo "Lactante" — só o texto mudou, nada no dado
+// gravado) é só uma camada visual sobre sit_reprodutiva === 'vazia': aparece
 // quando a vaca tem um parto registrado e o terneiro daquele parto ainda não foi
 // desmamado (bezerro.data_desmame vazio). Nunca grava nada — os cálculos de
 // matriz/prenhez/etc. continuam usando o sit_reprodutiva real ('vazia'). Some
 // assim que o terneiro é desmamado (data_desmame preenchida) ou se a vaca for
 // reinseminada e diagnosticada prenha de novo (sit_reprodutiva vira 'prenha',
-// que tem prioridade sobre "lactante" — é a informação mais relevante nessa hora).
-// Bezerro natimorto/morto NUNCA é "Lactante" (bug achado ao vivo na etapa B: um
-// natimorto nunca tem data_desmame preenchida — sem esta checagem, ficaria
-// "Lactante" pra sempre; a vaca cai de volta pro sit_reprodutiva real ('vazia')).
+// que tem prioridade — é a informação mais relevante nessa hora).
+// Bezerro natimorto/morto NUNCA é "Com cria ao pé" (bug achado ao vivo na etapa
+// B: um natimorto nunca tem data_desmame preenchida — sem esta checagem, ficaria
+// "Com cria ao pé" pra sempre; a vaca cai de volta pro sit_reprodutiva real ('vazia')).
 // `partos` precisa ter mae_id, natimorto e bezerro.{data_desmame,situacao}
 // (ex: db.partos.listAll(), ou selLote.partos no detalhe do lote).
 export function statusReprodutivoExibicao(animal, partos) {
@@ -703,8 +703,75 @@ export function statusReprodutivoExibicao(animal, partos) {
     .sort((a, b) => (b.data_parto || '').localeCompare(a.data_parto || ''))
   const ultimoParto = partosDaMae[0]
   const morto = !!ultimoParto?.natimorto || ultimoParto?.bezerro?.situacao === 'morto'
-  if (ultimoParto && !morto && !ultimoParto.bezerro?.data_desmame) return 'Lactante'
+  if (ultimoParto && !morto && !ultimoParto.bezerro?.data_desmame) return 'Com cria ao pé'
   return animal.sit_reprodutiva
+}
+
+// ── Desfecho reprodutivo consolidado (Falhada é GUARDA-CHUVA, não estado
+// exclusivo) — ÚNICA fonte de verdade, reaproveitada em TRÊS escalas
+// diferentes sem reescrever a lógica: por ESTAÇÃO (filtros de venda em
+// Financeiro.jsx, sequência do lote e "última estação" da ficha em
+// Reprodutivo.jsx/Animais.jsx) e por CICLO (tabela "Por ciclo" da ficha,
+// via statusReprodutivoCiclo logo abaixo, que só filtra os eventos pela
+// janela do ciclo antes de chamar isto). "Falhada" = a vaca foi exposta e
+// NÃO entregou terneiro no escopo avaliado — quem pariu NUNCA é falhada,
+// mesmo tendo falhado numa tentativa anterior dentro do mesmo escopo
+// (lote→estação, ou estação→ciclo — mesmo princípio, dois níveis).
+//
+// Resultado sempre um destes 4 (mutuamente exclusivos por construção):
+//   { resultado: 'pariu', data }          — teve parto no escopo, ponto final
+//   { resultado: 'nao_exposta' }          — nunca teve inseminação no escopo
+//   { resultado: 'em_aberto', dataPrevistaParto? } — prenha, ainda dentro do
+//     prazo (até PERDA_PRESUMIDA_DIAS_APOS_PREVISTO dias do parto previsto),
+//     sem parto nem aborto ainda — indefinido, não é falha
+//   { resultado: 'falhou', motivo, data? } — motivo é um destes 3:
+//     'nao_emprenhou'    — teve diagnóstico 'V' e NUNCA 'P' no escopo
+//     'aborto'            — engravidou e a gestação mais recente terminou em
+//                            aborto (aborto com data >= diagnóstico dessa
+//                            gestação), sem gestação POSTERIOR no escopo
+//     'perda_gestacional' — engravidou e o prazo (PERDA_PRESUMIDA_DIAS_
+//                            APOS_PREVISTO dias após o parto previsto)
+//                            passou sem parto nem aborto — hoje é a "perda
+//                            gestacional presumida" descrita em
+//                            perdaGestacionalPresumida.js, agora um MOTIVO de
+//                            falha, não um conceito à parte
+// O motivo mostrado é sempre o da TENTATIVA MAIS RECENTE (maior diagnóstico
+// 'P') dentro do escopo — uma falha antiga (ex: não emprenhou numa estação
+// anterior do ciclo) some assim que uma tentativa mais nova tem desfecho
+// próprio, sucesso ou não.
+//
+// `inseminacoes` = eventos do escopo inteiro (todos os lotes da estação, ou
+// todos os lotes do ciclo), cada item com animal_id/diagnostico/
+// data_diagnostico e `lote.data` (a data da MONTA, pra calcular o prazo —
+// não a data do diagnóstico). `partos`/`abortos` = idem, mae_id/data_parto
+// e animal_id/data respectivamente.
+export function desfechoReprodutivo(animalId, { inseminacoes = [], partos = [], abortos = [] } = {}, hoje = hojeISO()) {
+  const partoAnimal = (partos || []).find(p => p.mae_id === animalId)
+  if (partoAnimal) return { resultado: 'pariu', data: partoAnimal.data_parto }
+  const insAnimal = (inseminacoes || []).filter(i => i.animal_id === animalId)
+  const prenhezes = insAnimal.filter(i => i.diagnostico === 'P' && i.data_diagnostico)
+  if (prenhezes.length === 0) {
+    const temV = insAnimal.some(i => i.diagnostico === 'V')
+    return temV ? { resultado: 'falhou', motivo: 'nao_emprenhou' } : { resultado: 'nao_exposta' }
+  }
+  const ultimaPrenhez = prenhezes.reduce((max, p) => (!max || p.data_diagnostico > max.data_diagnostico) ? p : max, null)
+  const abortosResolvendo = (abortos || [])
+    .filter(a => a.animal_id === animalId && a.data && a.data >= ultimaPrenhez.data_diagnostico)
+    .sort((a, b) => b.data.localeCompare(a.data))
+  if (abortosResolvendo.length > 0) return { resultado: 'falhou', motivo: 'aborto', data: abortosResolvendo[0].data }
+  if (!ultimaPrenhez.lote?.data) return { resultado: 'em_aberto' }
+  const d = new Date(ultimaPrenhez.lote.data + 'T12:00:00')
+  d.setDate(d.getDate() + GESTACAO_ANGUS_DIAS)
+  const dataPrevistaParto = d.toISOString().slice(0, 10)
+  const dLimite = new Date(d)
+  dLimite.setDate(dLimite.getDate() + PERDA_PRESUMIDA_DIAS_APOS_PREVISTO)
+  if (hoje >= dLimite.toISOString().slice(0, 10)) return { resultado: 'falhou', motivo: 'perda_gestacional', dataPrevistaParto }
+  return { resultado: 'em_aberto', dataPrevistaParto }
+}
+export const FALHA_MOTIVO_LABEL = {
+  nao_emprenhou: 'não emprenhou',
+  aborto: 'aborto',
+  perda_gestacional: 'perda gestacional',
 }
 
 // ── Linha do tempo por vaca dentro de um lote (Fase 10 — Reprodutivo.jsx,
@@ -775,50 +842,59 @@ export function statusReprodutivoDetalhado(animal, partos, dataMonta) {
 // Nunca grava nada (nenhuma coluna/linha nova) e não entra em nenhum índice do
 // rebanho (esses continuam herd-level, ver Metas.jsx) — é só uma leitura sobre
 // os mesmos eventos (partos/inseminações/abortos) já usados em outros lugares,
-// exibida no histórico individual do animal (Animais.jsx). Reusa ehMatriz e
-// GESTACAO_MAX_DIAS já existentes, sem alterá-los.
+// exibida no histórico individual do animal (Animais.jsx).
+//
+// Sobe um nível a MESMA regra de consolidação de lote→estação (Reprodutivo.jsx):
+// aqui é estação→ciclo. Um ciclo pode ter 2+ estações (ex: IA em out/nov +
+// repasse com touro em jan/fev) — a vaca só é "falhada" no ciclo se falhou em
+// TODAS as estações em que foi exposta. Se pariu em QUALQUER estação do ciclo,
+// cumpriu — não é falhada, mesmo tendo falhado numa estação anterior. Isso sai
+// de graça de desfechoReprodutivo: como ele já pega SEMPRE a tentativa
+// ('prenhez') mais recente do escopo inteiro, uma vaca vazia na estação 1 e
+// prenha/parida na estação 2 do mesmo ciclo naturalmente reflete o desfecho da
+// estação 2, sem precisar tratar as estações uma a uma aqui.
+//
+// Casos de fronteira (decididos):
+//   a) exposta só na estação 1 (falhou), não exposta na 2 → falhada (falhou na
+//      única em que participou).
+//   b) exposta só na estação 2 (comprada no meio do ciclo), falhou → falhada,
+//      sem penalizar por não ter participado da 1.
+//   c) não exposta em NENHUMA estação do ciclo → não é falhada, é "não
+//      exposta" (status próprio, nunca confundido com falha).
+//   d) falhou na estação 1, prenha na estação 2 sem desfecho ainda → status em
+//      aberto (gestacao_aberta), não falhada — só vira falhada se essa
+//      gestação se resolver sem terneiro.
+//
 // `partos`/`inseminacoes`/`abortos` = eventos DESTE animal (ex: já carregados
 // pela timeline em Animais.jsx: db.partos.byMae, db.inseminacoes.byAnimal,
 // db.abortos.byAnimal). `inseminacoes[].lote.data` é a data da monta.
 export const STATUS_CICLO_ANIMAL = {
-  nao_era_matriz:   { label: 'Ainda não era matriz',   bg: '#F3F4F6', text: '#9CA3AF' },
-  pariu:             { label: 'Pariu',                  bg: '#EAF3DE', text: '#27500A' },
-  perda_gestacional: { label: 'Perda gestacional',       bg: '#FEF3C7', text: '#92620A' },
-  gestacao_aberta:   { label: 'Gestação em aberto',      bg: '#E6F1FB', text: '#1E55B0' },
-  em_andamento:      { label: 'Ciclo em andamento',      bg: '#F3F4F6', text: '#6B7280' },
-  falhada:           { label: 'Falhada',                 bg: '#FCEBEB', text: '#791F1F' },
+  nao_era_matriz: { label: 'Ainda não era matriz', bg: '#F3F4F6', text: '#9CA3AF' },
+  pariu:          { label: 'Pariu',                bg: '#EAF3DE', text: '#27500A' },
+  gestacao_aberta:{ label: 'Gestação em aberto',   bg: '#E6F1FB', text: '#1E55B0' },
+  em_andamento:   { label: 'Ciclo em andamento',   bg: '#F3F4F6', text: '#6B7280' },
+  nao_exposta:    { label: 'Não exposta',          bg: '#F3F4F6', text: '#9CA3AF' },
+  falhada:        { label: 'Falhada',              bg: '#FCEBEB', text: '#791F1F' },
 }
 export function statusReprodutivoCiclo(animal, ciclo, { partos = [], inseminacoes = [], abortos = [] } = {}, hoje = hojeISO()) {
   // Elegibilidade: matriz apta durante o ciclo (avaliada no FIM do ciclo —
   // "ela existiu como matriz elegível ao longo de todo o ciclo").
   if (!ehMatriz(animal, ciclo.fim)) return { status: 'nao_era_matriz' }
 
-  // Teve cria no ciclo? Data real do parto (não o vínculo por lote) — é o que
-  // permite "falhada" funcionar mesmo SEM inseminação lançada no app (monta
-  // natural não registrada).
-  const parto = partos.find(p => p.data_parto && p.data_parto >= ciclo.inicio && p.data_parto <= ciclo.fim)
-  if (parto) return { status: 'pariu', data: parto.data_parto }
+  const partosCiclo = (partos || []).filter(p => p.data_parto && p.data_parto >= ciclo.inicio && p.data_parto <= ciclo.fim)
+  const insCiclo     = (inseminacoes || []).filter(i => i.lote?.data && i.lote.data >= ciclo.inicio && i.lote.data <= ciclo.fim)
+  const abortosCiclo = (abortos || []).filter(a => a.data && a.data >= ciclo.inicio && a.data <= ciclo.fim)
+  const desfecho = desfechoReprodutivo(animal.id, { inseminacoes: insCiclo, partos: partosCiclo, abortos: abortosCiclo }, hoje)
 
-  // Abortou no ciclo? Ela engravidou — não é "falha", é perda gestacional
-  // (categoria diferente, já medida agregada em taxa_aborto).
-  const aborto = abortos.find(a => a.data && a.data >= ciclo.inicio && a.data <= ciclo.fim)
-  if (aborto) return { status: 'perda_gestacional', data: aborto.data }
+  if (desfecho.resultado === 'pariu')     return { status: 'pariu', data: desfecho.data }
+  if (desfecho.resultado === 'em_aberto') return { status: 'gestacao_aberta' }
 
-  // Gestação em aberto: inseminação com diagnóstico Prenha, montada dentro do
-  // ciclo, sem parto/aborto resolvido, ainda dentro da janela de gestação —
-  // genuinamente indefinido, não marca nada ainda.
-  const gestacaoAberta = inseminacoes.some(i => {
-    if (i.diagnostico !== 'P' || !i.lote?.data) return false
-    if (i.lote.data < ciclo.inicio || i.lote.data > ciclo.fim) return false
-    const diasDesdeMonta = Math.round((new Date(hoje) - new Date(i.lote.data + 'T12:00:00')) / 86400000)
-    return diasDesdeMonta < GESTACAO_MAX_DIAS
-  })
-  if (gestacaoAberta) return { status: 'gestacao_aberta' }
-
-  // Ciclo ainda não fechou (não deu tempo de ter cria nele) — não marca falha.
+  // Ciclo ainda não fechou — não assume falha nem "não exposta" ainda: pode
+  // vir mais uma estação (repasse) dentro do próprio ciclo antes dele fechar.
   if (hoje <= ciclo.fim) return { status: 'em_andamento' }
 
-  return { status: 'falhada' }
+  if (desfecho.resultado === 'falhou') return { status: 'falhada', motivo: desfecho.motivo, data: desfecho.data }
+  return { status: 'nao_exposta' }
 }
 
 // ── Pai derivado do lote (usado só na CRIAÇÃO do bezerro, em salvarParto) ────
