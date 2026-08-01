@@ -1,9 +1,9 @@
 ﻿import { useState, useEffect } from 'react'
 import { db } from '../lib/supabase'
 import { calcCategoria, calcCategoriaRebanho, calcTaxaPrenhez, contarExpostas, contarPrenhas, contarMatrizes, calcGestacaoLote, calcTaxaParicao, calcResultadoFinanceiro, calcDesmameMetrics, calcIntervaloPartos, calcGMD, estavaNoRebanho, fmtData, fmtMoeda, pct, ehMatriz, algumErro, CATEGORIAS_VALOR, gruposPorValor, sanidadeRealizada } from '../lib/helpers'
-import { Loading, Badge, AlertBox, toast, SeletorCicloLocal, ErroCarregamento } from '../components/UI'
+import { Loading, Badge, AlertBox, toast, ErroCarregamento } from '../components/UI'
 import { useFazenda } from '../lib/FazendaContext'
-import { useCicloLocal } from '../lib/useCicloLocal'
+import { useCiclo } from '../lib/CicloContext'
 import { hoje as hojeAgora } from '../lib/hoje'
 
 const TABS = ['Resumo Geral','Reprodução','Financeiro']
@@ -73,7 +73,7 @@ export default function Relatorios() {
   // ciclo OU o filtroProp mudam — nunca cacheada, nunca somada no `resu`.
   const [saldoAnteriorCiclo, setSaldoAnteriorCiclo] = useState(null)
   const { fazendaAtual } = useFazenda()
-  const { cicloLocal, setCicloLocal, ciclos } = useCicloLocal()
+  const { cicloSelecionado: cicloLocal, ciclos } = useCiclo()
 
   const hoje = new Date().toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric'})
 
@@ -561,14 +561,11 @@ export default function Relatorios() {
 
   return (
     <div className="relatorios-page">
-      {/* Linha 1: abas (esquerda) + ciclo (direita) — mesmo padrão dos demais módulos */}
-      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:12 }}>
-        <div className="tabs-bar">
-          {TABS.map((t,i) => (
-            <button key={t} className={`tab-btn ${tab===i?'active':''}`} onClick={()=>setTab(i)}>{t}</button>
-          ))}
-        </div>
-        <SeletorCicloLocal cicloLocal={cicloLocal} setCicloLocal={setCicloLocal} ciclos={ciclos} />
+      {/* Ciclo agora vem exclusivamente do seletor global no topo. */}
+      <div className="tabs-bar">
+        {TABS.map((t,i) => (
+          <button key={t} className={`tab-btn ${tab===i?'active':''}`} onClick={()=>setTab(i)}>{t}</button>
+        ))}
       </div>
 
       {/* Linha 2: filtro por proprietário (esquerda) + Gerar PDF (direita) */}

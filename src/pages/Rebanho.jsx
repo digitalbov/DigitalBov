@@ -5,8 +5,8 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { db } from '../lib/supabase'
 import { calcCategoria, calcCategoriaRebanho, calcTaxaPrenhez, contarExpostas, contarPrenhas, calcGMD, pct, fmtMoeda, ehMatriz, algumErro, calcResultadoFinanceiro, CATEGORIAS_VALOR, idadeFormatada, calcDesempenhoVidaFemea, classificarDesfechosPorSafra, CORES_DESFECHO, ROTULOS_DESFECHO } from '../lib/helpers'
-import { Loading, IndexCard, BotaoPDF, ErroCarregamento, SeletorCicloLocal, Badge, EmptyState, AlertBox } from '../components/UI'
-import { useCicloLocal } from '../lib/useCicloLocal'
+import { Loading, IndexCard, BotaoPDF, ErroCarregamento, Badge, EmptyState, AlertBox } from '../components/UI'
+import { useCiclo } from '../lib/CicloContext'
 import {
   BarChart, Bar, XAxis, YAxis,
   CartesianGrid, Tooltip, Legend, ResponsiveContainer
@@ -39,7 +39,7 @@ export function Rebanho() {
   const [pesagens,        setPesagens]        = useState([])
 
   // Seletor de ciclo LOCAL da aba Índices.
-  const { cicloLocal, setCicloLocal, ciclos, cicloAtual } = useCicloLocal()
+  const { cicloSelecionado: cicloLocal, ciclos, cicloAtual } = useCiclo()
   const lotesInsem = todosLotesInsem.filter(l => l.ciclo_id === cicloLocal?.id)
 
   // Dados de TODOS os ciclos (partos, lançamentos, transações) — usados nas
@@ -371,9 +371,6 @@ export function Rebanho() {
               </button>
             ))}
           </div>
-          {tab === 1 && (
-            <SeletorCicloLocal cicloLocal={cicloLocal} setCicloLocal={setCicloLocal} ciclos={ciclos} />
-          )}
           {tab === 5 && categoriasRanking.length > 0 && (
             <div className="pill-group">
               <button className={`pill ${!filtCatRanking?'active':''}`} onClick={()=>setFiltCatRanking('')}>Todas categorias</button>

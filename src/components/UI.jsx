@@ -1,6 +1,6 @@
 ﻿import { useState, useCallback } from 'react'
 import { useFazenda } from '../lib/FazendaContext'
-import { useCiclo, statusCiclo, STATUS_CICLO_LABEL } from '../lib/CicloContext'
+import { useCiclo, statusCiclo } from '../lib/CicloContext'
 
 // ── Toast notification system ─────────────────────────────────────
 let toastFn = null
@@ -274,24 +274,6 @@ export function BadgeSomenteLeitura({ ciclo } = {}) {
       <i className="ti ti-lock" style={{ fontSize:11 }} />
       Somente leitura
     </span>
-  )
-}
-
-// ── Seletor de ciclo LOCAL de tela ──────────────────────────────────
-// Independente do seletor global do menu lateral: cada tela mantém seu
-// próprio estado (cicloLocal) e passa ciclos + setter aqui.
-export function SeletorCicloLocal({ cicloLocal, setCicloLocal, ciclos }) {
-  if (!ciclos?.length) return null
-  return (
-    <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-      <span style={{ fontSize:'.82rem', color:'#6B7280', fontWeight:500 }}>Ciclo:</span>
-      <select value={cicloLocal?.id || ''} onChange={e => setCicloLocal(ciclos.find(c => c.id === e.target.value) || null)}
-        style={{ width:'auto', fontSize:'.85rem', padding:'5px 10px' }}>
-        {ciclos.map(c => (
-          <option key={c.id} value={c.id}>{c.nome} ({STATUS_CICLO_LABEL[statusCiclo(c)]})</option>
-        ))}
-      </select>
-    </div>
   )
 }
 

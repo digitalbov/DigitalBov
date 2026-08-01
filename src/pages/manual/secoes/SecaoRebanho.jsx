@@ -25,7 +25,7 @@ export default function SecaoRebanho({ item }) {
 
       <h4 style={H4}>Índices</h4>
       <p style={P}>
-        Tem seletor de ciclo próprio (independente do resto da tela). Mostra taxa de prenhez, matrizes
+        Usa o ciclo selecionado no seletor global (topo da tela). Mostra taxa de prenhez, matrizes
         expostas e prenhas no ciclo, nascimentos no ciclo, inseminações (serviços) e o <strong>GMD de
         terneiros (0-12 meses)</strong> — total, fêmeas e machos.
       </p>

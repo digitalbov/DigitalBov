@@ -7,12 +7,11 @@ import { derivarDatasGestacao, criarPrenhezAdquirida, PRENHEZ_ADQUIRIDA_LABEL } 
 import RateioProprietarios from '../components/RateioProprietarios'
 import GrupoSelect from '../components/GrupoSelect'
 import { hoje as hojeAgora, hojeISO } from '../lib/hoje'
-import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, AlertBox, BotaoPDF, ErroCarregamento, BadgeSomenteLeitura, SeletorCicloLocal, Confirm } from '../components/UI'
+import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, AlertBox, BotaoPDF, ErroCarregamento, BadgeSomenteLeitura, Confirm } from '../components/UI'
 import { usePermissoes } from '../lib/PermissoesContext'
 import { useConta } from '../lib/ContaContext'
 import { useFazenda } from '../lib/FazendaContext'
 import { useCiclo, statusCiclo, STATUS_CICLO_LABEL } from '../lib/CicloContext'
-import { useCicloLocal } from '../lib/useCicloLocal'
 
 const TABS = ['Resumo','Lançamentos','Compra & Venda','Resultados','Parâmetros','Ciclos','Simulações']
 
@@ -103,8 +102,7 @@ export default function Financeiro() {
   const podeEditarEstoque = podeEditar('estoque')
   const { contaAtual } = useConta()
   const { fazendaAtual } = useFazenda()
-  const { cicloDaData, dataEhEditavel } = useCiclo()
-  const { cicloLocal, setCicloLocal, ciclos, cicloAtual } = useCicloLocal()
+  const { cicloDaData, dataEhEditavel, cicloSelecionado: cicloLocal, ciclos, cicloAtual } = useCiclo()
   const statusCicloLocal = statusCiclo(cicloLocal)
   const podeEditarFinCiclo = podeEditarFinanceiro && (statusCicloLocal === 'atual' || statusCicloLocal === 'carencia')
 
@@ -1020,11 +1018,10 @@ export default function Financeiro() {
 
   return (
     <div>
-      {/* Seletor de ciclo LOCAL desta tela (independente do global), alinhado
-          à direita (Fase 14) */}
+      {/* Ciclo agora é selecionado exclusivamente pelo seletor global no
+          topo (SeletoresTopo) — aqui só o indicador de somente leitura. */}
       <div style={{ display:'flex', justifyContent:'flex-end', alignItems:'center', flexWrap:'wrap', gap:8, marginBottom:14 }}>
         <BadgeSomenteLeitura ciclo={cicloLocal} />
-        <SeletorCicloLocal cicloLocal={cicloLocal} setCicloLocal={setCicloLocal} ciclos={ciclos} />
       </div>
 
       {/* Abas + Gerar PDF na mesma linha, alinhado à direita (Fase 14) — o

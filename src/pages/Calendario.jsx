@@ -2,9 +2,8 @@
 import { db } from '../lib/supabase'
 import { fmtData, algumErro, calcLotesFEFO, sanidadeRealizada, sanidadeAgendada, labelTipoSanidade } from '../lib/helpers'
 import { hoje as hojeAgora } from '../lib/hoje'
-import { Loading, BotaoPDF, EmptyState, ErroCarregamento, SeletorCicloLocal } from '../components/UI'
+import { Loading, BotaoPDF, EmptyState, ErroCarregamento } from '../components/UI'
 import { useCiclo } from '../lib/CicloContext'
-import { useCicloLocal } from '../lib/useCicloLocal'
 import { addDays, parseISO, differenceInDays } from 'date-fns'
 
 // ── Urgência ──────────────────────────────────────────────────────
@@ -110,8 +109,7 @@ export default function Calendario() {
   const [vazias,    setVazias]   = useState([])
   const [filtTipo,  setFiltTipo] = useState('todos')
 
-  const { dentroDoCiclo } = useCiclo()
-  const { cicloLocal, setCicloLocal, ciclos } = useCicloLocal()
+  const { dentroDoCiclo, cicloSelecionado: cicloLocal } = useCiclo()
 
   useEffect(() => { loadData() }, [])
 
@@ -265,10 +263,6 @@ export default function Calendario() {
 
   return (
     <div>
-      <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:14 }}>
-        <SeletorCicloLocal cicloLocal={cicloLocal} setCicloLocal={setCicloLocal} ciclos={ciclos} />
-      </div>
-
       {/* ── KPI cards ── */}
       <div className="kpi-grid" style={{ marginBottom: 16 }}>
         {[

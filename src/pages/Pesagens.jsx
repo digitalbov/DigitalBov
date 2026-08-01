@@ -2,11 +2,10 @@
 import { db } from '../lib/supabase'
 import { usePermissoes } from '../lib/PermissoesContext'
 import { useCiclo, statusCiclo } from '../lib/CicloContext'
-import { useCicloLocal } from '../lib/useCicloLocal'
 import { fmtData, calcGMD, fmtPeso, numeroPositivo, dataNaoFutura, calcCategoria, calcCategoriaRebanho, mesesDeVida, algumErro, capitalizarPrimeira, agruparPesoPorData } from '../lib/helpers'
 import { hoje as hojeAgora, hojeISO } from '../lib/hoje'
 import { registrarDesmame as gravarDesmame, desfazerDesmame } from '../lib/reprodutivoDesmame'
-import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, IndexCard, BotaoPDF, Confirm, ErroCarregamento, BadgeSomenteLeitura, SeletorCicloLocal } from '../components/UI'
+import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, IndexCard, BotaoPDF, Confirm, ErroCarregamento, BadgeSomenteLeitura } from '../components/UI'
 import GraficoEvolucaoPeso from '../components/GraficoEvolucaoPeso'
 
 const TABS  = ['Registrar','Por Animal','Por Lote','Por Categoria','Desempenho','Projeção','Desmame']
@@ -41,8 +40,7 @@ export default function Pesagens() {
 
   const { podeEditar } = usePermissoes()
   const podeEditarPesagens = podeEditar('pesagens')
-  const { dentroDoCiclo, cicloDaData, dataEhEditavel } = useCiclo()
-  const { cicloLocal, setCicloLocal, ciclos } = useCicloLocal()
+  const { dentroDoCiclo, cicloDaData, dataEhEditavel, cicloSelecionado: cicloLocal } = useCiclo()
   const statusCicloLocal = statusCiclo(cicloLocal)
   const podeEditarPesagensCiclo = podeEditarPesagens && (statusCicloLocal === 'atual' || statusCicloLocal === 'carencia')
 
@@ -342,7 +340,6 @@ export default function Pesagens() {
     <div>
       <div style={{ display:'flex', justifyContent:'flex-end', alignItems:'center', flexWrap:'wrap', gap:8, marginBottom:14 }}>
         <BadgeSomenteLeitura ciclo={cicloLocal} />
-        <SeletorCicloLocal cicloLocal={cicloLocal} setCicloLocal={setCicloLocal} ciclos={ciclos} />
       </div>
 
       <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:8, marginBottom:16, borderBottom:'.5px solid var(--gray-200)' }}>

@@ -5,7 +5,6 @@ import { usePermissoes } from '../lib/PermissoesContext'
 import { useFazenda } from '../lib/FazendaContext'
 import { useConta } from '../lib/ContaContext'
 import { useCiclo, statusCiclo } from '../lib/CicloContext'
-import { useCicloLocal } from '../lib/useCicloLocal'
 import {
   fmtData, pct, contarMatrizes, contarExpostas, contarPrenhas, calcTaxaPrenhez, calcCategoriaRebanho, algumErro,
   GESTACAO_MAX_DIAS, GESTACAO_ANGUS_DIAS, PERDA_PRESUMIDA_DIAS_APOS_PREVISTO, calcGestacaoLote, calcTaxaParicao, calcDesmameMetrics,
@@ -16,7 +15,7 @@ import { hoje as hojeAgora, hojeISO } from '../lib/hoje'
 import { registrarDesmame, desfazerDesmame } from '../lib/reprodutivoDesmame'
 import { derivarDatasGestacao, criarPrenhezAdquirida, PRENHEZ_ADQUIRIDA_LABEL } from '../lib/prenhezAdquirida'
 import { confirmarPerdaPresumida } from '../lib/perdaGestacionalPresumida'
-import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, AlertBox, BotaoPDF, ErroCarregamento, BadgeSomenteLeitura, SeletorCicloLocal, Confirm } from '../components/UI'
+import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, AlertBox, BotaoPDF, ErroCarregamento, BadgeSomenteLeitura, Confirm } from '../components/UI'
 import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer
@@ -141,8 +140,7 @@ export default function Reprodutivo() {
   const podeEditarReprod = podeEditar('reprodutivo')
   const { fazendaAtual } = useFazenda()
   const { contaAtual } = useConta()
-  const { cicloDaData, dataEhEditavel } = useCiclo()
-  const { cicloLocal, setCicloLocal, ciclos } = useCicloLocal()
+  const { cicloDaData, dataEhEditavel, cicloSelecionado: cicloLocal, setCicloSelecionado, ciclos } = useCiclo()
   const statusCicloLocal = statusCiclo(cicloLocal)
   const location = useLocation()
   const navigate = useNavigate()
@@ -342,7 +340,7 @@ export default function Reprodutivo() {
     const cicloAlvoId = location.state.cicloId
     if (cicloAlvoId && cicloAlvoId !== cicloLocal?.id) {
       const cicloAlvo = ciclos.find(c => c.id === cicloAlvoId)
-      if (cicloAlvo) { setCicloLocal(cicloAlvo); return }
+      if (cicloAlvo) { setCicloSelecionado(cicloAlvo); return }
     }
     const lote = lotes.find(l => l.id === alvo)
     if (!lote) return
@@ -1390,7 +1388,7 @@ export default function Reprodutivo() {
       const rotuloEvento = form.natimorto ? 'Natimorto registrado!' : 'Nascimento registrado!'
       const rotuloBrinco = brincoManual ? `Brinco: ${bezData.brinco}` : `Brinco provisório: ${bezData.brinco}`
       if (cicloDoParto?.id && cicloDoParto.id !== cicloLocal?.id) {
-        setCicloLocal(cicloDoParto)
+        setCicloSelecionado(cicloDoParto)
         toast(`${rotuloEvento} ${rotuloBrinco} — este parto é do ciclo ${cicloDoParto.nome}, mudando a visualização para esse ciclo.`)
       } else {
         toast(`${rotuloEvento} ${rotuloBrinco}`)
@@ -1927,7 +1925,6 @@ export default function Reprodutivo() {
     <div>
       <div style={{ display:'flex', justifyContent:'flex-end', alignItems:'center', flexWrap:'wrap', gap:8, marginBottom:14 }}>
         <BadgeSomenteLeitura ciclo={cicloLocal} />
-        <SeletorCicloLocal cicloLocal={cicloLocal} setCicloLocal={setCicloLocal} ciclos={ciclos} />
       </div>
 
       <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:8, marginBottom:16, borderBottom:'.5px solid var(--gray-200)' }}>

@@ -1,9 +1,9 @@
 ﻿import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { useFazenda } from '../lib/FazendaContext'
-import { useCicloLocal } from '../lib/useCicloLocal'
+import { useCiclo } from '../lib/CicloContext'
 import { fmtMoeda, calcCategoria, calcTaxaPrenhez, contarExpostas, contarPrenhas, contarMatrizes, calcResultadoFinanceiro, algumErro } from '../lib/helpers'
-import { Loading, EmptyState, SeletorCicloLocal, AlertBox } from '../components/UI'
+import { Loading, EmptyState, AlertBox } from '../components/UI'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   Legend, ResponsiveContainer
@@ -16,10 +16,10 @@ export default function Comparativo() {
   const [loading, setLoading] = useState(true)
   const [temErro, setTemErro] = useState(false)
 
-  // Seletor de ciclo LOCAL desta tela. Como cada fazenda tem seus próprios
+  // Ciclo vem do seletor GLOBAL (topo) — como cada fazenda tem seus próprios
   // registros de ciclos_financeiros, o alinhamento entre fazendas é feito
-  // pelo NOME do ciclo (ex: "2025/26"), não pelo id.
-  const { cicloLocal, setCicloLocal, ciclos } = useCicloLocal()
+  // pelo NOME do ciclo selecionado (ex: "2025/26"), não pelo id.
+  const { cicloSelecionado: cicloLocal } = useCiclo()
 
   useEffect(() => {
     if (fazendas.length < 2 || !cicloLocal) { setLoading(false); return }
@@ -137,8 +137,8 @@ export default function Comparativo() {
 
   return (
     <div>
-      <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:14 }}>
-        <SeletorCicloLocal cicloLocal={cicloLocal} setCicloLocal={setCicloLocal} ciclos={ciclos} />
+      <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:14, fontSize:'.82rem', color:'#6B7280' }}>
+        Comparando ciclo: <strong style={{ marginLeft:4, color:'#374151' }}>{cicloLocal?.nome || '—'}</strong>
       </div>
 
       {temErro && (

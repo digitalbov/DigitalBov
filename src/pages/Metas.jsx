@@ -4,9 +4,9 @@ import {
   calcCategoria, calcGMD, calcTaxaPrenhez, contarPrenhas, contarExpostas, contarMatrizes,
   calcGestacaoLote, calcTaxaParicao, calcDesmameMetrics, calcIntervaloPartos, algumErro, fmtMoeda,
 } from '../lib/helpers'
-import { Loading, Modal, toast, BotaoPDF, EmptyState, ErroCarregamento, SeletorCicloLocal, AlertBox, Badge } from '../components/UI'
+import { Loading, Modal, toast, BotaoPDF, EmptyState, ErroCarregamento, AlertBox, Badge } from '../components/UI'
 import { usePermissoes } from '../lib/PermissoesContext'
-import { useCicloLocal } from '../lib/useCicloLocal'
+import { useCiclo } from '../lib/CicloContext'
 import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer, BarChart, Bar,
   XAxis, YAxis, CartesianGrid, LabelList, ReferenceLine, Legend,
@@ -669,7 +669,7 @@ function GraficoComparativoModo({ indicadores, blocoIA, blocoNatural, temValorCa
 export default function Metas() {
   const contentRef = useRef(null)
   // Guarda contra corrida entre loadAll()s sobrepostos — cicloLocal começa
-  // null (useCicloLocal) e vira o ciclo real assim que carrega, disparando o
+  // null e vira o ciclo real assim que carrega, disparando o
   // useEffect [cicloLocal?.id] de novo com uma 2ª chamada em paralelo. Sem
   // isto, a chamada MAIS LENTA vence (não a mais recente): se a 1ª (ciclo
   // null → lotesCiclo=[] → tudo zerado) resolver DEPOIS da 2ª (ciclo real,
@@ -731,7 +731,7 @@ export default function Metas() {
 
   const { podeEditar } = usePermissoes()
   const podeEditarMetas = podeEditar('metas')
-  const { cicloLocal, setCicloLocal, ciclos } = useCicloLocal()
+  const { cicloSelecionado: cicloLocal, ciclos } = useCiclo()
 
   useEffect(() => { loadAll() }, [cicloLocal?.id, filtroProp])
 
@@ -765,8 +765,7 @@ export default function Metas() {
       }
       setMetas(metasData)
 
-      // Ciclo selecionado localmente na tela (SeletorCicloLocal), inicia a
-      // partir do ciclo global mas pode ser trocado sem afetar o resto do app.
+      // Ciclo vem do seletor global (topo).
       const ciclo = cicloLocal
 
       // Carregar dados para cálculo em paralelo. lotesInseminacao.list traz o
@@ -1254,7 +1253,6 @@ export default function Metas() {
             </button>
           ))}
         </div>
-        <SeletorCicloLocal cicloLocal={cicloLocal} setCicloLocal={setCicloLocal} ciclos={ciclos} />
       </div>
 
       {/* Ciclo + sumário */}

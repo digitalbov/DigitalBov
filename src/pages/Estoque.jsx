@@ -4,10 +4,9 @@ import { usePermissoes } from '../lib/PermissoesContext'
 import { useConta } from '../lib/ContaContext'
 import { useFazenda } from '../lib/FazendaContext'
 import { useCiclo, statusCiclo } from '../lib/CicloContext'
-import { useCicloLocal } from '../lib/useCicloLocal'
 import { fmtData, fmtMoeda, numeroPositivo, algumErro, calcLotesFEFO, diasAteValidade, CATS_ESTOQUE, GRUPO_SUGERIDO_POR_CATEGORIA, capitalizarPrimeira, capitalizarNome } from '../lib/helpers'
 import { hojeISO } from '../lib/hoje'
-import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, AlertBox, BotaoPDF, Confirm, ErroCarregamento, BadgeSomenteLeitura, SeletorCicloLocal } from '../components/UI'
+import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, AlertBox, BotaoPDF, Confirm, ErroCarregamento, BadgeSomenteLeitura } from '../components/UI'
 import { validarSaldoEstoque, aplicarMovimentacaoEstoque, reverterCascata, criarLancamentoRateado, carregarGruposExtras, gruposDisponiveis, comGrupoExtra } from '../lib/estoqueFinanceiro'
 import RateioProprietarios from '../components/RateioProprietarios'
 import GrupoSelect from '../components/GrupoSelect'
@@ -35,12 +34,10 @@ export default function Estoque() {
   const podeEditarFinanceiro = podeEditar('financeiro')
   const { contaAtual } = useConta()
   const { fazendaAtual } = useFazenda()
-  const { dentroDoCiclo, cicloDaData, dataEhEditavel } = useCiclo()
+  const { dentroDoCiclo, cicloDaData, dataEhEditavel, cicloSelecionado: cicloLocal } = useCiclo()
 
-  // Seletor de ciclo LOCAL desta tela. Só afeta a listagem de MOVIMENTAÇÕES
-  // (têm data); os itens são saldo atual e ficam sempre visíveis/editáveis
-  // conforme a permissão do módulo.
-  const { cicloLocal, setCicloLocal, ciclos } = useCicloLocal()
+  // Ciclo (global) só afeta a listagem de MOVIMENTAÇÕES (têm data); os itens
+  // são saldo atual e ficam sempre visíveis/editáveis conforme a permissão do módulo.
   const statusCicloLocal = statusCiclo(cicloLocal)
   const podeEditarMovCiclo = podeEditarEstoque && (statusCicloLocal === 'atual' || statusCicloLocal === 'carencia')
 
@@ -453,7 +450,6 @@ export default function Estoque() {
     <div>
       <div style={{ display:'flex', justifyContent:'flex-end', alignItems:'center', flexWrap:'wrap', gap:8, marginBottom:14 }}>
         <BadgeSomenteLeitura ciclo={cicloLocal} />
-        <SeletorCicloLocal cicloLocal={cicloLocal} setCicloLocal={setCicloLocal} ciclos={ciclos} />
       </div>
 
       <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:8, marginBottom:16, borderBottom:'.5px solid var(--gray-200)' }}>

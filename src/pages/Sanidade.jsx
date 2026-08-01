@@ -4,11 +4,10 @@ import { usePermissoes } from '../lib/PermissoesContext'
 import { useConta } from '../lib/ContaContext'
 import { useFazenda } from '../lib/FazendaContext'
 import { useCiclo, statusCiclo } from '../lib/CicloContext'
-import { useCicloLocal } from '../lib/useCicloLocal'
 import { fmtData, diasDesde, calcCategoriaRebanho, algumErro, capitalizarPrimeira, sanidadeRealizada, sanidadeAgendada, labelTipoSanidade } from '../lib/helpers'
 import { hoje as hojeAgora, hojeISO } from '../lib/hoje'
 import { validarSaldoEstoque, aplicarMovimentacaoEstoque, reverterCascata } from '../lib/estoqueFinanceiro'
-import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, AlertBox, BotaoPDF, Confirm, ErroCarregamento, BadgeSomenteLeitura, SeletorCicloLocal } from '../components/UI'
+import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, AlertBox, BotaoPDF, Confirm, ErroCarregamento, BadgeSomenteLeitura } from '../components/UI'
 
 const TABS   = ['Registros','Calendário de vacinação','Alertas','Histórico']
 // TIPOS é o valor GRAVADO (procedimentos_sanitarios.tipo) — sempre singular,
@@ -34,8 +33,7 @@ export default function Sanidade() {
   const podeEditarEstoque = podeEditar('estoque')
   const { contaAtual }   = useConta()
   const { fazendaAtual } = useFazenda()
-  const { dentroDoCiclo, cicloDaData, dataEhEditavel } = useCiclo()
-  const { cicloLocal, setCicloLocal, ciclos } = useCicloLocal()
+  const { dentroDoCiclo, cicloDaData, dataEhEditavel, cicloSelecionado: cicloLocal } = useCiclo()
   const statusCicloLocal = statusCiclo(cicloLocal)
   const podeEditarSanidadeCiclo = podeEditarSanidade && (statusCicloLocal === 'atual' || statusCicloLocal === 'carencia')
 
@@ -576,7 +574,6 @@ export default function Sanidade() {
     <div>
       <div style={{ display:'flex', justifyContent:'flex-end', alignItems:'center', flexWrap:'wrap', gap:8, marginBottom:14 }}>
         <BadgeSomenteLeitura ciclo={cicloLocal} />
-        <SeletorCicloLocal cicloLocal={cicloLocal} setCicloLocal={setCicloLocal} ciclos={ciclos} />
       </div>
 
       <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:8, marginBottom:16, borderBottom:'.5px solid var(--gray-200)' }}>
