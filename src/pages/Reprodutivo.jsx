@@ -15,6 +15,7 @@ import { hoje as hojeAgora, hojeISO } from '../lib/hoje'
 import { registrarDesmame, desfazerDesmame } from '../lib/reprodutivoDesmame'
 import { derivarDatasGestacao, criarPrenhezAdquirida, PRENHEZ_ADQUIRIDA_LABEL } from '../lib/prenhezAdquirida'
 import { confirmarPerdaPresumida } from '../lib/perdaGestacionalPresumida'
+import { useSubmitGuard } from '../lib/useSubmitGuard'
 import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, AlertBox, BotaoPDF, ErroCarregamento, BadgeSomenteLeitura, Confirm } from '../components/UI'
 import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
@@ -67,13 +68,18 @@ function CardResultadoSafra({ titulo, sm, andamento, previsao, tipo }) {
           ['Mortalidade de terneiros',     sm.mortalidadeBezerros!=null?`${sm.mortalidadeBezerros}%`:'—',  '#791F1F'],
           ['Desmamados',                   sm.desmamados,                                                   '#166534'],
           ['Taxa de desmama',              sm.txDesmama!=null?`${sm.txDesmama}%`:'—',                      '#166534'],
-          ['Peso médio ao desmame',        sm.pesoMedioDesmame!=null?`${sm.pesoMedioDesmame} kg`:'—',       '#166534'],
-          ['P205 médio',                   sm.p205Medio!=null?`${sm.p205Medio} kg`:'—',                    '#166534'],
-          ['Kg desmamado / matriz exposta',sm.kgPorMatrizExposta!=null?`${sm.kgPorMatrizExposta} kg`:'—',   '#166534'],
-        ].map(([l,v,c,tip]) => (
+          // Peso agora é opcional no desmame — estes 3 índices só entram com
+          // quem tem peso registrado (real ou, na falta dele, o peso da
+          // venda); o "X de Y com peso" deixa isso visível em vez de o
+          // número parecer completo quando na verdade é parcial.
+          ['Peso médio ao desmame',        sm.pesoMedioDesmame!=null?`${sm.pesoMedioDesmame} kg`:'—',       '#166534', undefined, sm.desmamados>0?`${sm.comPesoDesmame} de ${sm.desmamados} com peso`:null],
+          ['P205 médio',                   sm.p205Medio!=null?`${sm.p205Medio} kg`:'—',                    '#166534', undefined, sm.desmamados>0?`${sm.comPesoP205} de ${sm.desmamados} com peso`:null],
+          ['Kg desmamado / matriz exposta',sm.kgPorMatrizExposta!=null?`${sm.kgPorMatrizExposta} kg`:'—',   '#166534', undefined, sm.desmamados>0?`${sm.comPesoDesmame} de ${sm.desmamados} com peso`:null],
+        ].map(([l,v,c,tip,sub]) => (
           <div key={l} title={tip} style={{ background:'white',border:'.5px solid #E5E7EB',borderRadius:10,padding:'10px 12px',textAlign:'center', cursor:tip?'help':'default' }}>
             <div style={{ fontSize:'1.15rem',fontWeight:600,color:c }}>{v}</div>
             <div style={{ fontSize:'.72rem',color:'#6B7280',marginTop:2 }}>{l}</div>
+            {sub && <div style={{ fontSize:'.68rem',color:'#9CA3AF',marginTop:1 }}>{sub}</div>}
           </div>
         ))}
       </div>
@@ -145,7 +151,25 @@ export default function Reprodutivo() {
   const location = useLocation()
   const navigate = useNavigate()
   const abrirLoteConsumido = useRef(false)
+  const loadCicloScopedSeq = useRef(0)
   const podeEditarReprodCiclo = podeEditarReprod && (statusCicloLocal === 'atual' || statusCicloLocal === 'carencia')
+
+  // Guardas de reentrância (useSubmitGuard, ver lib) — cada instância trava
+  // seu próprio conjunto de ações; agrupadas do mesmo jeito que já
+  // agrupávamos os estados `saving`/`savingPrenhez`/`savingEstacao` (ações que
+  // nunca rodam ao mesmo tempo dividem a mesma trava; ações independentes têm
+  // a sua própria pra não bloquear uma pela outra à toa).
+  const guardLote        = useSubmitGuard() // salvarLote, adicionarAnimaisLote, salvarAborto, salvarParto
+  const guardPrenhez     = useSubmitGuard() // salvarPrenhezAdquirida
+  const guardEstacao     = useSubmitGuard() // salvarEdicaoEstacao
+  const guardDiag        = useSubmitGuard() // salvarDiag — chave por lote+animal, várias linhas em paralelo continuam permitidas
+  const guardEdicaoParto = useSubmitGuard() // salvarEdicaoParto
+  const guardEdicaoAborto = useSubmitGuard() // salvarEdicaoAborto
+  // salvarEdicaoDiagData não tem guarda própria: só chama salvarDiag (já
+  // protegido por guardDiag com a mesma chave lote+animal) — travar de novo
+  // aqui seria caminho paralelo pra proteção que já existe.
+  const guardDesmame     = useSubmitGuard() // salvarDesmame — chave por parto.id, linhas diferentes continuam independentes
+  const guardDesmameLote = useSubmitGuard() // desmamarSelecionados (Fase B — desmame em lote com peso médio)
 
   const refLotes   = useRef(null)
   const refDiag    = useRef(null)
@@ -199,7 +223,6 @@ export default function Reprodutivo() {
   const [confirmExcluirLote,          setConfirmExcluirLote]          = useState(null) // l
   const [confirmRemoverInsem,         setConfirmRemoverInsem]         = useState(null) // ins
   const [confirmExcluirAborto,        setConfirmExcluirAborto]        = useState(null) // ab
-  const [confirmSalvarDesmame,        setConfirmSalvarDesmame]        = useState(null) // parto
   const [confirmDesfazerDesmameLote,  setConfirmDesfazerDesmameLote]  = useState(null) // p
   const [filtroPropLote, setFiltroPropLote] = useState('') // filtro visual dos animais dentro do detalhe do lote
   const [filtroPropIdx,  setFiltroPropIdx]  = useState('') // filtra o funil da aba Índices por proprietário
@@ -225,6 +248,11 @@ export default function Reprodutivo() {
   // origem pode ter ficado num ciclo anterior).
   const [estacoesRetro, setEstacoesRetro] = useState([])
   const [savingPrenhez, setSavingPrenhez] = useState(false)
+  // Flags de saving só pra desabilitar o botão de fato (item 3) — a proteção
+  // real contra reentrância já é o guardEdicaoParto/guardEdicaoAborto (ref),
+  // estes são só aparência, igual `saving`/`savingEstacao`/`savingPrenhez`.
+  const [savingEdicaoParto, setSavingEdicaoParto] = useState(false)
+  const [savingEdicaoAborto, setSavingEdicaoAborto] = useState(false)
 
   // Aborto (registrado a partir de uma inseminação com diagnóstico 'P')
   const [abortoAlvo, setAbortoAlvo] = useState(null)
@@ -246,6 +274,11 @@ export default function Reprodutivo() {
   // opcional (dá pra desmamar sem informar peso); a data usa dataAcaoLote.
   const [formDesmame,      setFormDesmame]      = useState({})
   const [salvandoDesmameId, setSalvandoDesmameId] = useState(null)
+  // Desmame em lote (Fase B) — peso médio OPCIONAL aplicado a todos os
+  // terneiros elegíveis dentre os selecionados em selInsem (mesmo checkbox
+  // já usado por Marcar Prenha/Vazia/Remover, sem seleção paralela).
+  const [pesoMedioDesmameLote, setPesoMedioDesmameLote] = useState('')
+  const [aplicandoDesmameLote, setAplicandoDesmameLote] = useState(false)
   // Perda gestacional presumida (Fase 10) — confirmAlvo guarda o contexto da
   // vaca pendente de confirmação (animalId/brinco/dataMonta/dataPrevistaParto)
   // pro <Confirm> e pro handler; confirmandoPerdaId desabilita o botão da
@@ -393,11 +426,18 @@ export default function Reprodutivo() {
 
   // Dados do CICLO selecionado — leve, buscado sempre (aba Lotes é a tela inicial)
   const loadCicloScoped = async (cicloId) => {
+    // Guarda contra resposta fora de ordem: pode haver mais de uma chamada em
+    // voo (ex: efeito de cicloLocal?.id + loadAll de uma gravação, quase ao
+    // mesmo tempo) — sem isso, a resposta mais LENTA vence mesmo sendo a mais
+    // ANTIGA, podendo sobrescrever `lotes` com dado desatualizado (era parte
+    // do bug de nascimento "sumindo" da lista).
+    const chamadaId = ++loadCicloScopedSeq.current
     try {
       const results = await Promise.all([
         db.lotesInseminacao.list(cicloId),
         db.estacoesMonta.list(cicloId)
       ])
+      if (chamadaId !== loadCicloScopedSeq.current) return // resposta obsoleta — outra chamada mais nova já foi disparada
       if (algumErro('[Reprodutivo]', results)) { setLoadError(true); return }
       const [rl, re] = results
       // Diagnóstico temporário: abortos por lote deste ciclo, como vieram do embed.
@@ -590,7 +630,8 @@ export default function Reprodutivo() {
     return () => { cancelado = true }
   }, [modal, datasPrenhezForm.dataMonta])
 
-  const salvarPrenhezAdquirida = async () => {
+  // guardPrenhez: reentrância travada antes de qualquer validação/await (ver useSubmitGuard).
+  const salvarPrenhezAdquirida = () => guardPrenhez(async () => {
     if (!podeEditarReprodCiclo) return
     const animalIds = form.prenhezAnimais || []
     if (animalIds.length === 0) { toast('Selecione ao menos uma vaca.', 'error'); return }
@@ -618,7 +659,7 @@ export default function Reprodutivo() {
     setModal(null); setForm({})
     await loadAll()
     if (cicloLocal) loadCicloScoped(cicloLocal.id)
-  }
+  })
 
   const abrirEditarEstacao = (es) => {
     if (!podeEditarReprodCiclo) return
@@ -628,7 +669,8 @@ export default function Reprodutivo() {
   // Salva a edição da estação de monta — só permite alterar início/fim se TODOS
   // os lotes já vinculados a ela couberem no novo intervalo (senão o histórico
   // da safra fica inconsistente com o período declarado da estação).
-  const salvarEdicaoEstacao = async () => {
+  // guardEstacao: reentrância travada antes de qualquer validação/await (ver useSubmitGuard).
+  const salvarEdicaoEstacao = () => guardEstacao(async () => {
     if (!podeEditarReprodCiclo || !estacaoEdit) return
     const { id, nome, inicio, fim } = estacaoEdit
     if (!nome || !inicio) { toast('Preencha nome e início da estação.', 'error'); return }
@@ -654,7 +696,7 @@ export default function Reprodutivo() {
     toast('Estação de monta atualizada!')
     setEstacaoEdit(null)
     if (cicloLocal) loadCicloScoped(cicloLocal.id)
-  }
+  })
 
   // Exclui a estação de monta. Os lotes vinculados NÃO são apagados — só
   // desvinculados (estacao_monta_id = null) antes da exclusão, para não deixar
@@ -686,7 +728,9 @@ export default function Reprodutivo() {
   }
 
   // Salvar lote (cria novo ou edita data/touro/protocolo/estação de um existente)
-  const salvarLote = async () => {
+  // guardLote: reentrância travada ANTES de qualquer validação/await (ver
+  // useSubmitGuard) — duplo clique/Enter não roda a função duas vezes.
+  const salvarLote = () => guardLote(async () => {
     if (!podeEditarReprodCiclo) return
     const ehNaturalSalvar = form.tipo === 'natural'
     // Lista única "Touros" (só monta natural) — o 1º item vai pra
@@ -804,7 +848,7 @@ export default function Reprodutivo() {
 
     toast(`Lote ${lotes.length + 1} registrado com ${selBrs.length} animais!`)
     setSaving(false); setModal(null); setSelBrs([]); setForm({}); loadAll()
-  }
+  })
 
   const excluirLote = (l, e) => {
     e.stopPropagation()   // não abrir o detalhe ao clicar no botão
@@ -830,7 +874,8 @@ export default function Reprodutivo() {
   )
 
   // Adicionar animais a um lote já criado
-  const adicionarAnimaisLote = async () => {
+  // guardLote: mesma trava de salvarLote (nunca rodam ao mesmo tempo).
+  const adicionarAnimaisLote = () => guardLote(async () => {
     if (!podeEditarReprodCiclo) return
     if (selBrsAdd.length === 0) { toast('Selecione ao menos um animal.', 'error'); return }
     // Defesa em profundidade — femsForaDoLote já filtra por selLote.data na UI.
@@ -864,7 +909,7 @@ export default function Reprodutivo() {
     toast(`${ins.length} animal(is) adicionado(s) ao lote!`)
     setModal(null); setSelBrsAdd([]); setFiltroLoteInsem(''); setFiltroPropInsem(''); setFiltroCategInsem('')
     await loadAll(false)
-  }
+  })
 
   // Remover animal de um lote (só se ainda não houver diagnóstico)
   const removerInsem = (ins) => {
@@ -921,7 +966,11 @@ export default function Reprodutivo() {
   // sobrescreve. `recarregar=false` pula o loadAll(false) daqui — usado pelo
   // diagnóstico em lote (etapa C), que chama isto N vezes em sequência e só
   // recarrega uma vez no final (evita N reloads inúteis pra 1 ação do usuário).
-  const salvarDiag = async (loteId, animalId, diag, dataDiagnostico, recarregar = true) => {
+  // guardDiag com chave por lote+animal: clique duplo na MESMA linha (Prenha/
+  // Vazia/Marcar Falhada) é travado, mas linhas diferentes continuam
+  // independentes — mesmo upsert sendo idempotente, evitava N requests + N
+  // loadAll piscando a tela a cada clique repetido.
+  const salvarDiag = (loteId, animalId, diag, dataDiagnostico, recarregar = true) => guardDiag(async () => {
     if (!podeEditarReprodCiclo) return false
     const lote = lotes.find(l => l.id === loteId)
     // Guarda ligada ao item 2: se a mãe já tem parto vinculado a ESTE lote, o
@@ -979,7 +1028,7 @@ export default function Reprodutivo() {
     setTodosStale(true)
     if (recarregar) await loadAll(false)
     return true
-  }
+  }, `${loteId}:${animalId}`)
 
   // Item 5 — desfaz "Falhada — não emprenhou": volta o diagnóstico desta
   // linha pra Pendente (null). Não existe um estado "falhada" gravado à
@@ -1045,6 +1094,56 @@ export default function Reprodutivo() {
     await loadAll(false)
   }
 
+  // Desmame em lote (Fase B) — dentre os selecionados em selInsem (mesmo
+  // checkbox do bloco Prenha/Vazia/Remover acima), filtra só quem tem
+  // terneiro vivo e ainda não desmamado NESTE lote (mesmo critério de
+  // `mostrarDesmame`, calculado no render da aba). Reaproveita o mesmo
+  // registrarDesmame do desmame individual — nunca uma segunda rotina de
+  // gravação.
+  const elegiveisDesmameLote = (ids) => {
+    const partosLote = selLote?.partos || []
+    return ids
+      .map(id => (selLote?.inseminacoes || []).find(i => i.id === id))
+      .filter(Boolean)
+      .map(ins => partosLote.find(p => p.mae_id === ins.animal_id))
+      .filter(p => p && !p.natimorto && p.bezerro?.situacao !== 'morto' && !p.bezerro?.data_desmame)
+  }
+
+  // Peso médio é OPCIONAL aqui também (mesmo raciocínio do desmame
+  // individual): em branco, desmama todos os elegíveis só com a data, sem
+  // peso nenhum. Sem confirmação (item 5) — clique já registra direto.
+  const desmamarSelecionados = () => guardDesmameLote(async () => {
+    if (!podeEditarReprod || !selLote) return
+    const elegiveis = elegiveisDesmameLote(selInsem)
+    if (elegiveis.length === 0) {
+      toast('Nenhum dos selecionados tem terneiro pendente de desmame neste lote.', 'error')
+      return
+    }
+    const data = dataAcaoLote
+    if (!data) { toast('Informe a data do desmame.', 'error'); return }
+    if (!dataNaoFutura(data)) { toast('Data do desmame não pode ser futura.', 'error'); return }
+    if (!dataEhEditavel(data)) {
+      const c = cicloDaData(data)
+      toast(c
+        ? 'Não é possível lançar nesta data: ela está fora do ciclo atual (ou em um ciclo já encerrado).'
+        : 'Data fora de qualquer ciclo cadastrado.', 'error')
+      return
+    }
+    const pesoMedio = numeroPositivo(pesoMedioDesmameLote)
+    setAplicandoDesmameLote(true)
+    let erros = 0
+    for (const p of elegiveis) {
+      const { error } = await registrarDesmame({ animalId: p.bezerro_id, data, pesoKg: pesoMedio })
+      if (error) erros++
+    }
+    setAplicandoDesmameLote(false)
+    setSelInsem([])
+    setPesoMedioDesmameLote('')
+    if (erros > 0) toast(`${elegiveis.length - erros} de ${elegiveis.length} desmamado(s) — ${erros} falharam (confira e tente de novo).`, 'error')
+    else toast(`${elegiveis.length} terneiro(s) desmamado(s)${pesoMedio != null ? ` com peso médio ${pesoMedio} kg` : ''}.`)
+    await loadAll(false)
+  })
+
   // Abre modal pra editar só a DATA de um diagnóstico já registrado (mesmas
   // validações de salvarDiag, diagnóstico em si não muda).
   const abrirEditarDiagData = (ins) => {
@@ -1070,7 +1169,8 @@ export default function Reprodutivo() {
   }
 
   // Salva o aborto: grava em abortos, vira a mãe para 'vazia' de novo
-  const salvarAborto = async () => {
+  // guardLote: mesma trava de salvarLote (nunca rodam ao mesmo tempo).
+  const salvarAborto = () => guardLote(async () => {
     if (!podeEditarReprodCiclo || !abortoAlvo) return
     if (!formAborto.data) { toast('Informe a data do aborto.', 'error'); return }
     if (!dataEhEditavel(formAborto.data)) {
@@ -1101,7 +1201,7 @@ export default function Reprodutivo() {
     toast('Aborto registrado.')
     setSaving(false); setModal(null); setAbortoAlvo(null); setFormAborto({})
     await loadAll(false)
-  }
+  })
 
   // Abre modal de edição de um aborto já registrado
   const abrirEditarAborto = (ab, brinco) => {
@@ -1114,7 +1214,8 @@ export default function Reprodutivo() {
 
   // Salva edição de aborto (data/causa/observações) — mesmas validações de data
   // do registro original.
-  const salvarEdicaoAborto = async () => {
+  // guardEdicaoAborto: reentrância travada antes de qualquer validação/await (ver useSubmitGuard).
+  const salvarEdicaoAborto = () => guardEdicaoAborto(async () => {
     if (!podeEditarReprodCiclo || !editAborto) return
     if (!editAborto.data) { toast('Informe a data do aborto.', 'error'); return }
     if (!dataEhEditavel(editAborto.data)) {
@@ -1139,14 +1240,16 @@ export default function Reprodutivo() {
       toast(`${maeEditAborto.brinco} nasceu em ${fmtData(maeEditAborto.data_nascimento)} — o aborto não pode ser antes disso (${fmtData(editAborto.data)}).`, 'error')
       return
     }
+    setSavingEdicaoAborto(true)
     const { error } = await db.abortos.update(editAborto.id, {
       data: editAborto.data, causa: editAborto.causa || 'desconhecido', observacoes: capitalizarPrimeira(editAborto.observacoes) || ''
     })
+    setSavingEdicaoAborto(false)
     if (error) { toast('Erro ao atualizar aborto: ' + error.message, 'error'); return }
     toast('Aborto atualizado.')
     setEditAborto(null)
     await loadAll(false)
-  }
+  })
 
   // Exclui um aborto. Não reverte sit_reprodutiva automaticamente — mesma lógica
   // cautelosa da exclusão de parto: não há garantia de que a vaca esteja prenha
@@ -1176,7 +1279,15 @@ export default function Reprodutivo() {
   // podeEditarReprodCiclo aqui bloqueava esse caso, silenciosamente (sem
   // toast). A proteção correta já existe logo abaixo: dataEhEditavel avalia o
   // ciclo da DATA DO PARTO (o que de fato vai ser gravado), não o cicloLocal.
-  const salvarParto = async () => {
+  //
+  // guardLote (useSubmitGuard) trava a reentrância ANTES de qualquer
+  // validação/await — era exatamente a lacuna do bug: setSaving(true) só
+  // rodava depois do await db.partos.byMae(...) abaixo, e mesmo se rodasse
+  // na 1ª linha, setState não é síncrono entre dois cliques do mesmo tick
+  // (duplo clique, ou clique + Enter no botão ainda focado antes do
+  // `disabled` chegar ao DOM). Com a guarda por ref, a 2ª chamada retorna na
+  // hora, sem rodar validação nem inserir nada — nunca mais 2 gravações.
+  const salvarParto = () => guardLote(async () => {
     if (!podeEditarReprod) return
     if (!form.mae_brinco || !form.data_parto || !form.sexo_bezerro) {
       toast('Preencha mãe, data e sexo.', 'error'); return
@@ -1395,14 +1506,22 @@ export default function Reprodutivo() {
         if (cicloLocal) loadPartosNasc(cicloLocal.id)
       }
       setModal(null); setForm({}); setBrincoDupCreate(null)
-      await loadAll()
+      // loadAll(false): igual a todo o resto do arquivo (~13 outros pontos de
+      // gravação). Sem o `false` (bug anterior), setLoading(true) substituía a
+      // tela inteira por <Loading/> até ~7 queries terminarem — o botão parecia
+      // travado (só destravava saindo da tela) e, se outra gravação entrasse
+      // nesse meio-tempo, uma resposta atrasada podia sobrescrever a atualização
+      // otimista acima (linha 1344), fazendo o nascimento "sumir" da lista até
+      // dar F5. A lista já foi atualizada otimisticamente acima; isto aqui só
+      // reconcilia com o banco em segundo plano.
+      await loadAll(false)
     } catch (e) {
       console.error('[Reprodutivo] salvarParto: erro inesperado:', e)
       toast('Erro inesperado ao registrar nascimento: ' + (e?.message || String(e)), 'error')
     } finally {
       setSaving(false)
     }
-  }
+  })
 
   // Checa se o bezerro já tem histórico PRÓPRIO (além da pesagem de
   // nascimento) — item 6: agora também olha sanidade e venda, não só
@@ -1473,11 +1592,15 @@ export default function Reprodutivo() {
   }
 
   // Desmame direto no detalhe do lote — atalho pra aba Desmame de Pesagens.
-  // Usa a mesma dataAcaoLote do diagnóstico, no topo do card.
-  // Digitar o peso na linha do terneiro já é o gatilho do desmame — sem peso,
-  // o botão fica desabilitado. Um único clique já confirma (com aviso nativo
-  // de impacto nos indicadores, mesmo padrão de confirmação já usado nesta
-  // tela — excluirNascimento etc.); não há mais etapa separada de edição.
+  // Usa a mesma dataAcaoLote do diagnóstico, no topo do card. Peso é
+  // OPCIONAL (Fase B): sem peso, grava só a data do desmame — o terneiro sai
+  // do numerador E do denominador de Kg ao Desmame/P205/Kg por Matriz
+  // (calcDesmameMetrics, helpers.js) até ter peso (o dele ou, na venda, o da
+  // transação — mesmo helper). Sem confirmação: um único clique já registra
+  // (mesmo raciocínio do módulo, ver reprodutivoDesmame.js) — "Desfazer"
+  // cobre o caso de correção. guardDesmame trava reentrância por parto.id
+  // (useSubmitGuard) — linhas de terneiros DIFERENTES continuam
+  // independentes.
   //
   // Gate de PERMISSÃO (podeEditarReprod), não de ciclo — de propósito, mesmo
   // raciocínio de salvarParto (ver comentário lá): o cicloLocal deste lote
@@ -1485,7 +1608,7 @@ export default function Reprodutivo() {
   // do ciclo atual (o terneiro pode ser desmamado bem depois da estação de
   // monta que gerou o lote). dataEhEditavel abaixo avalia o ciclo da DATA DO
   // DESMAME (o que de fato vai ser gravado), não o cicloLocal.
-  const salvarDesmame = (parto) => {
+  const salvarDesmame = (parto) => guardDesmame(async () => {
     if (!podeEditarReprod) return
     const data = dataAcaoLote
     if (!data) { toast('Informe a data do desmame.', 'error'); return }
@@ -1498,16 +1621,6 @@ export default function Reprodutivo() {
       return
     }
     const fd = formDesmame[parto.id] || {}
-    if (numeroPositivo(fd.peso) === null) { toast('Informe o peso para registrar o desmame.', 'error'); return }
-    setConfirmSalvarDesmame(parto)
-  }
-
-  const executarSalvarDesmame = async () => {
-    const parto = confirmSalvarDesmame
-    setConfirmSalvarDesmame(null)
-    if (!parto) return
-    const data = dataAcaoLote
-    const fd = formDesmame[parto.id] || {}
     setSalvandoDesmameId(parto.id)
     const { error } = await registrarDesmame({ animalId: parto.bezerro_id, data, pesoKg: fd.peso })
     setSalvandoDesmameId(null)
@@ -1515,7 +1628,7 @@ export default function Reprodutivo() {
     toast(`Terneiro ${parto.bezerro?.brinco || ''} desmamado!`)
     setFormDesmame(prev => { const n = { ...prev }; delete n[parto.id]; return n })
     await loadAll(false)
-  }
+  }, parto.id)
 
   // Corrige lançamento por engano (ver desfazerDesmame em
   // reprodutivoDesmame.js). Confirmação via <Confirm> do app — avisa que isso
@@ -1593,7 +1706,8 @@ export default function Reprodutivo() {
   // Salva edição de nascimento (atualiza parto + bezerro) — Fase 10 etapa B:
   // agora valida duplicidade de brinco antes de gravar (o campo já existia
   // no form, mas não bloqueava nada).
-  const salvarEdicaoParto = async () => {
+  // guardEdicaoParto: reentrância travada antes de qualquer validação/await (ver useSubmitGuard).
+  const salvarEdicaoParto = () => guardEdicaoParto(async () => {
     if (!podeEditarReprodCiclo) return
     const ep = editParto
     if (ep.brinco_bezerro?.trim() && brincoDupEdit) {
@@ -1616,6 +1730,7 @@ export default function Reprodutivo() {
       const erroJanela = loteVinculado && erroJanelaGestacao(loteVinculado, ep.data_parto)
       if (erroJanela) { toast(erroJanela, 'error'); return }
     }
+    setSavingEdicaoParto(true)
     // atualiza o parto — lote_inseminacao_id agora editável (Fase 12): corrige
     // o vínculo com a safra, ou desvincula (null) um parto que foi ligado ao
     // lote errado. Índices de parição/perda/mortalidade da safra (calcLoteMetrics)
@@ -1634,11 +1749,12 @@ export default function Reprodutivo() {
         sit_reprodutiva: ep.situacao_bezerro === 'morto' ? 'nao_se_aplica' : (ep.sexo_bezerro === 'F' ? 'vazia' : 'nao_se_aplica')
       })
     }
+    setSavingEdicaoParto(false)
     if (e1) { toast('Erro ao salvar: '+e1.message, 'error'); return }
     toast('Nascimento atualizado.')
     setEditParto(null); setBrincoDupEdit(null); loadAll()
     if (cicloLocal) loadPartosNasc(cicloLocal.id)
-  }
+  })
 
   // Voz diagnóstico
   const vozDiag = async (text, lote) => {
@@ -2208,21 +2324,22 @@ export default function Reprodutivo() {
                     {sm.semSexoNascidos} bezerro(s) desta safra sem sexo registrado — não entram nas contagens de machos/fêmeas acima.
                   </div>
                 )}
-                <div style={{ display:'flex', alignItems:'center', gap:14, flexWrap:'wrap', marginBottom:14 }}>
-                  <div style={{ background:'#E8F0FC', border:'.5px solid #1BA89C', borderRadius:10, padding:'8px 16px' }}>
-                    <span style={{ fontSize:'.78rem', color:'#6B7280' }}>Taxa de prenhez do lote: </span>
-                    <strong style={{ fontSize:'1rem', color:'#1E55B0' }}>{sm.txPrenhez != null ? `${sm.txPrenhez}%` : '—'}</strong>
-                  </div>
-                  <span style={{ fontSize:'.78rem', color:'#9CA3AF' }}>
-                    {sm.totalInseminacoes} {selLote.tipo === 'natural' ? 'exposiç' : 'inseminaç'}{sm.totalInseminacoes!==1?'ões':'ão'} (serviços)
-                  </span>
-                </div>
+                {/* Resultados do lote — índices ancorados nesta monta, mesmo que os partos ocorram no ciclo seguinte */}
+                <CardResultadoSafra
+                  titulo="Resultados do lote"
+                  sm={sm}
+                  andamento={sm.gestando > 0}
+                  previsao={previsaoPartoLote}
+                  tipo={selLote.tipo}
+                />
 
                 {/* Contador de progresso da safra (Fase 10 — etapa A): mesmos
                     números do card acima (sm.total/prenhas) + nascimentos/
                     desmamados de calcLoteMetrics (spread de calcDesmameMetrics),
-                    só reorganizados como funil — nenhum cálculo novo. */}
-                <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap', marginBottom:14, fontSize:'.8rem', color:'#374151' }}>
+                    só reorganizados como funil — nenhum cálculo novo. Item D —
+                    reposicionado abaixo de "Resultados do lote" (só posição,
+                    sem mudar conteúdo). */}
+                <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap', marginTop:14, fontSize:'.8rem', color:'#374151' }}>
                   <span style={{ fontWeight:600, color:'#111' }}>Progresso da safra:</span>
                   {[
                     ['Expostas', sm.total],
@@ -2236,15 +2353,6 @@ export default function Reprodutivo() {
                     </span>
                   ))}
                 </div>
-
-                {/* Resultado da safra — índices ancorados nesta monta, mesmo que os partos ocorram no ciclo seguinte */}
-                <CardResultadoSafra
-                  titulo="Resultado da safra"
-                  sm={sm}
-                  andamento={sm.gestando > 0}
-                  previsao={previsaoPartoLote}
-                  tipo={selLote.tipo}
-                />
               </>
             )
           })()}
@@ -2285,31 +2393,53 @@ export default function Reprodutivo() {
               <i className="ti ti-microphone" style={{ fontSize:12, marginRight:4 }} />
               Fale assim: <b>"zero três prenha"</b> ou <b>"doze vazia"</b> — primeiro o número do brinco, depois o resultado
             </div>
-            {selInsem.length > 0 && (
+            {selInsem.length > 0 && (() => {
+              const elegiveisDesmame = elegiveisDesmameLote(selInsem)
+              const ocupadoLinha = aplicandoDiagLote || removendoLote || aplicandoDesmameLote
+              return (
               <div style={{
-                display:'flex', alignItems:'center', justifyContent:'space-between',
                 background:'#FEE2E2', border:'.5px solid #FCA5A5', borderRadius:10,
                 padding:'8px 14px', marginBottom:10
               }}>
-                <span style={{ fontSize:'.85rem', color:'#7F1D1D', fontWeight:500 }}>
-                  {selInsem.length} selecionado(s)
-                </span>
-                <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
-                  <button className="btn btn-sm" style={{ background:'#166534', color:'white' }}
-                    onClick={() => pedirDiagLote('P')} disabled={aplicandoDiagLote || removendoLote}>
-                    <i className="ti ti-check" /> Marcar Prenha
-                  </button>
-                  <button className="btn btn-sm" style={{ background:'#374151', color:'white' }}
-                    onClick={() => pedirDiagLote('V')} disabled={aplicandoDiagLote || removendoLote}>
-                    <i className="ti ti-x" /> Marcar Vazia
-                  </button>
-                  <button className="btn btn-sm" style={{ background:'#DC2626', color:'white' }}
-                    onClick={removerInsemSelecionados} disabled={removendoLote || aplicandoDiagLote}>
-                    <i className="ti ti-trash" /> {removendoLote ? 'Removendo...' : 'Remover selecionados'}
-                  </button>
+                <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:8 }}>
+                  <span style={{ fontSize:'.85rem', color:'#7F1D1D', fontWeight:500 }}>
+                    {selInsem.length} selecionado(s)
+                  </span>
+                  <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+                    <button className="btn btn-sm" style={{ background:'#166534', color:'white' }}
+                      onClick={() => pedirDiagLote('P')} disabled={ocupadoLinha}>
+                      <i className="ti ti-check" /> Marcar Prenha
+                    </button>
+                    <button className="btn btn-sm" style={{ background:'#374151', color:'white' }}
+                      onClick={() => pedirDiagLote('V')} disabled={ocupadoLinha}>
+                      <i className="ti ti-x" /> Marcar Vazia
+                    </button>
+                    <button className="btn btn-sm" style={{ background:'#DC2626', color:'white' }}
+                      onClick={removerInsemSelecionados} disabled={ocupadoLinha}>
+                      <i className="ti ti-trash" /> {removendoLote ? 'Removendo...' : 'Remover selecionados'}
+                    </button>
+                  </div>
                 </div>
+                {/* Desmame em lote (Fase B) — só aparece quando ao menos um dos
+                    selecionados tem terneiro elegível; peso médio é opcional
+                    (em branco, desmama sem peso). */}
+                {elegiveisDesmame.length > 0 && (
+                  <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap', marginTop:8, paddingTop:8, borderTop:'.5px solid #FCA5A5' }}>
+                    <span style={{ fontSize:'.78rem', color:'#7F1D1D' }}>
+                      {elegiveisDesmame.length} terneiro(s) elegível(is) pro desmame
+                    </span>
+                    <input type="number" step="0.1" min="0" placeholder="peso médio kg (opcional)"
+                      value={pesoMedioDesmameLote} onChange={e => setPesoMedioDesmameLote(e.target.value)}
+                      style={{ maxWidth:160, fontSize:'.78rem' }} />
+                    <button className="btn btn-sm" style={{ background:'#166534', color:'white' }}
+                      onClick={desmamarSelecionados} disabled={ocupadoLinha}>
+                      <i className="ti ti-scale" /> {aplicandoDesmameLote ? 'Desmamando...' : `Desmamar ${elegiveisDesmame.length} selecionado(s)`}
+                    </button>
+                  </div>
+                )}
               </div>
-            )}
+              )
+            })()}
             {(() => {
               // Filtro por proprietário compartilhado com o Resumo do lote, acima
               // (pills renderizados uma única vez, junto ao funil).
@@ -2358,6 +2488,22 @@ export default function Reprodutivo() {
                 : abortoReg
                   ? 'Esta vaca teve aborto registrado neste lote — diagnóstico bloqueado'
                   : undefined
+              // Item A — "Vazia — Nº repasse": nº de lotes ANTERIORES desta MESMA
+              // estação em que a vaca já participou e foi diagnosticada Vazia.
+              // Só faz sentido numa linha ainda pendente (sem diagnóstico neste
+              // lote) — substitui o "Pendente" genérico por um rótulo que deixa
+              // claro que ela já falhou antes e está num repasse, sem nunca
+              // chamar isso de "falhada" (falhada é conclusão, ver
+              // desfechoReprodutivo/'em_repasse', helpers.js).
+              const repasseNum = (!d && selLote.estacao_monta_id) ? (() => {
+                const lotesAnimalEstacao = lotesDaEstacaoSel
+                  .filter(l => (l.inseminacoes || []).some(i => i.animal_id === ins.animal_id))
+                  .sort((a, b) => (a.data || '').localeCompare(b.data || '') || (a.criado_em || '').localeCompare(b.criado_em || ''))
+                const idxAtual = lotesAnimalEstacao.findIndex(l => l.id === selLote.id)
+                return lotesAnimalEstacao.slice(0, idxAtual).filter(l =>
+                  (l.inseminacoes || []).find(i => i.animal_id === ins.animal_id)?.diagnostico === 'V'
+                ).length
+              })() : 0
               // "Com cria ao pé" é só exibição (statusReprodutivoExibicao, helpers.js):
               // vaca 'vazia' cujo último parto NESTE lote ainda não foi desmamado.
               // Nunca sobrescreve sit_reprodutiva no banco.
@@ -2615,18 +2761,18 @@ export default function Reprodutivo() {
                         nascimento/aborto acima): próxima ação depois que o bezerro
                         nasceu vivo e ainda não foi desmamado (detalheVaca.etapa
                         'lactante' já exclui morto/natimorto — ver statusReprodutivoDetalhado,
-                        helpers.js). Digitar o peso é o gatilho — sem peso o botão
-                        fica desabilitado (mesma validação de salvarDesmame). */}
+                        helpers.js). Peso é opcional (Fase B) — o botão fica
+                        disponível com ou sem peso digitado; sem peso, registra
+                        só a data (ver comentário em salvarDesmame). */}
                     {podeEditarReprod && detalheVaca.etapa === 'lactante' && partoReg && (() => {
                       const fd = formDesmame[partoReg.id] || {}
-                      const temPeso = numeroPositivo(fd.peso) !== null
                       const ocupado = salvandoDesmameId === partoReg.id
                       return (
                         <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-                          <input type="number" step="0.1" min="0" placeholder="kg" value={fd.peso || ''}
+                          <input type="number" step="0.1" min="0" placeholder="kg (opcional)" value={fd.peso || ''}
                             onChange={e => setFormDesmame(prev => ({ ...prev, [partoReg.id]: { ...prev[partoReg.id], peso: e.target.value } }))}
                             style={{ maxWidth:90, fontSize:'.78rem' }} />
-                          <button className="btn btn-secondary btn-xs" disabled={ocupado || !temPeso}
+                          <button className="btn btn-secondary btn-xs" disabled={ocupado}
                             onClick={() => salvarDesmame(partoReg)}
                             style={{ fontSize:'.72rem', color:'#166534' }}>
                             {ocupado ? 'Salvando...' : <><i className="ti ti-scale" /> Registrar desmame</>}
@@ -2662,7 +2808,9 @@ export default function Reprodutivo() {
                         onClick={() => salvarDiag(selLote.id, ins.animal_id, 'V', dataAcaoLote)}
                       >Vazia</button>
                     )}
-                    {!d && <Badge color="gray">Pendente</Badge>}
+                    {!d && (repasseNum > 0
+                      ? <Badge color="amber">{`Vazia — ${repasseNum}º repasse`}</Badge>
+                      : <Badge color="gray">Pendente</Badge>)}
                     {podeEditarReprodCiclo && !d && (
                       <button onClick={() => removerInsem(ins)}
                         style={{ background:'none', border:'none', cursor:'pointer', color:'#DC2626', padding:4 }}
@@ -2738,13 +2886,6 @@ export default function Reprodutivo() {
             title="Excluir aborto"
             message={confirmExcluirAborto && `Excluir o registro de aborto de ${fmtData(confirmExcluirAborto.data)}? A situação reprodutiva do animal não é alterada automaticamente.`}
             danger
-          />
-          <Confirm
-            open={!!confirmSalvarDesmame}
-            onClose={() => setConfirmSalvarDesmame(null)}
-            onConfirm={executarSalvarDesmame}
-            title="Registrar desmame"
-            message={confirmSalvarDesmame && `Desmamar ${confirmSalvarDesmame.bezerro?.brinco || ''}? Isso entra imediatamente no cálculo de Kg ao Desmame e Kg Desmamado/Matriz em Metas.`}
           />
           <Confirm
             open={!!confirmDesfazerDesmameLote}
@@ -3652,7 +3793,30 @@ export default function Reprodutivo() {
           {candidatosPrenhezAdquirida.length === 0 ? (
             <div style={{ fontSize:'.8rem', color:'#9CA3AF' }}>Nenhuma vaca nessa condição no momento.</div>
           ) : (
-            <div style={{ border:'.5px solid #E5E7EB', borderRadius:8, maxHeight:180, overflowY:'auto', padding:'6px 10px' }}>
+            <>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6 }}>
+                <span style={{ fontSize:'.78rem', color:'#6B7280' }}>{(form.prenhezAnimais || []).length} selecionados</span>
+                <div style={{ display:'flex', gap:8 }}>
+                  <button type="button" className="btn btn-secondary btn-xs"
+                    onClick={() => {
+                      const todos = candidatosPrenhezAdquirida.map(a => a.id)
+                      const todosSelecionados = todos.every(id => (form.prenhezAnimais || []).includes(id))
+                      setForm(p => ({
+                        ...p,
+                        prenhezAnimais: todosSelecionados
+                          ? (p.prenhezAnimais || []).filter(id => !todos.includes(id))
+                          : [...new Set([...(p.prenhezAnimais || []), ...todos])],
+                      }))
+                    }}>
+                    Selecionar tudo
+                  </button>
+                  <button type="button" className="btn btn-secondary btn-xs" disabled={(form.prenhezAnimais || []).length === 0}
+                    onClick={() => setForm(p => ({ ...p, prenhezAnimais: [] }))}>
+                    Limpar seleção
+                  </button>
+                </div>
+              </div>
+              <div style={{ border:'.5px solid #E5E7EB', borderRadius:8, maxHeight:180, overflowY:'auto', padding:'6px 10px' }}>
               {candidatosPrenhezAdquirida.map(a => {
                 const marcado = (form.prenhezAnimais || []).includes(a.id)
                 return (
@@ -3666,7 +3830,8 @@ export default function Reprodutivo() {
                   </label>
                 )
               })}
-            </div>
+              </div>
+            </>
           )}
         </Field>
         <div className="grid-form">
@@ -4084,8 +4249,8 @@ export default function Reprodutivo() {
               <textarea value={editParto.observacoes||''} onChange={e=>setEditParto(p=>({...p,observacoes:e.target.value}))} placeholder="opcional" />
             </Field>
             <div className="modal-actions" style={{ marginTop:14 }}>
-              <button className="btn btn-primary" onClick={salvarEdicaoParto} disabled={!!brincoDupEdit || safraInvalidaEdit()}>
-                <i className="ti ti-check" /> Salvar
+              <button className="btn btn-primary" onClick={salvarEdicaoParto} disabled={savingEdicaoParto || !!brincoDupEdit || safraInvalidaEdit()}>
+                {savingEdicaoParto ? 'Salvando...' : <><i className="ti ti-check" /> Salvar</>}
               </button>
               <button className="btn btn-secondary" onClick={()=>setEditParto(null)}>Cancelar</button>
             </div>
@@ -4115,8 +4280,8 @@ export default function Reprodutivo() {
               <textarea value={editAborto.observacoes||''} onChange={e=>setEditAborto(p=>({...p,observacoes:e.target.value}))} placeholder="opcional" />
             </Field>
             <div className="modal-actions" style={{ marginTop:14 }}>
-              <button className="btn btn-primary" onClick={salvarEdicaoAborto}>
-                <i className="ti ti-check" /> Salvar
+              <button className="btn btn-primary" onClick={salvarEdicaoAborto} disabled={savingEdicaoAborto}>
+                {savingEdicaoAborto ? 'Salvando...' : <><i className="ti ti-check" /> Salvar</>}
               </button>
               <button className="btn btn-secondary" onClick={()=>setEditAborto(null)}>Cancelar</button>
             </div>

@@ -127,7 +127,9 @@ export default function SecaoReprodutivo({ item }) {
           dela fica bloqueado (toda safra é obrigatória). O botão <strong>"+ Vincular prenhez adquirida"</strong>,
           ao lado de "Novo lote"/"Nova monta natural", resolve isso: lista as fêmeas prenhas (no cadastro) sem
           nenhum lote com diagnóstico Prenha — normalmente compradas, mas serve para qualquer prenhez órfã.
-          Selecione uma ou mais, informe a <strong>data prevista de parto</strong> ou a <strong>data da
+          Use <strong>"Selecionar tudo"</strong>/<strong>"Limpar seleção"</strong>, no topo da lista, para marcar
+          ou desmarcar todas de uma vez (o contador ao lado mostra quantas estão selecionadas), ou selecione uma
+          a uma. Informe a <strong>data prevista de parto</strong> ou a <strong>data da
           monta</strong> (o sistema calcula a outra, gestação de 283 dias), escolha ou crie uma <strong>estação
           de monta</strong>, e confirme. O sistema cria um lote rotulado <strong>"Prenhez adquirida na
           compra"</strong> (nunca se confunde com uma monta de verdade) já com diagnóstico Prenha confirmado
@@ -185,12 +187,18 @@ export default function SecaoReprodutivo({ item }) {
             engano (mesmo padrão do desfazer desmame — só funciona se o bezerro ainda não tiver histórico
             próprio: pesagem além da de nascimento, procedimento sanitário ou venda; se tiver, o sistema explica
             e bloqueia). Ao lado, na mesma linha das ações de diagnóstico/nascimento/aborto, aparece a próxima
-            ação: um campo de peso (kg) e o botão <strong>"Registrar desmame"</strong> — digitar o peso já
-            habilita o botão, sem peso ele fica desabilitado.</li>
+            ação: um campo de peso (kg, <strong>opcional</strong>) e o botão <strong>"Registrar desmame"</strong>
+            — o botão já vem disponível com ou sem peso digitado, e o clique registra direto, sem confirmação.</li>
           <li><strong>Pariu, bezerro morto (inclusive natimorto)</strong> — "Pariu em dd/mm/aaaa · Bezerro
             morto", sem oferecer desmame — não faz sentido desmamar um bezerro que não sobreviveu.</li>
           <li><strong>Desmamado</strong> — "Desmamado em dd/mm/aaaa · Xkg" (o peso some se não foi
-            informado), com um botão pequeno de desfazer ao lado, pra corrigir um lançamento por engano.</li>
+            informado), com um botão pequeno de desfazer ao lado, pra corrigir um lançamento por engano. Um
+            desmame <strong>sem peso</strong> conta normalmente em "Desmamados"/"Taxa de desmama", mas fica de
+            fora do numerador <strong>e</strong> do denominador de "Peso médio ao desmame", "P205 médio" e "Kg
+            desmamado/matriz exposta" (nunca entra como zero) — os cards mostram "X de Y com peso" pra deixar
+            isso visível. Se esse terneiro for depois <strong>vendido</strong>, o peso da venda passa a valer
+            como peso de desmame (volta a entrar em "Peso médio ao desmame"/"Kg desmamado por matriz"; P205
+            continua de fora, porque depende da data real do desmame, que nesse caso não existe).</li>
           <li><strong>Falhada</strong> — "Falhada — [motivo] (nome da estação)", quando a vaca foi exposta na
             estação de monta e <strong>não entregou terneiro nela</strong>, qualquer que seja o motivo. Ver a
             seção seguinte para os 3 motivos e como marcar manualmente.</li>
@@ -206,9 +214,16 @@ export default function SecaoReprodutivo({ item }) {
           sequência, sem precisar procurar o bezerro de novo lá embaixo.
         </p>
         <p style={P}>
-          No topo do lote, o <strong>"Progresso da safra"</strong> resume o funil completo num único lugar:
-          Expostas → Prenhas → Paridas → Desmamadas — os mesmos números já usados no Resumo do lote e no
-          Resultado da safra logo abaixo, só reorganizados como sequência.
+          Logo abaixo de <strong>"Resultados do lote"</strong>, o <strong>"Progresso da safra"</strong> resume o
+          funil completo num único lugar: Expostas → Prenhas → Paridas → Desmamadas — os mesmos números já
+          usados no Resumo do lote e nos Resultados do lote acima, só reorganizados como sequência.
+        </p>
+        <p style={P}>
+          Pra desmamar <strong>várias vacas de uma vez</strong> com o mesmo peso médio, marque a caixinha de
+          cada uma na lista abaixo (mesma seleção usada por "Marcar Prenha"/"Marcar Vazia") — quando pelo menos
+          uma das selecionadas tiver terneiro vivo ainda não desmamado, aparece um campo de peso médio (kg,
+          também opcional) e o botão <strong>"Desmamar N selecionado(s)"</strong>, que registra o desmame de
+          todos os elegíveis de uma vez com esse peso, direto, sem confirmação.
         </p>
       </div>
 
@@ -235,6 +250,16 @@ export default function SecaoReprodutivo({ item }) {
           vaca vazia na IATF que engravidou e pariu no repasse <strong>não</strong> é "Falhada". Se ela
           engravidou de novo depois de abortar, o aborto deixa de ser o motivo (o motivo mostrado é sempre o da
           tentativa mais recente).
+        </p>
+        <p style={P}>
+          <strong>Repasse dentro da mesma estação</strong> — "Falhada" é uma CONCLUSÃO de fim de estação, nunca um
+          estado que trava um novo diagnóstico. Ao incluir a vaca num lote novo (repasse) da mesma estação, ela
+          fica apta a receber Prenha/Vazia nesse lote, sempre — mesmo que esteja marcada "Falhada" num lote
+          anterior. Enquanto esse lote novo ainda está sem diagnóstico, a sequência mostra <strong>"Vazia — 1º
+          repasse"</strong> (2º lote da estação para ela), <strong>"Vazia — 2º repasse"</strong> (3º lote), e
+          assim por diante, no lugar do "Pendente" genérico — só pra deixar claro que ela vem de uma tentativa
+          anterior sem sucesso. "Falhada" só reaparece se essa nova tentativa também for diagnosticada Vazia
+          <strong>e</strong> não houver nenhum lote posterior dela na mesma estação.
         </p>
         <p style={P}>
           O status aparece na sequência do lote (mesmo lugar de Prenha/Pariu/Com cria ao pé/Desmamado/Abortou) e
@@ -429,7 +454,10 @@ export default function SecaoReprodutivo({ item }) {
           aproveitamento → expostas/inseminadas → prenhas → taxa de prenhez → gestando (ainda dentro do prazo,
           sem diagnóstico definitivo de parto ainda) → abortos → perdas não identificadas → perda gestacional
           → partos → taxa de parição → peso médio ao nascer → mortalidade de terneiros → desmamados → taxa de
-          desmama → peso médio ao desmame → kg de bezerro desmamado por matriz exposta.
+          desmama → peso médio ao desmame → kg de bezerro desmamado por matriz exposta. Peso ao desmame é
+          opcional (ver seção anterior) — "peso médio ao desmame", "P205 médio" e "kg por matriz exposta" contam
+          só quem tem peso (real ou, na falta dele, o peso da venda), nunca os sem peso como zero; o card mostra
+          "X de Y com peso" quando a contagem é parcial.
         </p>
         <AlertBox type="amber" icon="ti-calendar-repeat"
           title="Os índices pertencem ao ciclo da MONTA, não ao ciclo do parto"

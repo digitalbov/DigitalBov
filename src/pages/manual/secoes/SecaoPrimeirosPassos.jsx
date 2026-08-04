@@ -66,6 +66,12 @@ export default function SecaoPrimeirosPassos({ item }) {
         <li><strong>Ciclo</strong> — o "ano" de gestão de cada fazenda, sempre de <strong>1º de julho a 30 de junho</strong> do ano seguinte (ex: ciclo 2026/27 vai de 01/07/2026 a 30/06/2027). Praticamente tudo no sistema — lançamentos financeiros, índices de Metas, relatórios — é organizado por ciclo.</li>
       </ul>
 
+      <p style={{ color: '#374151', fontSize: '.85rem', lineHeight: 1.8, marginBottom: 18 }}>
+        Ainda na faixa superior, ao lado do seletor de ciclo, o botão <strong>"Mercado e Índices Nespro"</strong> abre
+        em uma nova aba o site de índices e mercado de bovinos da Nespro/UFRGS — é só uma referência externa,
+        não faz parte dos dados do DigitalBov.
+      </p>
+
       <h4 style={{ fontSize: '.88rem', fontWeight: 700, color: '#1a1a1a', marginBottom: 8 }}>Cadastrando uma fazenda</h4>
       <ol style={{ color: '#374151', fontSize: '.85rem', lineHeight: 1.8, marginBottom: 8, paddingLeft: 20 }}>
         <li>Vá em <strong>Propriedade → Configurações → Todas as fazendas</strong>.</li>

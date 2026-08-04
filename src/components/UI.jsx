@@ -1,4 +1,4 @@
-﻿import { useState, useCallback } from 'react'
+﻿import { useState, useCallback, useRef } from 'react'
 import { useFazenda } from '../lib/FazendaContext'
 import { useCiclo, statusCiclo } from '../lib/CicloContext'
 
@@ -130,7 +130,29 @@ export function Modal({ open, onClose, title, children, width = 520 }) {
 }
 
 // ── Confirm dialog ────────────────────────────────────────────────
+// Usado por dezenas de fluxos (excluir lote/estação/aborto, remover
+// inseminação, diagnóstico em lote, desfazer parto/desmame etc.) — travar a
+// reentrância AQUI, uma vez só, corrige todos eles de graça, sem precisar
+// duplicar guarda em cada chamador. `confirmandoRef` trava logo no primeiro
+// clique (síncrono, antes de qualquer re-render) e só destrava quando o
+// diálogo REABRE (open passa de false para true de novo) — nunca quando
+// onConfirm termina, porque onConfirm roda "dispare e esqueça" (não é
+// esperado aqui); isso também garante que o botão continua clicável na
+// PRÓXIMA vez mesmo se a ação anterior falhou com erro, já que a trava não
+// depende do resultado dela.
 export function Confirm({ open, onClose, onConfirm, title, message, danger }) {
+  const confirmandoRef = useRef(false)
+  const openAnteriorRef = useRef(open)
+  if (open && !openAnteriorRef.current) confirmandoRef.current = false
+  openAnteriorRef.current = open
+
+  const handleConfirm = () => {
+    if (confirmandoRef.current) return
+    confirmandoRef.current = true
+    onConfirm()
+    onClose()
+  }
+
   return (
     <Modal open={open} onClose={onClose} title={title || 'Confirmar'} width={400}>
       <p style={{ marginBottom:20, color:'#4B5563' }}>{message}</p>
@@ -138,7 +160,7 @@ export function Confirm({ open, onClose, onConfirm, title, message, danger }) {
         <button className="btn btn-secondary btn-sm" onClick={onClose}>Cancelar</button>
         <button
           className={`btn btn-sm ${danger ? 'btn-danger' : 'btn-primary'}`}
-          onClick={() => { onConfirm(); onClose() }}
+          onClick={handleConfirm}
         >
           Confirmar
         </button>

@@ -1,8 +1,12 @@
 import { useRef, useState } from 'react'
 import { AlertBox, Badge, Field, toast, Confirm } from './UI'
 import { useConta } from '../lib/ContaContext'
+import { useFazenda } from '../lib/FazendaContext'
 import { usePermissoes } from '../lib/PermissoesContext'
 import { importarBackup } from '../lib/importarBackup'
+import { gerarBackupPayload, baixarBackupJSON } from '../lib/exportarBackup'
+import { useSubmitGuard } from '../lib/useSubmitGuard'
+import { supabase } from '../lib/supabase'
 
 // ── Fase 0 da restauração: VALIDA o arquivo no navegador — nenhuma chamada a
 // supabase/banco acontece em validarArquivo()/onEscolherArquivo(). Fase 1
@@ -170,6 +174,7 @@ function validarArquivo(payload) {
 export default function RestaurarBackup() {
   const inputRef = useRef(null)
   const { contaAtual } = useConta()
+  const { fazendaAtual } = useFazenda()
   const { ehAdmin } = usePermissoes()
 
   const [analisando, setAnalisando] = useState(false)
@@ -177,7 +182,7 @@ export default function RestaurarBackup() {
   const [payload, setPayload]       = useState(null) // arquivo bruto validado — só isto alimenta a Fase 1
   const [nomeArquivo, setNomeArquivo] = useState('')
 
-  // ── Fase 1 — importação de verdade ──────────────────────────────
+  // ── Fase 1 — importação para fazenda NOVA ────────────────────────
   const [nomeFazendaNovo, setNomeFazendaNovo] = useState('')
   const [importando, setImportando]           = useState(false)
   const [progresso, setProgresso]             = useState([]) // [{tabela, status, esperado, importado}]
@@ -186,6 +191,15 @@ export default function RestaurarBackup() {
   // (padronização — ação de maior risco desta tela, texto diz exatamente o
   // que vai ser criado/gravado antes do clique final).
   const [confirmImportar, setConfirmImportar] = useState(null) // { nAnimais, nLancs }
+
+  // ── Restauração TOTAL sobre a fazenda ATUAL (segundo modo — mesmo
+  // validarArquivo/payload da importação acima, nada de parser paralelo) ──
+  const guardRestaurar = useSubmitGuard()
+  const [nomeConfirmacao, setNomeConfirmacao] = useState('')
+  const [baixandoSeguranca, setBaixandoSeguranca] = useState(false)
+  const [backupSegurancaOk, setBackupSegurancaOk] = useState(false)
+  const [restaurando, setRestaurando] = useState(false)
+  const [resultadoRestauracao, setResultadoRestauracao] = useState(null) // { sucesso, erro }
 
   const onEscolherArquivo = (e) => {
     const file = e.target.files?.[0]
@@ -196,6 +210,9 @@ export default function RestaurarBackup() {
     setPayload(null)
     setRelatorioFinal(null)
     setProgresso([])
+    setNomeConfirmacao('')
+    setBackupSegurancaOk(false)
+    setResultadoRestauracao(null)
     setAnalisando(true)
 
     const reader = new FileReader()
@@ -251,6 +268,54 @@ export default function RestaurarBackup() {
     setRelatorioFinal(relatorio)
     setImportando(false)
   }
+
+  // O backup do arquivo carregado é de exatamente esta fazenda/conta? A
+  // função no banco já barra qualquer divergência antes de apagar algo, mas
+  // checar aqui também evita uma chamada fadada a falhar e explica o motivo
+  // sem precisar rodar nada.
+  const backupBateComFazendaAtual = !!payload && !!fazendaAtual &&
+    payload.fazenda?.id === fazendaAtual.id && payload.conta?.id === contaAtual?.id
+
+  // Baixa um backup do estado ATUAL da fazenda-alvo (mesma gerarBackupPayload
+  // usada em Backup.jsx — nunca uma segunda cópia da lógica de exportação)
+  // antes de liberar a restauração — é a rede de segurança do usuário caso
+  // ele mude de ideia depois.
+  const baixarBackupDeSeguranca = async () => {
+    if (!contaAtual?.id || !fazendaAtual?.id) return
+    setBaixandoSeguranca(true)
+    try {
+      const atual = await gerarBackupPayload({
+        contaId: contaAtual.id, fazendaId: fazendaAtual.id,
+        contaNome: contaAtual.nome, fazendaNome: fazendaAtual.nome,
+      })
+      baixarBackupJSON(atual, `backup-seguranca-${fazendaAtual.nome.replace(/[^a-z0-9]/gi, '-').toLowerCase()}-${new Date().toISOString().split('T')[0]}.json`)
+      setBackupSegurancaOk(true)
+      toast('Backup de segurança do estado atual baixado.')
+    } catch (e) {
+      toast('Erro ao gerar o backup de segurança: ' + e.message, 'error')
+    }
+    setBaixandoSeguranca(false)
+  }
+
+  // guardRestaurar (useSubmitGuard) trava reentrância — duplo clique aqui
+  // chamaria a RPC destrutiva duas vezes em paralelo, o que é exatamente o
+  // cenário que a função no banco não protege sozinha (ela é atômica POR
+  // CHAMADA, não contra chamadas simultâneas).
+  const executarRestauracaoTotal = () => guardRestaurar(async () => {
+    if (!ehAdmin || !payload || !fazendaAtual?.id) return
+    if (!backupBateComFazendaAtual) { toast('Este backup não é desta fazenda/conta — restauração bloqueada.', 'error'); return }
+    if (!backupSegurancaOk) { toast('Baixe o backup de segurança do estado atual antes de restaurar.', 'error'); return }
+    if (nomeConfirmacao.trim() !== fazendaAtual.nome) { toast('Digite o nome da fazenda exatamente como mostrado para confirmar.', 'error'); return }
+    setRestaurando(true)
+    setResultadoRestauracao(null)
+    const { data, error } = await supabase.rpc('restaurar_backup_fazenda', { p_fazenda_id: fazendaAtual.id, p_backup: payload })
+    setRestaurando(false)
+    if (error) {
+      setResultadoRestauracao({ sucesso: false, erro: error.message })
+      return
+    }
+    setResultadoRestauracao({ sucesso: true, ...data })
+  })
 
   return (
     <div className="card" style={{ borderTop: '3px solid #7B2FBE' }}>
@@ -400,6 +465,72 @@ export default function RestaurarBackup() {
                   {relatorioFinal?.sucesso && (
                     <AlertBox type="green" icon="ti-circle-check" title="Tudo importado"
                       body={`Fazenda "${relatorioFinal.fazendaCriada?.nome}" criada com todos os dados do arquivo. Confira a coluna "Importado" acima — deve bater exatamente com "Esperado" em cada linha.`} />
+                  )}
+                </div>
+              )}
+
+              {/* Restauração TOTAL sobre a fazenda ATUAL — segundo modo, ao
+                  lado do de fazenda nova acima, reaproveitando o MESMO
+                  payload/validarArquivo (nada de parser paralelo). Some
+                  quando já está restaurando/concluído acima só pra não
+                  confundir com dois blocos de progresso na tela ao mesmo
+                  tempo — mas os dois modos continuam independentes. */}
+              {!importando && !relatorioFinal && (
+                <div style={{ marginTop: 20, paddingTop: 16, borderTop: '.5px solid #E5E7EB' }}>
+                  <div style={{ fontWeight: 700, fontSize: '.9rem', color: '#791F1F', marginBottom: 8 }}>
+                    <i className="ti ti-replace" /> Restaurar TUDO sobre a fazenda atual{fazendaAtual?.nome ? ` (${fazendaAtual.nome})` : ''}
+                  </div>
+
+                  {!backupBateComFazendaAtual ? (
+                    <AlertBox type="amber" icon="ti-info-circle"
+                      title="Este backup não é desta fazenda"
+                      body={`Este arquivo é da fazenda "${payload.fazenda?.nome || '—'}". Para restaurar TUDO sobre a fazenda atual, troque para "${payload.fazenda?.nome || 'a fazenda de origem'}" no seletor do topo e volte aqui — ou use "Importar para fazenda nova" acima.`} />
+                  ) : (restaurando || resultadoRestauracao) ? (
+                    <div>
+                      {restaurando && (
+                        <AlertBox type="amber" icon="ti-loader" title="Restaurando — não feche esta aba"
+                          body="Apagando e regravando os dados da fazenda numa única operação atômica no banco. Não deve demorar mais que alguns segundos." />
+                      )}
+                      {resultadoRestauracao && !resultadoRestauracao.sucesso && (
+                        <AlertBox type="red" icon="ti-alert-triangle" title="Restauração abortada — nada foi alterado"
+                          body={`O banco recusou a operação antes de apagar qualquer coisa: ${resultadoRestauracao.erro}`} />
+                      )}
+                      {resultadoRestauracao?.sucesso && (
+                        <div>
+                          <AlertBox type="green" icon="ti-circle-check" title="Restauração concluída"
+                            body={`A fazenda "${fazendaAtual.nome}" foi completamente substituída pelo conteúdo do arquivo. Recarregue a página para ver os dados atualizados em todas as telas.`} />
+                          <button className="btn btn-primary btn-sm" style={{ marginTop: 10 }} onClick={() => window.location.reload()}>
+                            <i className="ti ti-refresh" /> Recarregar página
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div>
+                      <AlertBox type="red" icon="ti-alert-triangle"
+                        title="Isto é IRREVERSÍVEL"
+                        body={`TODO o conteúdo atual da fazenda "${fazendaAtual?.nome}" (animais, financeiro, reprodutivo, estoque, sanidade — tudo) será apagado e substituído pelo que está neste arquivo. Não há como desfazer depois de confirmado.`} />
+                      <AlertBox type="amber" icon="ti-photo"
+                        body="A foto da fazenda não faz parte do backup — se a foto for trocada depois deste arquivo, restaurar não traz a foto antiga de volta." />
+
+                      <div style={{ marginTop: 10 }}>
+                        <button className="btn btn-secondary btn-sm" onClick={baixarBackupDeSeguranca} disabled={baixandoSeguranca}>
+                          <i className="ti ti-download" /> {baixandoSeguranca ? 'Gerando...' : backupSegurancaOk ? 'Backup de segurança baixado ✓' : 'Baixar backup de segurança do estado atual'}
+                        </button>
+                      </div>
+
+                      <div style={{ maxWidth: 420, marginTop: 12 }}>
+                        <Field label={`Digite "${fazendaAtual?.nome}" para confirmar`} required>
+                          <input value={nomeConfirmacao} onChange={e => setNomeConfirmacao(e.target.value)} disabled={!backupSegurancaOk} />
+                        </Field>
+                      </div>
+
+                      <button className="btn btn-sm" style={{ marginTop: 10, background: '#791F1F', color: 'white' }}
+                        onClick={executarRestauracaoTotal}
+                        disabled={!backupSegurancaOk || nomeConfirmacao.trim() !== fazendaAtual?.nome}>
+                        <i className="ti ti-alert-triangle" /> Apagar tudo e restaurar
+                      </button>
+                    </div>
                   )}
                 </div>
               )}

@@ -408,7 +408,6 @@ export function calcDesmameMetrics(partosArr, totalInseminadas) {
   ;(partosArr || []).forEach(p => {
     const pesagensB = p.bezerro?.pesagens || []
     const pesoNasc = pesagensB.find(ps => ps.tipo === 'nascimento')
-    const pesoDesm = pesagensB.find(ps => ps.tipo === 'desmama')
     // Peso ao nascer entra independente de já ter desmame ou não (ao
     // contrário de pesosDesmame/p205s abaixo, que exigem pesoDesm) — senão
     // "Kg ao nascer" ficaria vazio até o primeiro desmame da safra.
@@ -416,12 +415,26 @@ export function calcDesmameMetrics(partosArr, totalInseminadas) {
       const pn0 = parseFloat(pesoNasc.peso_kg)
       if (Number.isFinite(pn0)) pesosNascimento.push(pn0)
     }
+    // Peso é opcional no desmame — animal desmamado sem peso não tem pesagem
+    // tipo 'desmama' nenhuma, então nunca entra aqui (sai do numerador E do
+    // denominador de pesoMedioDesmame/p205Medio, não vira zero). Se depois
+    // for VENDIDO, registrar_venda_animais grava uma pesagem tipo 'venda' —
+    // usamos ela como peso de desmame equivalente (só quando o animal já
+    // está com data_desmame preenchida; sem isso um bezerro vendido ainda
+    // mamando entraria como se tivesse desmamado). P205 fica de fora desse
+    // fallback: seu cálculo depende da DATA real do desmame pra extrapolar a
+    // curva aos 205 dias, e a data da venda pode ser bem depois — usá-la
+    // distorceria o ajuste.
+    if (!p.bezerro?.data_desmame) return
+    const pesoDesmReal = pesagensB.find(ps => ps.tipo === 'desmama')
+    const pesoVenda = pesagensB.find(ps => ps.tipo === 'venda')
+    const pesoDesm = pesoDesmReal || pesoVenda
     if (!pesoDesm) return
     const pd = parseFloat(pesoDesm.peso_kg)
     if (Number.isFinite(pd)) pesosDesmame.push(pd)
-    if (pesoNasc && p.data_parto && pesoDesm.data) {
+    if (pesoDesmReal && pesoNasc && p.data_parto && pesoDesmReal.data) {
       const pn = parseFloat(pesoNasc.peso_kg)
-      const diasDesmame = Math.round((new Date(pesoDesm.data) - new Date(p.data_parto)) / 86400000)
+      const diasDesmame = Math.round((new Date(pesoDesmReal.data) - new Date(p.data_parto)) / 86400000)
       if (Number.isFinite(pn) && diasDesmame > 0) {
         p205s.push(((pd - pn) / diasDesmame) * 205 + pn)
       }
@@ -434,6 +447,11 @@ export function calcDesmameMetrics(partosArr, totalInseminadas) {
     pesoMedioNascimento: media(pesosNascimento),
     p205Medio: media(p205s),
     kgPorMatrizExposta: (totalInseminadas > 0 && pesosDesmame.length > 0) ? Math.round(pesosDesmame.reduce((s, v) => s + v, 0) / totalInseminadas * 10) / 10 : null,
+    // Contagens pra UI deixar claro que o índice considera só quem tem peso
+    // (ex.: "8 de 10 com peso") — não confundir com `desmamados` (todo mundo
+    // com data_desmame, com ou sem peso).
+    comPesoDesmame: pesosDesmame.length,
+    comPesoP205: p205s.length,
   }
 }
 
@@ -718,12 +736,18 @@ export function statusReprodutivoExibicao(animal, partos) {
 // mesmo tendo falhado numa tentativa anterior dentro do mesmo escopo
 // (lote→estação, ou estação→ciclo — mesmo princípio, dois níveis).
 //
-// Resultado sempre um destes 4 (mutuamente exclusivos por construção):
+// Resultado sempre um destes 5 (mutuamente exclusivos por construção):
 //   { resultado: 'pariu', data }          — teve parto no escopo, ponto final
 //   { resultado: 'nao_exposta' }          — nunca teve inseminação no escopo
 //   { resultado: 'em_aberto', dataPrevistaParto? } — prenha, ainda dentro do
 //     prazo (até PERDA_PRESUMIDA_DIAS_APOS_PREVISTO dias do parto previsto),
 //     sem parto nem aborto ainda — indefinido, não é falha
+//   { resultado: 'em_repasse' } — foi Vazia numa tentativa anterior do escopo,
+//     mas já existe uma inseminação PENDENTE (sem diagnóstico ainda) numa
+//     tentativa mais nova do mesmo escopo — repasse em andamento, "falhada"
+//     é conclusão de fim de estação, não isto; nunca gera esse rótulo. Some
+//     assim que a tentativa nova é diagnosticada (vira 'falhou' ou some, se
+//     virar 'P').
 //   { resultado: 'falhou', motivo, data? } — motivo é um destes 3:
 //     'nao_emprenhou'    — teve diagnóstico 'V' e NUNCA 'P' no escopo
 //     'aborto'            — engravidou e a gestação mais recente terminou em
@@ -752,6 +776,12 @@ export function desfechoReprodutivo(animalId, { inseminacoes = [], partos = [], 
   const prenhezes = insAnimal.filter(i => i.diagnostico === 'P' && i.data_diagnostico)
   if (prenhezes.length === 0) {
     const temV = insAnimal.some(i => i.diagnostico === 'V')
+    // Repasse em aberto: já foi Vazia antes, mas tem uma inseminação sem
+    // diagnóstico ainda no escopo (foi incluída num lote novo) — "falhada" só
+    // é conclusão quando não sobra nenhuma tentativa pendente (ver comentário
+    // do resultado 'em_repasse' acima).
+    const temPendente = insAnimal.some(i => !i.diagnostico)
+    if (temV && temPendente) return { resultado: 'em_repasse' }
     return temV ? { resultado: 'falhou', motivo: 'nao_emprenhou' } : { resultado: 'nao_exposta' }
   }
   const ultimaPrenhez = prenhezes.reduce((max, p) => (!max || p.data_diagnostico > max.data_diagnostico) ? p : max, null)
@@ -886,8 +916,13 @@ export function statusReprodutivoCiclo(animal, ciclo, { partos = [], inseminacoe
   const abortosCiclo = (abortos || []).filter(a => a.data && a.data >= ciclo.inicio && a.data <= ciclo.fim)
   const desfecho = desfechoReprodutivo(animal.id, { inseminacoes: insCiclo, partos: partosCiclo, abortos: abortosCiclo }, hoje)
 
-  if (desfecho.resultado === 'pariu')     return { status: 'pariu', data: desfecho.data }
-  if (desfecho.resultado === 'em_aberto') return { status: 'gestacao_aberta' }
+  if (desfecho.resultado === 'pariu')      return { status: 'pariu', data: desfecho.data }
+  if (desfecho.resultado === 'em_aberto')  return { status: 'gestacao_aberta' }
+  // Repasse em andamento (ver resultado 'em_repasse', desfechoReprodutivo
+  // acima) — mesmo se o ciclo já encerrou no calendário, ela ainda não fechou
+  // desfecho: não é falhada nem "em andamento" por acaso, é literalmente um
+  // repasse pendente.
+  if (desfecho.resultado === 'em_repasse') return { status: 'em_andamento' }
 
   // Ciclo ainda não fechou — não assume falha nem "não exposta" ainda: pode
   // vir mais uma estação (repasse) dentro do próprio ciclo antes dele fechar.

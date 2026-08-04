@@ -362,24 +362,28 @@ export default function Financeiro() {
   // de uma categoria "fake" — só de ajustar o peso/preço daquela categoria.
   const categoriaReal = (a) => calcCategoriaRebanho(a.data_nascimento, a.sexo, a.sit_reprodutiva, a.is_touro)
   const categoriasComAtivos = [...new Set(animaisAtivos.map(categoriaReal))].sort()
+  // "Vacas falhadas" (Item C) — opção sintética dentro do MESMO seletor de
+  // categorias, não uma categoria de verdade (calcCategoriaRebanho nunca
+  // devolve isto, então não colide com nomes reais). Substituiu os botões de
+  // filtro separados (Todas as falhadas + motivo) — seletor único, mesmo
+  // critério (motivoFalhaUltimaEstacao), sem caminho paralelo.
+  const CATEGORIA_FALHADAS = '__falhadas__'
   const vendaFiltroCategoria    = form.vendaFiltroCategoria    || ''
   const vendaFiltroProprietario = form.vendaFiltroProprietario || ''
   const vendaFiltroLote         = form.vendaFiltroLote         || ''
-  // Item 5 — "Falhada" é guarda-chuva (não emprenhou / aborto / perda
-  // gestacional), com opção de pegar todas de uma vez — ver
-  // vendaFiltroFalhadaMotivos abaixo.
-  const vendaFiltroFalhadaMotivos = form.vendaFiltroFalhadaMotivos || []
-  const vendaFiltroTodasFalhadas  = !!form.vendaFiltroTodasFalhadas
   const vendaSelecionados = form.vendaSelecionados || []
 
-  // Item 5 — seleção de DESCARTE: o desfecho CONSOLIDADO da vaca na ÚLTIMA
-  // ESTAÇÃO DE MONTA inteira, nunca lote a lote e nunca a situação reprodutiva
-  // atual — reaproveita desfechoReprodutivo (helpers.js), a MESMA função usada
-  // no status "Falhada" da sequência do lote e da ficha do animal
+  // Item 5 (agora exposto via categoria "Vacas falhadas", Item C) — seleção
+  // de DESCARTE: o desfecho CONSOLIDADO da vaca na ÚLTIMA ESTAÇÃO DE MONTA
+  // inteira, nunca lote a lote e nunca a situação reprodutiva atual —
+  // reaproveita desfechoReprodutivo (helpers.js), a MESMA função usada no
+  // status "Falhada" da sequência do lote e da ficha do animal
   // (Reprodutivo.jsx/Animais.jsx) — não duplicar essa lógica aqui. "Falhada" é
   // guarda-chuva: não entregou terneiro na estação, qualquer que seja o
   // motivo — quem pariu não é falhada, mesmo tendo falhado numa tentativa
   // anterior da mesma estação (isso já vem de graça de desfechoReprodutivo).
+  // Vaca 'em_repasse' (repasse em andamento) NÃO é falhada — resultado
+  // diferente de 'falhou', então já sai de fora sozinha.
   const motivoFalhaUltimaEstacao = (animalId) => {
     if (!reprodutivoVenda?.ultimaEstacao) return null
     const d = desfechoReprodutivo(animalId, {
@@ -396,15 +400,12 @@ export default function Financeiro() {
   // primeiro) — sem data_nascimento cadastrada, também não filtra (não dá pra
   // provar que é inválido).
   const animaisFiltradosVenda = animaisAtivos.filter(a => {
-    if (vendaFiltroCategoria && categoriaReal(a) !== vendaFiltroCategoria) return false
+    if (vendaFiltroCategoria === CATEGORIA_FALHADAS) {
+      if (!motivoFalhaUltimaEstacao(a.id)) return false
+    } else if (vendaFiltroCategoria && categoriaReal(a) !== vendaFiltroCategoria) return false
     if (vendaFiltroProprietario && a.proprietario_id !== vendaFiltroProprietario) return false
     if (vendaFiltroLote && a.lote_id !== vendaFiltroLote) return false
     if (form.data && a.data_nascimento && a.data_nascimento > form.data) return false
-    if (vendaFiltroTodasFalhadas || vendaFiltroFalhadaMotivos.length > 0) {
-      const motivo = motivoFalhaUltimaEstacao(a.id)
-      if (!motivo) return false
-      if (!vendaFiltroTodasFalhadas && !vendaFiltroFalhadaMotivos.includes(motivo)) return false
-    }
     return true
   })
   const animaisSelecionadosObjs = animaisAtivos.filter(a => vendaSelecionados.includes(a.id))
@@ -1667,10 +1668,17 @@ export default function Financeiro() {
         {ehVendaShape && (
           <div>
             <div style={{display:'flex',gap:8,marginBottom:8,flexWrap:'wrap'}}>
+              {/* "Vacas falhadas" (Item C) — opção sintética dentro do MESMO
+                  seletor de categorias, mesmo critério de motivoFalhaUltimaEstacao
+                  que os antigos botões de filtro usavam (removidos — o seletor
+                  passou a ser o único caminho). Desabilitada enquanto o
+                  histórico reprodutivo carrega (reprodutivoVenda), pra não
+                  sugerir um resultado incompleto. */}
               <select className="input" style={{flex:1,minWidth:140}} value={vendaFiltroCategoria}
                 onChange={e=>setForm(p=>({...p,vendaFiltroCategoria:e.target.value}))}>
                 <option value="">Todas as categorias</option>
                 {categoriasComAtivos.map(c=><option key={c} value={c}>{c}</option>)}
+                <option value={CATEGORIA_FALHADAS} disabled={carregandoReprodVenda}>Vacas falhadas</option>
               </select>
               <select className="input" style={{flex:1,minWidth:140}} value={vendaFiltroProprietario}
                 onChange={e=>setForm(p=>({...p,vendaFiltroProprietario:e.target.value}))}>
@@ -1683,47 +1691,15 @@ export default function Financeiro() {
                 {lotes.map(l=><option key={l.id} value={l.id}>{l.nome}</option>)}
               </select>
             </div>
-            {/* Item 5 — seleção de descarte pela última estação de monta,
-                combinável com os filtros de cima (categoria/proprietário/lote)
-                e entre si (E lógico). Dados carregados sob demanda (ver
-                useEffect de reprodutivoVenda) — desabilitados enquanto carrega
-                pra não sugerir um resultado incompleto. "Falhada" é
-                guarda-chuva (não entregou terneiro na estação, qualquer que
-                seja o motivo) — os 3 motivos são úteis separados pra decisão
-                (quem não emprenha é problema diferente de quem aborta), com
-                "Todas as falhadas" como atalho pra pegar as 3 de uma vez, sem
-                precisar marcar uma por uma. Pills (.pill/.pill-group,
-                global.css) — mesmo padrão visual usado nos outros filtros do
-                app (proprietário/tipo/situação em Financeiro/Animais/etc.),
-                aqui com seleção MÚLTIPLA (toggle por clique) em vez de
-                exclusiva, já que os motivos são combináveis entre si. */}
-            <div className="pill-group" style={{marginBottom:10}}>
-              <button type="button" className={`pill ${vendaFiltroTodasFalhadas ? 'active' : ''}`}
-                disabled={carregandoReprodVenda}
-                style={{opacity: carregandoReprodVenda ? 0.5 : 1, fontWeight: 600}}
-                onClick={() => setForm(p => ({ ...p, vendaFiltroTodasFalhadas: !p.vendaFiltroTodasFalhadas }))}>
-                Todas as falhadas
-              </button>
-              {[
-                ['nao_emprenhou', 'Não emprenhou'],
-                ['aborto', 'Aborto'],
-                ['perda_gestacional', 'Perda gestacional'],
-              ].map(([motivo, texto]) => (
-                <button key={motivo} type="button"
-                  className={`pill ${vendaFiltroFalhadaMotivos.includes(motivo) ? 'active' : ''}`}
-                  disabled={carregandoReprodVenda || vendaFiltroTodasFalhadas}
-                  style={{opacity: (carregandoReprodVenda || vendaFiltroTodasFalhadas) ? 0.5 : 1}}
-                  onClick={() => setForm(p => {
-                    const atuais = p.vendaFiltroFalhadaMotivos || []
-                    return { ...p, vendaFiltroFalhadaMotivos: atuais.includes(motivo) ? atuais.filter(m=>m!==motivo) : [...atuais, motivo] }
-                  })}>
-                  {texto}
-                </button>
-              ))}
-              {carregandoReprodVenda && <span style={{fontSize:'.76rem',color:'#9CA3AF',alignSelf:'center'}}>carregando histórico reprodutivo...</span>}
-              {!carregandoReprodVenda && reprodutivoVenda && !reprodutivoVenda.ultimaEstacao &&
-                <span style={{fontSize:'.76rem',color:'#9CA3AF',alignSelf:'center'}}>nenhuma estação de monta com diagnóstico registrado ainda</span>}
-            </div>
+            {vendaFiltroCategoria === CATEGORIA_FALHADAS && (
+              <div style={{fontSize:'.76rem',color:'#9CA3AF',marginBottom:10}}>
+                {carregandoReprodVenda
+                  ? 'carregando histórico reprodutivo...'
+                  : reprodutivoVenda && !reprodutivoVenda.ultimaEstacao
+                    ? 'nenhuma estação de monta com diagnóstico registrado ainda'
+                    : null}
+              </div>
+            )}
 
             {animaisFiltradosVenda.length > 0 && (
               <button type="button" className="btn btn-secondary btn-xs" style={{marginBottom:8}}

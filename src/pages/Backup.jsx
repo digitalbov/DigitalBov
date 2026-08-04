@@ -7,38 +7,9 @@ import { useFazenda } from '../lib/FazendaContext'
 import { useCiclo } from '../lib/CicloContext'
 import { usePermissoes } from '../lib/PermissoesContext'
 import RestaurarBackup from '../components/RestaurarBackup'
+import { gerarBackupPayload, baixarBlob as baixar } from '../lib/exportarBackup'
 
 // ── Helpers ───────────────────────────────────────────────────────
-
-// Busca segura e escopada: retorna [] se a tabela não existir ou houver erro.
-// Sempre filtra por conta_id; filtra também por fazenda_id, exceto quando
-// { semFazenda: true } (tabela não tem essa coluna) ou { porId: fazendaId }
-// (a própria tabela "fazendas": queremos só a linha da fazenda atual, não
-// todas as fazendas da conta).
-const safeQ = async (table, contaId, fazendaId, opts = {}) => {
-  let q = supabase.from(table).select('*')
-  if (contaId) q = q.eq('conta_id', contaId)
-  if (opts.porId) {
-    q = q.eq('id', fazendaId)
-  } else if (!opts.semFazenda && fazendaId) {
-    q = q.eq('fazenda_id', fazendaId)
-  }
-  const { data, error } = await q
-  if (error) {
-    console.warn(`[Backup] tabela "${table}":`, error.message)
-    return []
-  }
-  return data || []
-}
-
-// Dispara download de um Blob no browser
-const baixar = (blob, filename) => {
-  const url = URL.createObjectURL(blob)
-  const a   = document.createElement('a')
-  a.href = url; a.download = filename
-  document.body.appendChild(a); a.click(); a.remove()
-  URL.revokeObjectURL(url)
-}
 
 // Define larguras de colunas Excel
 const wch = (...ws) => ws.map(w => ({ wch: w }))
@@ -141,78 +112,19 @@ export default function Backup() {
     if (!contaId || !fazendaId) { toast('Aguarde a fazenda carregar e tente novamente.', 'error'); return }
     setLoadingJSON(true)
     try {
-      const [
-        proprietarios, fazendas, piquetes, lotes,
-        animais, lotes_inseminacao, inseminacoes, partos, abortos,
-        pesagens, procedimentos_sanitarios,
-        estoque_itens, estoque_movimentacoes,
-        lancamentos_financeiros, transacoes_animais,
-        ciclos_financeiros, categorias_preco, metas,
-        lancamento_rateios, transacao_animais_itens, sanidade_animais,
-        lote_touros, estacoes_monta,
-        planejamentos, planejamento_acoes, simulacoes_transacoes,
-      ] = await Promise.all([
-        safeQ('proprietarios', contaId, fazendaId),
-        // "fazendas" não tem coluna fazenda_id (é a própria fazenda) — filtra
-        // pelo id da fazenda atual, para exportar só a linha dela.
-        safeQ('fazendas', contaId, fazendaId, { porId: true }),
-        safeQ('piquetes', contaId, fazendaId),
-        safeQ('lotes', contaId, fazendaId),
-        safeQ('animais', contaId, fazendaId),
-        safeQ('lotes_inseminacao', contaId, fazendaId),
-        safeQ('inseminacoes', contaId, fazendaId),
-        safeQ('partos', contaId, fazendaId),
-        safeQ('abortos', contaId, fazendaId),
-        safeQ('pesagens', contaId, fazendaId),
-        safeQ('procedimentos_sanitarios', contaId, fazendaId),
-        safeQ('estoque_itens', contaId, fazendaId),
-        safeQ('estoque_movimentacoes', contaId, fazendaId),
-        safeQ('lancamentos_financeiros', contaId, fazendaId),
-        safeQ('transacoes_animais', contaId, fazendaId),
-        safeQ('ciclos_financeiros', contaId, fazendaId),
-        safeQ('categorias_preco', contaId, fazendaId),
-        safeQ('metas', contaId, fazendaId),
-        safeQ('lancamento_rateios', contaId, fazendaId),
-        safeQ('transacao_animais_itens', contaId, fazendaId),
-        safeQ('sanidade_animais', contaId, fazendaId),
-        safeQ('lote_touros', contaId, fazendaId),
-        safeQ('estacoes_monta', contaId, fazendaId),
-        safeQ('planejamentos', contaId, fazendaId),
-        safeQ('planejamento_acoes', contaId, fazendaId),
-        safeQ('simulacoes_transacoes', contaId, fazendaId),
-      ])
-
-      const dados = {
-        proprietarios, fazendas, piquetes, lotes,
-        animais, lotes_inseminacao, inseminacoes, partos, abortos,
-        pesagens, procedimentos_sanitarios,
-        estoque_itens, estoque_movimentacoes,
-        lancamentos_financeiros, transacoes_animais,
-        ciclos_financeiros, categorias_preco, metas,
-        lancamento_rateios, transacao_animais_itens, sanidade_animais,
-        lote_touros, estacoes_monta,
-        planejamentos, planejamento_acoes, simulacoes_transacoes,
-      }
-
-      // Cabeçalho de metadados — é o que uma futura restauração usa pra
-      // validar o arquivo ANTES de tocar no banco (versão do formato,
-      // origem exata, contagem esperada por tabela).
-      const payload = {
-        formato_versao: '2',
-        data_backup:    new Date().toISOString(),
-        sistema:        'DigitalBov',
-        conta:          { id: contaId, nome: contaAtual?.nome || '' },
-        fazenda:        { id: fazendaId, nome: fazendaAtual?.nome || '' },
-        contagens:      Object.fromEntries(Object.entries(dados).map(([k, v]) => [k, v.length])),
-        dados,
-      }
+      // gerarBackupPayload (lib/exportarBackup.js) — mesma função usada pelo
+      // "backup de segurança" oferecido antes de uma restauração total, pra
+      // nunca divergir em quais tabelas/colunas entram no arquivo.
+      const payload = await gerarBackupPayload({
+        contaId, fazendaId, contaNome: contaAtual?.nome, fazendaNome: fazendaAtual?.nome,
+      })
 
       baixar(
         new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }),
         `backup-ventos-varzea-${dateStr()}.json`
       )
       setTsJSON(tsAgora())
-      toast(`Backup gerado! ${animais.length} animais · ${lancamentos_financeiros.length} lançamentos · ${pesagens.length} pesagens`)
+      toast(`Backup gerado! ${payload.dados.animais.length} animais · ${payload.dados.lancamentos_financeiros.length} lançamentos · ${payload.dados.pesagens.length} pesagens`)
     } catch (e) {
       toast('Erro ao gerar backup: ' + e.message, 'error')
     }

@@ -177,6 +177,25 @@ export default function SeletoresTopo() {
         </div>
       )}
 
+      {/* Link externo — abre o site de índices/mercado da Nespro/UFRGS em nova
+          aba. Não é um seletor (não tem estado/dropdown), mas usa o mesmo
+          chipBtnStyle e a mesma classe header-selector-label (que some no
+          mobile) pra não destoar visualmente dos botões de fazenda/ciclo. */}
+      <a
+        href="https://bovinos-indices.nesproufrgs.com/"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="header-selector-btn"
+        style={{ ...chipBtnStyle, textDecoration:'none', maxWidth:220 }}
+        title="Mercado e Índices Nespro (abre em nova aba)"
+      >
+        <i className="ti ti-chart-line" style={{ fontSize:14, color:'var(--gray-500)', flexShrink:0 }} />
+        <span className="header-selector-label" style={{ fontSize:'.78rem', fontWeight:600, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', minWidth:0 }}>
+          Mercado e Índices Nespro
+        </span>
+        <i className="ti ti-external-link" style={{ fontSize:11, color:'var(--gray-400)', flexShrink:0 }} />
+      </a>
+
       {modalNova && (
         <div onClick={() => setModalNova(false)} style={{
           position:'fixed', inset:0, background:'rgba(0,0,0,.5)', zIndex:9999,
