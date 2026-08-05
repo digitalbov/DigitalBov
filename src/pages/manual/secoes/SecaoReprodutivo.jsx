@@ -204,14 +204,15 @@ export default function SecaoReprodutivo({ item }) {
             seção seguinte para os 3 motivos e como marcar manualmente.</li>
         </ul>
         <p style={P}>
-          O topo do card "Diagnóstico de gestação" tem <strong>um único campo de data</strong>, usado tanto
-          para o diagnóstico (clique ou voz) quanto para o desmame lançados nas linhas abaixo (não a data de
-          hoje). O rótulo do campo muda sozinho conforme o que está pendente no lote: só diagnóstico pendente
-          → "Data do diagnóstico"; só desmame pendente → "Data do desmame"; os dois ao mesmo tempo → "Data do
-          diagnóstico / desmame"; e o campo some quando não há mais nada pendente (lote 100% diagnosticado e
-          desmamado). Não existe mais um card separado "Desmame dos terneiros deste lote": o desmame virou uma
-          etapa na própria sequência da vaca, no mesmo lugar de diagnóstico/nascimento/aborto — uma vaca, uma
-          sequência, sem precisar procurar o bezerro de novo lá embaixo.
+          O topo do card "Diagnóstico de gestação" tem <strong>um único campo de data, "Data do
+          registro"</strong> — vale para <strong>qualquer</strong> lançamento feito nesta lista: diagnóstico
+          (clique ou voz), nascimento (inclusive o atalho direto na linha, sem abrir modal — ver "Partos"
+          abaixo), aborto e desmame. Altere quando quiser; o valor digitado passa a valer para todo registro
+          feito ali até você mudar de novo. O campo some quando não há mais nada acionável no lote (100%
+          diagnosticado, sem prenhez pendente de desfecho, sem terneiro vivo por desmamar). Não existe mais um
+          card separado "Desmame dos terneiros deste lote": o desmame virou uma etapa na própria sequência da
+          vaca, no mesmo lugar de diagnóstico/nascimento/aborto — uma vaca, uma sequência, sem precisar procurar
+          o bezerro de novo lá embaixo.
         </p>
         <p style={P}>
           Logo abaixo de <strong>"Resultados do lote"</strong>, o <strong>"Progresso da safra"</strong> resume o
@@ -355,6 +356,18 @@ export default function SecaoReprodutivo({ item }) {
           topo da lista), os dois campos continuam livres — é o fluxo pra quando você não está navegando a
           partir de um lote específico.
         </p>
+        <p style={P}>
+          Na linha da vaca, ao lado do botão <strong>"Registrar nascimento"</strong>, existe um atalho pra não
+          precisar abrir o formulário: um campo de <strong>peso ao nascer (kg, opcional)</strong> e dois botões
+          de sexo, <strong>♀ Fêmea</strong> / <strong>♂ Macho</strong>. Escolhendo o sexo (com ou sem peso
+          preenchido) e clicando em "Registrar nascimento", o nascimento é gravado <strong>direto, sem abrir o
+          formulário</strong> — com tudo o mais preenchido sozinho, exatamente como o formulário faria (mesma
+          rotina de gravação dos dois caminhos). Sem peso, o terneiro entra como nascimento sem peso registrado
+          (não grava zero) — mesmo tratamento do desmame sem peso: fica de fora do numerador <strong>e</strong>{' '}
+          do denominador de "Peso médio ao nascer" até um peso ser lançado depois. Se você preencher o peso mas
+          esquecer de escolher o sexo, o sistema avisa e não registra nada. Sem peso <strong>e</strong> sem sexo
+          escolhidos, o clique abre o formulário de sempre, sem nenhuma mudança.
+        </p>
         <AlertBox type="red" icon="ti-lock"
           title='Uma vaca não pode ter dois partos na mesma safra'
           body='O sistema bloqueia o registro de um 2º nascimento para a mesma mãe na mesma safra (mesmo lote de origem) — mensagem clara na hora do clique. Gêmeos existem em corte, mas são raros o bastante para não merecerem essa opção na tela; um caso real de gêmeos precisa ser lançado com ajuda do suporte. A vaca some da lista de "Registrar nascimento" assim que o primeiro parto dela naquela safra é salvo, sem precisar recarregar a página.' />
@@ -399,8 +412,8 @@ export default function SecaoReprodutivo({ item }) {
           veja "Índices e funil da safra" abaixo.
         </div>
         <AlertBox type="amber" icon="ti-calendar-repeat"
-          title='Registrar um nascimento atrasado troca o ciclo exibido na tela'
-          body='O parto sempre grava certo, no ciclo da SUA data real — mas se você está revisando um lote de uma safra antiga (seletor de ciclo no topo apontando pra ela) e registra um nascimento com a data de hoje, esse parto pertence ao ciclo de hoje, não ao ciclo que você estava vendo. Nesse caso o sistema troca sozinho o ciclo selecionado para o do parto (com aviso no toast), pra você já ver o registro novo direto na aba Nascimentos — sem isso, o parto ficaria certo no banco mas pareceria "sumido" da tela.' />
+          title='Um parto pode pertencer a um ciclo diferente do que você está vendo — e isso é normal'
+          body='O parto sempre grava certo, no ciclo da SUA data real. Se você está revisando um lote de uma safra antiga (seletor de ciclo no topo apontando pra ela) e registra um nascimento com a data de hoje, esse parto pertence ao ciclo de hoje — o sistema NÃO troca o ciclo selecionado (a tela continua na safra que você estava revisando, ancorada na monta) e avisa no toast a que ciclo o parto pertence. Para ver esse nascimento na aba Nascimentos, selecione lá o ciclo indicado no aviso.' />
 
         <h4 style={{ ...H4, fontSize: '.85rem' }}>Partos sem lote vinculado (órfãos legados)</h4>
         <p style={P}>
