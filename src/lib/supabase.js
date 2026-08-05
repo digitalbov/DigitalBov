@@ -155,17 +155,23 @@ export const db = {
       if (cicloId) q = q.eq('ciclo_id', cicloId)
       return q.order('data', { ascending: false })
     },
-    // Item 5 (Financeiro.jsx — filtros "Falhada — motivo" na venda): só o
+    // Item 5 (Financeiro.jsx — Situação reprodutiva na venda): só o
     // necessário pra atribuir cada diagnóstico/parto/aborto ao lote (e, por
     // ele, à estação) em que aconteceu, e pra classificar o desfecho
     // (desfechoReprodutivo, helpers.js) — sem embed de bezerro/pesagens (não
-    // usado por este filtro). `data` do lote é a data da MONTA (não a do
-    // diagnóstico), usada pra calcular o prazo de perda gestacional
-    // presumida. Histórico completo, sem escopo de ciclo: a última estação de
-    // monta pode ser de qualquer ciclo. Só lotes COM estação (estacao_monta_id)
-    // — lote sem estação nunca pode ser "a última estação".
+    // usado por este filtro — "com cria ao pé" usa todosPartos, sem escopo de
+    // estação, ver db.partos.listAll). `data` do lote é a data da MONTA (não
+    // a do diagnóstico), usada pra calcular o prazo de perda gestacional
+    // presumida E pra achar a tentativa mais recente da guarda 'em_repasse'
+    // (desfechoReprodutivo NÃO usa mais `encerrado` — nenhum caminho do app
+    // grava essa coluna como true, então era um critério inerte na prática;
+    // ver comentário lá). `partos(mae_id,data_parto)` — data_parto também é
+    // lida por desfechoReprodutivo (resultado 'pariu'). Histórico completo,
+    // sem escopo de ciclo: a última estação de monta pode ser de qualquer
+    // ciclo. Só lotes COM estação (estacao_monta_id) — lote sem estação nunca
+    // pode ser "a última estação".
     listParaDescarte: () => T('lotes_inseminacao')
-      .select('id, data, estacao_monta_id, inseminacoes(animal_id,diagnostico,data_diagnostico), partos(mae_id), abortos(animal_id,data)')
+      .select('id, data, estacao_monta_id, inseminacoes(animal_id,diagnostico,data_diagnostico), partos(mae_id,data_parto), abortos(animal_id,data)')
       .not('estacao_monta_id', 'is', null),
   },
 

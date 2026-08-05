@@ -466,6 +466,16 @@ export default function RestaurarBackup() {
                     <AlertBox type="green" icon="ti-circle-check" title="Tudo importado"
                       body={`Fazenda "${relatorioFinal.fazendaCriada?.nome}" criada com todos os dados do arquivo. Confira a coluna "Importado" acima — deve bater exatamente com "Esperado" em cada linha.`} />
                   )}
+
+                  {relatorioFinal?.filtroColunasIndisponivel && (
+                    <AlertBox type="amber" icon="ti-alert-triangle" title="Filtro de colunas obsoletas indisponível"
+                      body="Não foi possível confirmar as colunas reais das tabelas antes de importar — a importação seguiu sem esse filtro de segurança contra colunas removidas do schema. Veja o console do navegador para detalhes." />
+                  )}
+
+                  {relatorioFinal?.colunasDescartadas?.length > 0 && (
+                    <AlertBox type="amber" icon="ti-alert-triangle" title="Colunas do arquivo descartadas (não existem mais no banco)"
+                      body={`Estas colunas vieram no arquivo de backup mas não existem mais nessa tabela hoje — os valores foram descartados, nada mais foi afetado: ${relatorioFinal.colunasDescartadas.map(d => `${LABEL_TABELA[d.tabela] || d.tabela} (${d.colunas.join(', ')})`).join(' · ')}`} />
+                  )}
                 </div>
               )}
 

@@ -110,13 +110,17 @@ export default function Financeiro() {
   useEffect(() => { if (cicloLocal) loadCiclo() }, [cicloLocal?.id])
   useEffect(() => { if (tab === 3 && ciclos.length > 0) loadResultadosPorCiclo() }, [tab, ciclos.length, filtProp])
 
-  // Item 5 — carrega estações de monta + lotes (histórico completo, sem
-  // escopo de ciclo: a última estação pode ser de qualquer ciclo) só quando o
-  // modal de venda é aberto pela 1ª vez nesta visita à tela — nunca no
-  // loadBase() geral. Determina aqui a "última estação de monta" da fazenda —
-  // a mais recente (maior inicio) que já tem PELO MENOS 1 diagnóstico
-  // registrado num dos seus lotes. Estação em andamento sem nenhum
-  // diagnóstico ainda não conta: não há o que descartar dela.
+  // Item 5 — carrega estações de monta + lotes + TODOS os partos da fazenda
+  // (histórico completo, sem escopo de ciclo: a última estação pode ser de
+  // qualquer ciclo, e "com cria ao pé" nunca é escopado a estação nenhuma —
+  // ver desfechoReprodutivo/todosPartos, helpers.js) só quando o modal de
+  // venda é aberto pela 1ª vez nesta visita à tela — nunca no loadBase()
+  // geral. Guarda só os dados BRUTOS (estações + lotes agrupados por
+  // estação + todos os partos) — a "última estação de monta" é DERIVADA no
+  // corpo do componente (ver ultimaEstacaoVenda abaixo), não calculada aqui,
+  // porque ela precisa reagir a form.data (uma venda retroativa não pode ser
+  // classificada por uma estação que nem tinha começado naquela data — bug
+  // corrigido, antes a data do formulário não entrava nessa conta).
   useEffect(() => {
     if (modal !== 'transac' || !(form.tipo === 'V' || form.tipo === 'venda_sim')) return
     if (reprodutivoVenda || carregandoReprodVenda) return
@@ -124,7 +128,19 @@ export default function Financeiro() {
     Promise.all([
       db.estacoesMonta.listAll(),
       db.lotesInseminacao.listParaDescarte(),
-    ]).then(([re, rl]) => {
+      db.partos.listAll(),
+    ]).then((results) => {
+      // Único ponto desta tela (achado ao vivo, investigando "Vacas falhadas"
+      // trazendo zero) que fazia Promise.all sem checar erro — se qualquer
+      // uma das 3 queries falhasse, `.data` vinha null, virava [] pelo
+      // fallback abaixo, e o filtro inteiro (falhadas/prenhas/com cria ao pé)
+      // ficava silenciosamente vazio pra QUALQUER vaca, sem nenhum aviso —
+      // indistinguível de "não há falhadas de verdade". algumErro é o mesmo
+      // padrão já usado em loadBase/loadCiclo nesta tela.
+      if (algumErro('[Financeiro]', results)) {
+        toast('Erro ao carregar o histórico reprodutivo — "Situação reprodutiva" pode ficar incompleta ou vazia. Veja o console para detalhes.', 'error')
+      }
+      const [re, rl, rp] = results
       const estacoes = re.data || []
       const lotes    = rl.data || []
       const lotesPorEstacao = new Map()
@@ -132,25 +148,7 @@ export default function Financeiro() {
         if (!lotesPorEstacao.has(l.estacao_monta_id)) lotesPorEstacao.set(l.estacao_monta_id, [])
         lotesPorEstacao.get(l.estacao_monta_id).push(l)
       })
-      const temDiagnostico = (estId) =>
-        (lotesPorEstacao.get(estId) || []).some(l => (l.inseminacoes || []).some(i => i.diagnostico))
-      const ultimaEstacao = [...estacoes]
-        .filter(es => temDiagnostico(es.id))
-        .sort((a, b) => (b.inicio || '').localeCompare(a.inicio || ''))[0] || null
-      const lotesUltimaEstacao = ultimaEstacao ? (lotesPorEstacao.get(ultimaEstacao.id) || []) : []
-      // Achatado uma vez aqui (todos os lotes da estação juntos) — o desfecho
-      // é da VACA NA ESTAÇÃO, não do lote: uma vaca pode ter diagnóstico 'V'
-      // na IATF e 'P' no repasse (mesma estação, lotes diferentes). Cada
-      // inseminação carrega lote.data (a data da MONTA, não do diagnóstico)
-      // — desfechoReprodutivo (helpers.js) precisa disso pra calcular o prazo
-      // de perda gestacional presumida.
-      setReprodutivoVenda({
-        ultimaEstacao,
-        inseminacoesUltimaEstacao: lotesUltimaEstacao.flatMap(l =>
-          (l.inseminacoes || []).map(i => ({ ...i, lote: { data: l.data } }))),
-        partosUltimaEstacao:  lotesUltimaEstacao.flatMap(l => l.partos  || []),
-        abortosUltimaEstacao: lotesUltimaEstacao.flatMap(l => l.abortos || []),
-      })
+      setReprodutivoVenda({ estacoes, lotesPorEstacao, todosPartos: rp.data || [] })
       setCarregandoReprodVenda(false)
     })
   }, [modal, form.tipo, reprodutivoVenda, carregandoReprodVenda])
@@ -362,52 +360,103 @@ export default function Financeiro() {
   // de uma categoria "fake" — só de ajustar o peso/preço daquela categoria.
   const categoriaReal = (a) => calcCategoriaRebanho(a.data_nascimento, a.sexo, a.sit_reprodutiva, a.is_touro)
   const categoriasComAtivos = [...new Set(animaisAtivos.map(categoriaReal))].sort()
-  // "Vacas falhadas" (Item C) — opção sintética dentro do MESMO seletor de
-  // categorias, não uma categoria de verdade (calcCategoriaRebanho nunca
-  // devolve isto, então não colide com nomes reais). Substituiu os botões de
-  // filtro separados (Todas as falhadas + motivo) — seletor único, mesmo
-  // critério (motivoFalhaUltimaEstacao), sem caminho paralelo.
-  const CATEGORIA_FALHADAS = '__falhadas__'
   const vendaFiltroCategoria    = form.vendaFiltroCategoria    || ''
   const vendaFiltroProprietario = form.vendaFiltroProprietario || ''
   const vendaFiltroLote         = form.vendaFiltroLote         || ''
+  // "Situação reprodutiva" — seletor PRÓPRIO, separado de Categoria (não é
+  // mais uma opção sintética dentro do seletor de categorias): "Vacas
+  // falhadas" morava lá, foi removida de lá e vive só aqui agora. 3 opções,
+  // as 3 vindas de desfechoReprodutivo (helpers.js) — nenhum critério próprio
+  // criado nesta tela (decisão: uma definição só, um lugar só).
+  const SITUACAO_FALHADAS = 'falhadas'
+  const SITUACAO_PRENHAS  = 'prenhas'
+  const SITUACAO_COM_CRIA = 'com_cria'
+  const vendaFiltroSituacaoReprodutiva = form.vendaFiltroSituacaoReprodutiva || ''
   const vendaSelecionados = form.vendaSelecionados || []
 
-  // Item 5 (agora exposto via categoria "Vacas falhadas", Item C) — seleção
-  // de DESCARTE: o desfecho CONSOLIDADO da vaca na ÚLTIMA ESTAÇÃO DE MONTA
-  // inteira, nunca lote a lote e nunca a situação reprodutiva atual —
-  // reaproveita desfechoReprodutivo (helpers.js), a MESMA função usada no
-  // status "Falhada" da sequência do lote e da ficha do animal
-  // (Reprodutivo.jsx/Animais.jsx) — não duplicar essa lógica aqui. "Falhada" é
-  // guarda-chuva: não entregou terneiro na estação, qualquer que seja o
-  // motivo — quem pariu não é falhada, mesmo tendo falhado numa tentativa
-  // anterior da mesma estação (isso já vem de graça de desfechoReprodutivo).
-  // Vaca 'em_repasse' (repasse em andamento) NÃO é falhada — resultado
-  // diferente de 'falhou', então já sai de fora sozinha.
-  const motivoFalhaUltimaEstacao = (animalId) => {
-    if (!reprodutivoVenda?.ultimaEstacao) return null
-    const d = desfechoReprodutivo(animalId, {
-      inseminacoes: reprodutivoVenda.inseminacoesUltimaEstacao,
-      partos:       reprodutivoVenda.partosUltimaEstacao,
-      abortos:      reprodutivoVenda.abortosUltimaEstacao,
-    })
-    return d.resultado === 'falhou' ? d.motivo : null
-  }
+  // "Estação de referência" pra Situação reprodutiva — a mais recente (maior
+  // início) que já tem PELO MENOS 1 diagnóstico registrado E que já tinha
+  // COMEÇADO na data da venda (form.data) — reage à data do formulário (bug
+  // corrigido: antes não considerava form.data, então uma venda retroativa
+  // podia ser classificada por uma estação que nem existia ainda naquela
+  // data). Sem form.data ainda, não filtra por data (mesmo padrão de
+  // animaisFiltradosVenda abaixo).
+  const ultimaEstacaoVenda = (() => {
+    if (!reprodutivoVenda) return null
+    const temDiagnostico = (estId) =>
+      (reprodutivoVenda.lotesPorEstacao.get(estId) || []).some(l => (l.inseminacoes || []).some(i => i.diagnostico))
+    return [...reprodutivoVenda.estacoes]
+      .filter(es => temDiagnostico(es.id) && (!form.data || (es.inicio || '') <= form.data))
+      .sort((a, b) => (b.inicio || '').localeCompare(a.inicio || ''))[0] || null
+  })()
+  const lotesUltimaEstacaoVenda = (reprodutivoVenda && ultimaEstacaoVenda)
+    ? (reprodutivoVenda.lotesPorEstacao.get(ultimaEstacaoVenda.id) || []) : []
+  // Achatado uma vez aqui (todos os lotes da estação juntos) — o desfecho é
+  // da VACA NA ESTAÇÃO, não do lote: uma vaca pode ter diagnóstico 'V' na
+  // IATF e 'P' no repasse (mesma estação, lotes diferentes). Cada inseminação
+  // carrega lote.data — desfechoReprodutivo (helpers.js) precisa disso pro
+  // prazo de perda gestacional E pra achar a tentativa mais recente da
+  // guarda 'em_repasse'.
+  const insUltimaEstacaoVenda = lotesUltimaEstacaoVenda.flatMap(l =>
+    (l.inseminacoes || []).map(i => ({ ...i, lote: { data: l.data } })))
+  const partosUltimaEstacaoVenda  = lotesUltimaEstacaoVenda.flatMap(l => l.partos  || [])
+  const abortosUltimaEstacaoVenda = lotesUltimaEstacaoVenda.flatMap(l => l.abortos || [])
+
+  // Item 5/8 (unificados em "Situação reprodutiva") — reaproveita
+  // desfechoReprodutivo (helpers.js), a MESMA função usada no status
+  // "Falhada" da sequência do lote e da ficha do animal — não duplicar essa
+  // lógica aqui. "Falhada"/"Prenha" são escopadas à ÚLTIMA ESTAÇÃO DE MONTA
+  // (nunca lote a lote, nunca a situação reprodutiva atual no cadastro).
+  // "Com cria ao pé" (comCriaAoPe) é um eixo INDEPENDENTE — não escopado a
+  // estação nenhuma, vem de todosPartos (ver comentário em
+  // desfechoReprodutivo): uma vaca pode estar com cria ao pé de uma estação
+  // anterior e já prenha de novo na estação atual ao mesmo tempo.
+  const desfechoVendaAnimal = (animalId) => desfechoReprodutivo(animalId, {
+    inseminacoes: insUltimaEstacaoVenda,
+    partos:       partosUltimaEstacaoVenda,
+    abortos:      abortosUltimaEstacaoVenda,
+  }, hojeISO(), reprodutivoVenda?.todosPartos || null)
+
   // Nunca oferece pra venda um animal que ainda nem tinha nascido na data da
   // venda (bug real já visto em produção: 32 animais vendidos meses antes de
   // nascer, porque nada aqui comparava data_nascimento com a data escolhida).
   // Sem form.data ainda, não filtra por data (deixa o usuário escolher a data
   // primeiro) — sem data_nascimento cadastrada, também não filtra (não dá pra
   // provar que é inválido).
-  const animaisFiltradosVenda = animaisAtivos.filter(a => {
-    if (vendaFiltroCategoria === CATEGORIA_FALHADAS) {
-      if (!motivoFalhaUltimaEstacao(a.id)) return false
-    } else if (vendaFiltroCategoria && categoriaReal(a) !== vendaFiltroCategoria) return false
+  const animaisFiltradosVendaBase = animaisAtivos.filter(a => {
+    if (vendaFiltroCategoria && categoriaReal(a) !== vendaFiltroCategoria) return false
     if (vendaFiltroProprietario && a.proprietario_id !== vendaFiltroProprietario) return false
     if (vendaFiltroLote && a.lote_id !== vendaFiltroLote) return false
     if (form.data && a.data_nascimento && a.data_nascimento > form.data) return false
+    if (vendaFiltroSituacaoReprodutiva && a.sexo === 'F') {
+      const d = desfechoVendaAnimal(a.id)
+      if (vendaFiltroSituacaoReprodutiva === SITUACAO_FALHADAS && d.resultado !== 'falhou') return false
+      if (vendaFiltroSituacaoReprodutiva === SITUACAO_PRENHAS && d.resultado !== 'em_aberto') return false
+      if (vendaFiltroSituacaoReprodutiva === SITUACAO_COM_CRIA && !d.comCriaAoPe) return false
+    } else if (vendaFiltroSituacaoReprodutiva && a.sexo !== 'F') {
+      return false // macho nunca é falhada/prenha/com cria ao pé
+    }
     return true
   })
+  // "Com cria ao pé" — lista vem em PARES: vaca, filho dela logo abaixo,
+  // próxima vaca, filho dela, etc. (decisão do usuário — facilita conferir
+  // visualmente cada dupla antes de marcar). Marcação continua manual e
+  // individual (o filho NÃO é auto-selecionado) — "Selecionar todos do
+  // filtro" já pega os dois porque os dois estão nesta mesma lista. Some
+  // (volta pra ordem padrão de animaisAtivos) assim que o filtro não é mais
+  // "Com cria ao pé", pra nunca mudar a ordenação quando o filtro não está
+  // ativo. O filho sobe INDEPENDENTE de bater com Categoria/Proprietário/Lote
+  // — ele está aqui por ser filho da vaca selecionada, não porque atende aos
+  // outros filtros por conta própria.
+  const animaisFiltradosVenda = vendaFiltroSituacaoReprodutiva === SITUACAO_COM_CRIA
+    ? animaisFiltradosVendaBase.flatMap(a => {
+        const bezerroId = desfechoVendaAnimal(a.id).bezerroAtualId
+        const cria = bezerroId ? animaisAtivos.find(x => x.id === bezerroId) : null
+        // _criaDeVaca: só rótulo visual (linha abaixo, "cria de BRINCO") —
+        // cópia rasa pra nunca mutar o objeto original de animaisAtivos.
+        return cria ? [a, { ...cria, _criaDeVaca: a.brinco }] : [a]
+      })
+    : animaisFiltradosVendaBase
   const animaisSelecionadosObjs = animaisAtivos.filter(a => vendaSelecionados.includes(a.id))
   const categoriasNaSelecaoVenda = [...new Set(
     animaisSelecionadosObjs.map(categoriaReal)
@@ -1668,17 +1717,10 @@ export default function Financeiro() {
         {ehVendaShape && (
           <div>
             <div style={{display:'flex',gap:8,marginBottom:8,flexWrap:'wrap'}}>
-              {/* "Vacas falhadas" (Item C) — opção sintética dentro do MESMO
-                  seletor de categorias, mesmo critério de motivoFalhaUltimaEstacao
-                  que os antigos botões de filtro usavam (removidos — o seletor
-                  passou a ser o único caminho). Desabilitada enquanto o
-                  histórico reprodutivo carrega (reprodutivoVenda), pra não
-                  sugerir um resultado incompleto. */}
               <select className="input" style={{flex:1,minWidth:140}} value={vendaFiltroCategoria}
                 onChange={e=>setForm(p=>({...p,vendaFiltroCategoria:e.target.value}))}>
                 <option value="">Todas as categorias</option>
                 {categoriasComAtivos.map(c=><option key={c} value={c}>{c}</option>)}
-                <option value={CATEGORIA_FALHADAS} disabled={carregandoReprodVenda}>Vacas falhadas</option>
               </select>
               <select className="input" style={{flex:1,minWidth:140}} value={vendaFiltroProprietario}
                 onChange={e=>setForm(p=>({...p,vendaFiltroProprietario:e.target.value}))}>
@@ -1690,13 +1732,30 @@ export default function Financeiro() {
                 <option value="">Todos os lotes</option>
                 {lotes.map(l=><option key={l.id} value={l.id}>{l.nome}</option>)}
               </select>
+              {/* "Situação reprodutiva" — seletor próprio (mesmo padrão visual
+                  e funcional de Categoria/Proprietário/Lote acima, compõe com
+                  eles do mesmo jeito que eles compõem entre si). "Vacas
+                  falhadas" morava dentro de Categoria — saiu de lá, mora só
+                  aqui agora. As 3 opções vêm de desfechoReprodutivo
+                  (helpers.js) — 'em_aberto' é exibido como "Vacas prenhas"
+                  (o nome interno do resultado não muda, só o rótulo aqui).
+                  Select inteiro desabilitado enquanto reprodutivoVenda ainda
+                  não carregou, pra nunca sugerir um resultado incompleto. */}
+              <select className="input" style={{flex:1,minWidth:140}} value={vendaFiltroSituacaoReprodutiva}
+                disabled={carregandoReprodVenda}
+                onChange={e=>setForm(p=>({...p,vendaFiltroSituacaoReprodutiva:e.target.value}))}>
+                <option value="">Situação reprodutiva</option>
+                <option value={SITUACAO_FALHADAS}>Vacas falhadas</option>
+                <option value={SITUACAO_PRENHAS}>Vacas prenhas</option>
+                <option value={SITUACAO_COM_CRIA}>Vacas com cria ao pé</option>
+              </select>
             </div>
-            {vendaFiltroCategoria === CATEGORIA_FALHADAS && (
+            {vendaFiltroSituacaoReprodutiva && (
               <div style={{fontSize:'.76rem',color:'#9CA3AF',marginBottom:10}}>
                 {carregandoReprodVenda
                   ? 'carregando histórico reprodutivo...'
-                  : reprodutivoVenda && !reprodutivoVenda.ultimaEstacao
-                    ? 'nenhuma estação de monta com diagnóstico registrado ainda'
+                  : reprodutivoVenda && !ultimaEstacaoVenda && vendaFiltroSituacaoReprodutiva !== SITUACAO_COM_CRIA
+                    ? 'nenhuma estação de monta com diagnóstico registrado até a data da venda'
                     : null}
               </div>
             )}
@@ -1735,6 +1794,9 @@ export default function Financeiro() {
                           <strong>{a.brinco}</strong>
                           <span style={{fontSize:'.75rem',color:'#7B2FBE',fontWeight:500}}>{cat}</span>
                           <span style={{fontSize:'.75rem',color:'#9CA3AF'}}>{a.proprietario?.nome?.split(' ')[0] || ''}</span>
+                          {a._criaDeVaca && (
+                            <span style={{fontSize:'.72rem',color:'#166534',fontStyle:'italic'}}>cria de {a._criaDeVaca}</span>
+                          )}
                         </label>
                         {marcado && (
                           <input type="number" step="0.1" value={vendaPesosIndividuais[a.id] ?? ''}

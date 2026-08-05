@@ -70,6 +70,54 @@ function novoId() {
   return crypto.randomUUID()
 }
 
+// Todas as tabelas que passam pelo caminho genérico de insert (ORDEM_GENERICA
+// + lancamentos_financeiros, tratada à parte) — usada só para pedir de uma vez
+// as colunas reais de cada uma via RPC, nunca duplicada como lista de colunas.
+const TODAS_TABELAS_IMPORTACAO = [...ORDEM_GENERICA, 'lancamentos_financeiros']
+
+// Colunas REAIS de cada tabela, direto do information_schema via RPC
+// colunas_tabelas_publicas (ver docs/migrations-aplicadas/colunas_tabela_publica*.sql)
+// — nunca uma lista mantida à mão no código: se o schema mudar (coluna
+// removida, ex: futuro DROP de lotes_inseminacao.encerrado), o resultado
+// reflete isso automaticamente, sem precisar lembrar de atualizar nada aqui.
+// Uma única chamada para todas as tabelas da importação, não uma por tabela.
+// Se a RPC falhar (função ainda não aplicada no banco, rede, etc.), devolve
+// null — o chamador interpreta null como "sem filtro disponível" e segue com
+// o comportamento antigo (sem filtrar), só avisando no console.
+async function buscarColunasValidas(tabelas) {
+  const { data, error } = await supabase.rpc('colunas_tabelas_publicas', { p_tabelas: tabelas })
+  if (error) {
+    console.warn('[importarBackup] não foi possível confirmar as colunas reais das tabelas (RPC colunas_tabelas_publicas) — seguindo SEM filtro de colunas obsoletas. Se o schema já mudou desde que algum backup foi gerado, o insert pode falhar numa coluna removida:', error.message)
+    return null
+  }
+  const mapa = {}
+  for (const { tabela, coluna } of data || []) {
+    if (!mapa[tabela]) mapa[tabela] = new Set()
+    mapa[tabela].add(coluna)
+  }
+  return mapa
+}
+
+// Remove de `resto` qualquer chave que não seja mais uma coluna real da
+// tabela — registra cada coluna descartada (uma vez por tabela, não uma vez
+// por linha) tanto no console quanto em `descartes`, para o relatório final
+// não esconder que algum dado do arquivo deixou de entrar.
+function filtrarColunasValidas(tabela, resto, colunasValidas, descartes) {
+  if (!colunasValidas || !colunasValidas[tabela]) return resto // sem lista — não filtra (RPC indisponível)
+  const validas = colunasValidas[tabela]
+  const filtrado = {}
+  for (const [chave, valor] of Object.entries(resto)) {
+    if (validas.has(chave)) {
+      filtrado[chave] = valor
+    } else if (!descartes[tabela]?.has(chave)) {
+      if (!descartes[tabela]) descartes[tabela] = new Set()
+      descartes[tabela].add(chave)
+      console.warn(`[importarBackup] tabela "${tabela}": coluna "${chave}" existe no arquivo de backup mas não existe mais nessa tabela no banco — valor descartado nesta e em qualquer outra linha da mesma tabela.`)
+    }
+  }
+  return filtrado
+}
+
 // Gera de uma vez, ANTES de qualquer insert, o id novo de TODA linha de TODA
 // tabela — inclusive a auto-referência de lancamentos_financeiros já sai
 // resolvida sem precisar de round-trip nenhum: o novo id do "pai" já existe
@@ -84,7 +132,7 @@ function gerarMapaIds(dados) {
   return mapa
 }
 
-function remapearLinha(tabela, row, mapa, contaId, fazendaId) {
+function remapearLinha(tabela, row, mapa, contaId, fazendaId, colunasValidas, descartes) {
   const { id, conta_id, fazenda_id, criado_em, atualizado_em, ...resto } = row
   const fks = FKS_POR_TABELA[tabela] || {}
   for (const [campo, tabelaAlvo] of Object.entries(fks)) {
@@ -93,7 +141,8 @@ function remapearLinha(tabela, row, mapa, contaId, fazendaId) {
       ? null
       : (mapa[`${tabelaAlvo}:${valorAntigo}`] ?? null)
   }
-  return { ...resto, id: mapa[`${tabela}:${row.id}`], conta_id: contaId, fazenda_id: fazendaId }
+  const restoFiltrado = filtrarColunasValidas(tabela, resto, colunasValidas, descartes)
+  return { ...restoFiltrado, id: mapa[`${tabela}:${row.id}`], conta_id: contaId, fazenda_id: fazendaId }
 }
 
 async function inserirEmChunks(tabela, linhas, onChunk) {
@@ -108,8 +157,8 @@ async function inserirEmChunks(tabela, linhas, onChunk) {
   return { ok, error: null }
 }
 
-async function inserirLancamentos(linhasOriginais, mapa, contaId, fazendaId, onChunk) {
-  const remapeadas = linhasOriginais.map(row => remapearLinha('lancamentos_financeiros', row, mapa, contaId, fazendaId))
+async function inserirLancamentos(linhasOriginais, mapa, contaId, fazendaId, onChunk, colunasValidas, descartes) {
+  const remapeadas = linhasOriginais.map(row => remapearLinha('lancamentos_financeiros', row, mapa, contaId, fazendaId, colunasValidas, descartes))
   // Pai antes do filho: lançamentos sem origem primeiro, os que dependem de
   // outro (comissão/imposto/frete, via lancamento_origem_id) depois — senão o
   // banco recusa o filho por apontar pra um id que ainda não existe na tabela.
@@ -170,6 +219,14 @@ export async function importarBackup(payload, { contaId, nomeFazenda }, onProgre
 
   const mapa = gerarMapaIds(dados)
 
+  // Colunas reais de cada tabela (ver buscarColunasValidas) — pedidas uma vez
+  // só, antes do laço, pra filtrar toda linha antes do insert. `descartes`
+  // acumula, por tabela, quais colunas do arquivo foram descartadas por não
+  // existirem mais no banco — vira relatorio.colunasDescartadas no final.
+  const colunasValidas = await buscarColunasValidas(TODAS_TABELAS_IMPORTACAO)
+  relatorio.filtroColunasIndisponivel = colunasValidas === null
+  const descartes = {}
+
   // Sequência final: ORDEM_GENERICA com o bloco especial de
   // lancamentos_financeiros injetado na posição certa.
   const sequencia = [
@@ -195,8 +252,8 @@ export async function importarBackup(payload, { contaId, nomeFazenda }, onProgre
     let resultado
     try {
       resultado = passo === '__lancamentos__'
-        ? await inserirLancamentos(linhasOriginais, mapa, contaId, fazendaId, onChunk)
-        : await inserirEmChunks(tabela, linhasOriginais.map(row => remapearLinha(tabela, row, mapa, contaId, fazendaId)), onChunk)
+        ? await inserirLancamentos(linhasOriginais, mapa, contaId, fazendaId, onChunk, colunasValidas, descartes)
+        : await inserirEmChunks(tabela, linhasOriginais.map(row => remapearLinha(tabela, row, mapa, contaId, fazendaId, colunasValidas, descartes)), onChunk)
     } catch (e) {
       resultado = { ok: 0, error: e }
     }
@@ -205,12 +262,14 @@ export async function importarBackup(payload, { contaId, nomeFazenda }, onProgre
 
     if (resultado.error) {
       relatorio.erro = `Parou na tabela "${tabela}": ${resultado.error.message || String(resultado.error)}`
+      relatorio.colunasDescartadas = Object.entries(descartes).map(([tabela, cols]) => ({ tabela, colunas: [...cols] }))
       report({ tabela, status: 'erro', esperado, importado: resultado.ok, detalhe: relatorio.erro })
       return relatorio
     }
     report({ tabela, status: 'ok', esperado, importado: resultado.ok })
   }
 
+  relatorio.colunasDescartadas = Object.entries(descartes).map(([tabela, cols]) => ({ tabela, colunas: [...cols] }))
   relatorio.sucesso = true
   return relatorio
 }

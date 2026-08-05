@@ -9,7 +9,7 @@ import {
   fmtData, pct, contarMatrizes, contarExpostas, contarPrenhas, calcTaxaPrenhez, calcCategoriaRebanho, algumErro,
   GESTACAO_MAX_DIAS, GESTACAO_ANGUS_DIAS, PERDA_PRESUMIDA_DIAS_APOS_PREVISTO, calcGestacaoLote, calcTaxaParicao, calcDesmameMetrics,
   calcIntervaloPartos, statusReprodutivoExibicao, statusReprodutivoDetalhado, desfechoReprodutivo, FALHA_MOTIVO_LABEL,
-  dataNaoFutura, resolverPaiDerivado, mesesDeVida, capitalizarPrimeira, capitalizarNome, numeroPositivo,
+  dataNaoFutura, resolverPaiDerivado, mesesDeVida, capitalizarPrimeira, capitalizarNome, numeroPositivo, loteEncerrado,
 } from '../lib/helpers'
 import { hoje as hojeAgora, hojeISO } from '../lib/hoje'
 import { registrarDesmame, desfazerDesmame } from '../lib/reprodutivoDesmame'
@@ -2224,10 +2224,16 @@ export default function Reprodutivo() {
               const vaz   = ins.filter(i=>i.diagnostico==='V').length
               const pend  = ins.filter(i=>!i.diagnostico).length
               const rotuloExpostas = l.tipo === 'natural' ? 'expostas' : 'inseminadas'
+              // lotes_inseminacao.encerrado é campo morto (nunca gravado, ver
+              // loteEncerrado em helpers.js) — derivado aqui a partir dos
+              // outros lotes da mesma estação + data de fim da estação.
+              const lotesDaEstacaoL = lotes.filter(x => x.estacao_monta_id === l.estacao_monta_id)
+              const estacaoDoLote   = estacoes.find(es => es.id === l.estacao_monta_id)
+              const encerradoCalc   = loteEncerrado(l, lotesDaEstacaoL, estacaoDoLote?.fim)
               return (
                 <div key={l.id} className="card" style={{
                   marginBottom:10, cursor:'pointer',
-                  borderLeft:`3px solid ${l.encerrado?'#7B2FBE':'#D97706'}`
+                  borderLeft:`3px solid ${encerradoCalc?'#7B2FBE':'#D97706'}`
                 }} onClick={() => setSelLote(l)}>
                   <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:8 }}>
                     <div>
@@ -2238,7 +2244,7 @@ export default function Reprodutivo() {
                       <div style={{ fontSize:'.78rem', color:'#9CA3AF' }}>{fmtData(l.data)} · Parto prev: {l.data ? new Date(new Date(l.data).setMonth(new Date(l.data).getMonth()+9)).toLocaleDateString('pt-BR') : '—'}</div>
                     </div>
                     <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                      <Badge color={l.encerrado?'green':'amber'}>{l.encerrado?'Encerrado':'Em andamento'}</Badge>
+                      <Badge color={encerradoCalc?'green':'amber'}>{encerradoCalc?'Encerrado':'Em andamento'}</Badge>
                       {podeEditarReprodCiclo && pend === ins.length && (
                         <button onClick={(e) => excluirLote(l, e)}
                           style={{ background:'none', border:'none', cursor:'pointer', color:'#DC2626', padding:4 }}
@@ -2579,7 +2585,8 @@ export default function Reprodutivo() {
               // sem fetch extra). Lote sem estação vinculada (dado antigo)
               // usa só a si mesmo — não há o que consolidar. Cada inseminação
               // carrega lote.data (a data da MONTA) — desfechoReprodutivo
-              // precisa disso pra calcular o prazo de perda gestacional.
+              // precisa disso pro prazo de perda gestacional E pra achar a
+              // tentativa mais recente da guarda 'em_repasse'.
               const lotesDaEstacaoSel = selLote.estacao_monta_id
                 ? lotes.filter(l => l.estacao_monta_id === selLote.estacao_monta_id)
                 : [selLote]

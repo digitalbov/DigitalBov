@@ -700,6 +700,30 @@ export const repCor = {
   Falhada: { bg: '#FCEBEB', text: '#791F1F' },
 }
 
+// ── Predicado ÚNICO de "cria ao pé" — usado por statusReprodutivoExibicao,
+// statusReprodutivoDetalhado e desfechoReprodutivo (helpers.js), pra nunca
+// ter 3 cópias divergentes do mesmo critério. Um parto conta como "cria ao
+// pé" quando: não foi natimorto, o bezerro está VIVO E ATIVO no rebanho
+// (situacao === 'ativo' — positivo, não "!== 'morto'") e ainda não foi
+// desmamado (data_desmame vazio).
+//
+// Checagem POSITIVA (situacao === 'ativo'), não negativa (situacao !==
+// 'morto'): achado ao vivo — um bezerro VENDIDO ainda mamando (situacao
+// 'vendido', data_desmame nunca preenchida, porque venda não grava esse
+// campo, só empresta o peso da venda pros cálculos agregados de desmame —
+// ver calcDesmameMetrics) passava pela checagem negativa antiga e ficava
+// "Com cria ao pé"/"lactante" PARA SEMPRE, mesmo já fora do rebanho. A
+// checagem positiva fecha isso: só 'ativo' conta.
+//
+// `parto` precisa ter natimorto e bezerro.{situacao,data_desmame} (ex:
+// db.partos.listAll(), selLote.partos no detalhe do lote, ou o parto mais
+// recente vindo de todosPartos em desfechoReprodutivo).
+export function bezerroAindaComCriaAoPe(parto) {
+  if (!parto || parto.natimorto) return false
+  const b = parto.bezerro
+  return !!b && b.situacao === 'ativo' && !b.data_desmame
+}
+
 // ── Situação reprodutiva de EXIBIÇÃO (não é um valor do banco) ────────────────
 // "Com cria ao pé" (antigo rótulo "Lactante" — só o texto mudou, nada no dado
 // gravado) é só uma camada visual sobre sit_reprodutiva === 'vazia': aparece
@@ -709,9 +733,6 @@ export const repCor = {
 // assim que o terneiro é desmamado (data_desmame preenchida) ou se a vaca for
 // reinseminada e diagnosticada prenha de novo (sit_reprodutiva vira 'prenha',
 // que tem prioridade — é a informação mais relevante nessa hora).
-// Bezerro natimorto/morto NUNCA é "Com cria ao pé" (bug achado ao vivo na etapa
-// B: um natimorto nunca tem data_desmame preenchida — sem esta checagem, ficaria
-// "Com cria ao pé" pra sempre; a vaca cai de volta pro sit_reprodutiva real ('vazia')).
 // `partos` precisa ter mae_id, natimorto e bezerro.{data_desmame,situacao}
 // (ex: db.partos.listAll(), ou selLote.partos no detalhe do lote).
 export function statusReprodutivoExibicao(animal, partos) {
@@ -720,13 +741,12 @@ export function statusReprodutivoExibicao(animal, partos) {
     .filter(p => p.mae_id === animal.id)
     .sort((a, b) => (b.data_parto || '').localeCompare(a.data_parto || ''))
   const ultimoParto = partosDaMae[0]
-  const morto = !!ultimoParto?.natimorto || ultimoParto?.bezerro?.situacao === 'morto'
-  if (ultimoParto && !morto && !ultimoParto.bezerro?.data_desmame) return 'Com cria ao pé'
+  if (ultimoParto && bezerroAindaComCriaAoPe(ultimoParto)) return 'Com cria ao pé'
   return animal.sit_reprodutiva
 }
 
 // ── Desfecho reprodutivo consolidado (Falhada é GUARDA-CHUVA, não estado
-// exclusivo) — ÚNICA fonte de verdade, reaproveitada em TRÊS escalas
+// exclusivo) — ÚNICA fonte de verdade, reaproveitada em QUATRO escalas
 // diferentes sem reescrever a lógica: por ESTAÇÃO (filtros de venda em
 // Financeiro.jsx, sequência do lote e "última estação" da ficha em
 // Reprodutivo.jsx/Animais.jsx) e por CICLO (tabela "Por ciclo" da ficha,
@@ -741,13 +761,25 @@ export function statusReprodutivoExibicao(animal, partos) {
 //   { resultado: 'nao_exposta' }          — nunca teve inseminação no escopo
 //   { resultado: 'em_aberto', dataPrevistaParto? } — prenha, ainda dentro do
 //     prazo (até PERDA_PRESUMIDA_DIAS_APOS_PREVISTO dias do parto previsto),
-//     sem parto nem aborto ainda — indefinido, não é falha
-//   { resultado: 'em_repasse' } — foi Vazia numa tentativa anterior do escopo,
-//     mas já existe uma inseminação PENDENTE (sem diagnóstico ainda) numa
-//     tentativa mais nova do mesmo escopo — repasse em andamento, "falhada"
-//     é conclusão de fim de estação, não isto; nunca gera esse rótulo. Some
-//     assim que a tentativa nova é diagnosticada (vira 'falhou' ou some, se
-//     virar 'P').
+//     sem parto nem aborto ainda — indefinido, não é falha. É o estado usado
+//     como "Vacas prenhas" na venda (Financeiro.jsx) — o NOME interno não
+//     muda (outros callers já comparam contra a string 'em_aberto'), só o
+//     RÓTULO exibido no seletor da venda.
+//   { resultado: 'em_repasse' } — a tentativa MAIS RECENTE dela no escopo
+//     (maior lote.data entre as inseminações dela) ainda não foi
+//     diagnosticada, E ela já foi Vazia antes — repasse em andamento,
+//     "falhada" é conclusão de fim de estação, não isto; nunca gera esse
+//     rótulo. Critério é SEMPRE a tentativa mais recente, não "existe alguma
+//     linha sem diagnóstico" (bug corrigido — achado ao vivo: uma vaca
+//     diagnosticada Vazia em 3 lotes sucessivos, sem NENHUMA linha pendente,
+//     ficava presa em 'em_repasse' pra sempre se qualquer lote ANTIGO dela
+//     tivesse ficado sem diagnóstico por engano — um erro de digitação
+//     antigo não pode barrar a conclusão de hoje. Uma tentativa tentada e
+//     descartada por engano, um lote NOVO onde ela foi incluída de novo:
+//     esse sim é repasse de verdade, e é exatamente o que "a mais recente"
+//     captura. Campo `lote.encerrado` NÃO é mais usado aqui — descoberto ao
+//     vivo que nenhum caminho do app grava essa coluna como true, então
+//     qualquer critério baseado nela era inerte na prática.
 //   { resultado: 'falhou', motivo, data? } — motivo é um destes 3:
 //     'nao_emprenhou'    — teve diagnóstico 'V' e NUNCA 'P' no escopo
 //     'aborto'            — engravidou e a gestação mais recente terminou em
@@ -764,39 +796,76 @@ export function statusReprodutivoExibicao(animal, partos) {
 // anterior do ciclo) some assim que uma tentativa mais nova tem desfecho
 // próprio, sucesso ou não.
 //
+// Além do `resultado` acima (sempre escopado a `inseminacoes`/`partos`/
+// `abortos`, o que o chamador passou), o retorno sempre inclui um eixo
+// INDEPENDENTE, não escopado à mesma janela:
+//   comCriaAoPe: bool   — ela tem um bezerro vivo/ativo/não desmamado AGORA,
+//   bezerroAtualId: uuid|null — o id desse bezerro (ou null)
+// Calculado a partir do PARTO MAIS RECENTE da vaca em `todosPartos` (sem
+// filtro de estação/ciclo) — de propósito diferente do `resultado`: uma vaca
+// pode estar com cria ao pé de uma estação anterior E já prenha de novo na
+// estação atual ao mesmo tempo (é o normal numa operação de cria bem
+// tocada), então "tem cria ao pé" não pode depender de ela ter parido
+// DENTRO do escopo sendo avaliado agora. Sem `todosPartos` (chamador não
+// forneceu), comCriaAoPe fica sempre false — nenhum caller quebra (nenhum
+// lia esses campos antes deles existirem).
+//
 // `inseminacoes` = eventos do escopo inteiro (todos os lotes da estação, ou
 // todos os lotes do ciclo), cada item com animal_id/diagnostico/
-// data_diagnostico e `lote.data` (a data da MONTA, pra calcular o prazo —
-// não a data do diagnóstico). `partos`/`abortos` = idem, mae_id/data_parto
-// e animal_id/data respectivamente.
-export function desfechoReprodutivo(animalId, { inseminacoes = [], partos = [], abortos = [] } = {}, hoje = hojeISO()) {
-  const partoAnimal = (partos || []).find(p => p.mae_id === animalId)
-  if (partoAnimal) return { resultado: 'pariu', data: partoAnimal.data_parto }
-  const insAnimal = (inseminacoes || []).filter(i => i.animal_id === animalId)
-  const prenhezes = insAnimal.filter(i => i.diagnostico === 'P' && i.data_diagnostico)
-  if (prenhezes.length === 0) {
-    const temV = insAnimal.some(i => i.diagnostico === 'V')
-    // Repasse em aberto: já foi Vazia antes, mas tem uma inseminação sem
-    // diagnóstico ainda no escopo (foi incluída num lote novo) — "falhada" só
-    // é conclusão quando não sobra nenhuma tentativa pendente (ver comentário
-    // do resultado 'em_repasse' acima).
-    const temPendente = insAnimal.some(i => !i.diagnostico)
-    if (temV && temPendente) return { resultado: 'em_repasse' }
-    return temV ? { resultado: 'falhou', motivo: 'nao_emprenhou' } : { resultado: 'nao_exposta' }
+// data_diagnostico e `lote.data` (data da MONTA, pro prazo de perda
+// gestacional E pra achar a tentativa mais recente da guarda 'em_repasse').
+// `partos`/`abortos` = idem, mae_id/data_parto e animal_id/data
+// respectivamente. `todosPartos` (opcional, 4º parâmetro) = TODOS os partos
+// da fazenda (sem escopo), cada item com mae_id/data_parto/natimorto/
+// bezerro_id/bezerro.{situacao,data_desmame} — usado só pra comCriaAoPe.
+export function desfechoReprodutivo(animalId, { inseminacoes = [], partos = [], abortos = [] } = {}, hoje = hojeISO(), todosPartos = null) {
+  const resultadoBase = (() => {
+    const partoAnimal = (partos || []).find(p => p.mae_id === animalId)
+    if (partoAnimal) return { resultado: 'pariu', data: partoAnimal.data_parto }
+    const insAnimal = (inseminacoes || []).filter(i => i.animal_id === animalId)
+    const prenhezes = insAnimal.filter(i => i.diagnostico === 'P' && i.data_diagnostico)
+    if (prenhezes.length === 0) {
+      const temV = insAnimal.some(i => i.diagnostico === 'V')
+      // Repasse em andamento = a tentativa MAIS RECENTE dela no escopo
+      // (maior lote.data) ainda não tem diagnóstico — não "existe alguma
+      // linha sem diagnóstico" (ver comentário do resultado 'em_repasse'
+      // acima pro bug que isso corrige). Linhas sem lote.data (dado antigo
+      // incompleto) ficam de fora dessa comparação — sem data não dá pra
+      // saber se são "mais recentes" que nada.
+      const insComData = insAnimal.filter(i => i.lote?.data)
+      const maisRecente = insComData.reduce((max, i) => (!max || i.lote.data > max.lote.data) ? i : max, null)
+      const temPendente = !!maisRecente && !maisRecente.diagnostico
+      if (temV && temPendente) return { resultado: 'em_repasse' }
+      return temV ? { resultado: 'falhou', motivo: 'nao_emprenhou' } : { resultado: 'nao_exposta' }
+    }
+    const ultimaPrenhez = prenhezes.reduce((max, p) => (!max || p.data_diagnostico > max.data_diagnostico) ? p : max, null)
+    const abortosResolvendo = (abortos || [])
+      .filter(a => a.animal_id === animalId && a.data && a.data >= ultimaPrenhez.data_diagnostico)
+      .sort((a, b) => b.data.localeCompare(a.data))
+    if (abortosResolvendo.length > 0) return { resultado: 'falhou', motivo: 'aborto', data: abortosResolvendo[0].data }
+    if (!ultimaPrenhez.lote?.data) return { resultado: 'em_aberto' }
+    const d = new Date(ultimaPrenhez.lote.data + 'T12:00:00')
+    d.setDate(d.getDate() + GESTACAO_ANGUS_DIAS)
+    const dataPrevistaParto = d.toISOString().slice(0, 10)
+    const dLimite = new Date(d)
+    dLimite.setDate(dLimite.getDate() + PERDA_PRESUMIDA_DIAS_APOS_PREVISTO)
+    if (hoje >= dLimite.toISOString().slice(0, 10)) return { resultado: 'falhou', motivo: 'perda_gestacional', dataPrevistaParto }
+    return { resultado: 'em_aberto', dataPrevistaParto }
+  })()
+
+  let comCriaAoPe = false
+  let bezerroAtualId = null
+  if (todosPartos) {
+    const ultimoPartoVaca = (todosPartos || [])
+      .filter(p => p.mae_id === animalId)
+      .sort((a, b) => (b.data_parto || '').localeCompare(a.data_parto || ''))[0] || null
+    if (ultimoPartoVaca && bezerroAindaComCriaAoPe(ultimoPartoVaca)) {
+      comCriaAoPe = true
+      bezerroAtualId = ultimoPartoVaca.bezerro_id ?? ultimoPartoVaca.bezerro?.id ?? null
+    }
   }
-  const ultimaPrenhez = prenhezes.reduce((max, p) => (!max || p.data_diagnostico > max.data_diagnostico) ? p : max, null)
-  const abortosResolvendo = (abortos || [])
-    .filter(a => a.animal_id === animalId && a.data && a.data >= ultimaPrenhez.data_diagnostico)
-    .sort((a, b) => b.data.localeCompare(a.data))
-  if (abortosResolvendo.length > 0) return { resultado: 'falhou', motivo: 'aborto', data: abortosResolvendo[0].data }
-  if (!ultimaPrenhez.lote?.data) return { resultado: 'em_aberto' }
-  const d = new Date(ultimaPrenhez.lote.data + 'T12:00:00')
-  d.setDate(d.getDate() + GESTACAO_ANGUS_DIAS)
-  const dataPrevistaParto = d.toISOString().slice(0, 10)
-  const dLimite = new Date(d)
-  dLimite.setDate(dLimite.getDate() + PERDA_PRESUMIDA_DIAS_APOS_PREVISTO)
-  if (hoje >= dLimite.toISOString().slice(0, 10)) return { resultado: 'falhou', motivo: 'perda_gestacional', dataPrevistaParto }
-  return { resultado: 'em_aberto', dataPrevistaParto }
+
+  return { ...resultadoBase, comCriaAoPe, bezerroAtualId }
 }
 export const FALHA_MOTIVO_LABEL = {
   nao_emprenhou: 'não emprenhou',
@@ -857,15 +926,43 @@ export function statusReprodutivoDetalhado(animal, partos, dataMonta) {
   if (morto) {
     return { ...vazio, etapa: 'pariu_morto', dataParto: ultimoParto.data_parto, bezerro }
   }
-  if (!b?.data_desmame) {
+  // bezerroAindaComCriaAoPe (predicado único, ver acima) — checagem POSITIVA
+  // (situacao === 'ativo'): um bezerro VENDIDO ainda sem desmame registrado
+  // cai aqui embaixo (etapa 'desmamado', sem data/peso de desmame), não fica
+  // "lactante" pra sempre.
+  if (bezerroAindaComCriaAoPe(ultimoParto)) {
     return { ...vazio, etapa: 'lactante', dataParto: ultimoParto.data_parto, bezerro }
   }
-  const pesoDesm = (b.pesagens || []).find(ps => ps.tipo === 'desmama')
+  const pesoDesm = (b?.pesagens || []).find(ps => ps.tipo === 'desmama')
   return {
     ...vazio, etapa: 'desmamado', dataParto: ultimoParto.data_parto, bezerro,
-    dataDesmame: b.data_desmame,
+    dataDesmame: b?.data_desmame || null,
     pesoDesmame: pesoDesm ? parseFloat(pesoDesm.peso_kg) : null,
   }
+}
+
+// ── "Lote encerrado" — 100% DERIVADO, nunca lido de lotes_inseminacao.encerrado ──
+// Essa coluna existe no schema (herdada do projeto anterior) mas nenhum
+// caminho do app jamais grava true nela — confirmado por busca no código
+// inteiro e por consulta direta no banco (nenhum lote, em nenhuma estação).
+// Em vez de reviver a coluna, um lote é considerado encerrado quando QUALQUER
+// uma das duas condições vale — o mesmo raciocínio já usado no critério de
+// repasse "tentativa mais recente" de desfechoReprodutivo, só que aplicado ao
+// lote em si em vez de à inseminação de uma vaca:
+//   a) existe outro lote de data mais recente na MESMA estação (esse lote não
+//      é mais a tentativa em andamento); ou
+//   b) a estação em si já terminou por data (`estacao.fim <= hoje`) — cobre o
+//      ÚLTIMO lote de uma estação encerrada, que não tem lote posterior mas
+//      claramente não está mais "em andamento".
+// As duas são necessárias: só (a) deixaria o último lote de toda estação
+// encerrada eternamente "em andamento"; só (b) erraria em estações sem `fim`
+// cadastrado ou ainda em curso, mesmo já tendo lote(s) posterior(es).
+export function loteEncerrado(lote, lotesDaEstacao, estacaoFim, hoje = hojeISO()) {
+  const existeLotePosterior = (lotesDaEstacao || []).some(l =>
+    l.id !== lote.id && l.data && lote.data && l.data > lote.data
+  )
+  const estacaoTerminouPorData = !!estacaoFim && estacaoFim <= hoje
+  return existeLotePosterior || estacaoTerminouPorData
 }
 
 // ── "Vaca falhada" — status reprodutivo por ciclo, 100% DERIVADO na leitura ──
