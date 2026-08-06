@@ -11,7 +11,7 @@ import Tutorial from '../Tutorial'
 // sistema de permissões não os cobre.
 const MODULOS_GERENCIAVEIS = [
   'propriedade', 'animais', 'reprodutivo', 'rebanho', 'sanidade',
-  'pesagens', 'estoque', 'financeiro', 'relatorios', 'metas',
+  'pesagens', 'estoque', 'financeiro', 'relatorios', 'metas', 'veterinario',
 ]
 
 // Ordem/agrupamento/rótulos definidos pelo usuário — só isso muda aqui. Rota,
@@ -38,6 +38,7 @@ const NAV = [
   { path: '/pesagens',    icon: 'ti-weight',           label: 'Pesagens' },
   { path: '/estoque',     icon: 'ti-box',              label: 'Estoque' },
   { path: '/financeiro',  icon: 'ti-cash',             label: 'Gestão Financeira' },
+  { path: '/veterinario', icon: 'ti-stethoscope',      label: 'Veterinário' },
 
   { section: 'SISTEMA' },
   { path: '/usuarios', icon: 'ti-users',           label: 'Configurações de Usuários', adminOnly: true },

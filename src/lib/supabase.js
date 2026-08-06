@@ -514,4 +514,97 @@ export const db = {
         p_conta_id: contaId, p_usuario_id: usuarioId, p_fazenda_id: fazendaId, p_vincular: vincular
       }),
   },
+
+  // ── Módulo Veterinário — tudo semFazenda:true (dado é da CONTA, não da
+  // fazenda; ver veterinario_schema.sql). Mesmo padrão de db.fazendas, único
+  // outro consumidor de T(tabela, {semFazenda:true}) hoje.
+  //
+  // NÃO coberto pelo backup/restauração de fazenda (exportarBackup.js,
+  // importarBackup.js, restaurar_backup_fazenda.sql): esses três mecanismos
+  // operam por FAZENDA, e este módulo é por CONTA — mesma categoria de
+  // usuarios/usuario_permissoes/contas, que já ficam fora hoje. Lacuna
+  // conhecida e documentada (ver Backup.jsx e o manual), não um esquecimento.
+  veterinario: {
+    config: {
+      get: () => T('veterinario_config', { semFazenda: true }).select('*').maybeSingle(),
+      // upsert (não insertOne comum): 1 linha por conta, conta_id UNIQUE —
+      // salvar de novo deve atualizar, nunca duplicar.
+      upsert: (data) => supabase.from('veterinario_config')
+        .upsert({ ...data, conta_id: data.conta_id ?? cid() }, { onConflict: 'conta_id' })
+        .select().single(),
+    },
+
+    categorias: {
+      list:   ()      => T('veterinario_categorias', { semFazenda: true }).select('*').order('nome'),
+      insert: (data)  => T('veterinario_categorias', { semFazenda: true }).insertOne(data).select().single(),
+      update: (id, d) => escopo(T('veterinario_categorias', { semFazenda: true }).raw().update(d).eq('id', id), { semFazenda: true }).select().single(),
+      delete: (id)    => escopo(T('veterinario_categorias', { semFazenda: true }).raw().delete().eq('id', id), { semFazenda: true }),
+    },
+
+    clientes: {
+      list:   ()      => T('veterinario_clientes', { semFazenda: true }).select('*').order('nome'),
+      insert: (data)  => T('veterinario_clientes', { semFazenda: true }).insertOne(data).select().single(),
+      update: (id, d) => escopo(T('veterinario_clientes', { semFazenda: true }).raw().update(d).eq('id', id), { semFazenda: true }).select().single(),
+      delete: (id)    => escopo(T('veterinario_clientes', { semFazenda: true }).raw().delete().eq('id', id), { semFazenda: true }),
+      // Sincronização inicial fazenda -> cliente (ver Veterinario.jsx, aba
+      // Clientes): insere só as fazendas que ainda não têm cliente
+      // correspondente — nunca atualiza as já existentes (nome fica estável
+      // até o usuário clicar em "sincronizar nome" explicitamente).
+      insertVarios: async (rows) => {
+        if (!rows?.length) return { error: null }
+        return supabase.from('veterinario_clientes').insert(rows)
+      },
+    },
+
+    ciclos: {
+      list:          ()      => T('veterinario_ciclos', { semFazenda: true }).select('*').order('inicio', { ascending: false }),
+      current:       ()      => T('veterinario_ciclos', { semFazenda: true }).select('*').eq('atual', true).maybeSingle(),
+      insert:        (data)  => T('veterinario_ciclos', { semFazenda: true }).insertOne(data).select().single(),
+      update:        (id, d) => escopo(T('veterinario_ciclos', { semFazenda: true }).raw().update(d).eq('id', id), { semFazenda: true }).select().single(),
+      deactivateAll: ()      => {
+        let q = T('veterinario_ciclos', { semFazenda: true }).raw().update({ atual: false }).eq('atual', true)
+        if (cid()) q = q.eq('conta_id', cid())
+        return q
+      },
+    },
+
+    lancamentos: {
+      // listAll (sem filtro de ciclo) — usado pro saldo transportado: soma
+      // TODOS os ciclos de uma vez, na leitura, nunca grava snapshot nenhum
+      // (ver Veterinario.jsx::saldoAteOCiclo).
+      listAll: () => T('veterinario_lancamentos', { semFazenda: true })
+        .select('*, cliente:veterinario_clientes(id,nome), categoria:veterinario_categorias(id,nome)')
+        .order('data', { ascending: false }),
+      insert: (data)  => T('veterinario_lancamentos', { semFazenda: true }).insertOne(data).select().single(),
+      update: (id, d) => escopo(T('veterinario_lancamentos', { semFazenda: true }).raw().update(d).eq('id', id), { semFazenda: true }).select().single(),
+      delete: (id)    => escopo(T('veterinario_lancamentos', { semFazenda: true }).raw().delete().eq('id', id), { semFazenda: true }),
+    },
+
+    // Histórico de atestados emitidos (Item 10) — só list/insert: reemitir é
+    // reler uma linha existente (com os animais já embutidos) e gerar o PDF
+    // de novo (veterinarioPdf.js), nunca update (documento já emitido não
+    // muda retroativamente). N animais por atestado (ver
+    // veterinario_atestados_multi.sql) — animais embutidos via embed do
+    // PostgREST, sem N+1.
+    atestados: {
+      list: () => T('veterinario_atestados', { semFazenda: true })
+        .select('*, animais:veterinario_atestado_animais(*)')
+        .order('criado_em', { ascending: false }),
+      insert: (data) => T('veterinario_atestados', { semFazenda: true }).insertOne(data).select().single(),
+      // Bulk insert dos animais de UM atestado — mesmo padrão de
+      // lancamentoRateios.inserirVarios/clientes.insertVarios (raw, cada
+      // linha já vem com conta_id/atestado_id prontos do chamador).
+      insertAnimais: async (rows) => {
+        if (!rows?.length) return { error: null }
+        return supabase.from('veterinario_atestado_animais').insert(rows)
+      },
+      // Só uso interno: compensação se insertAnimais falhar DEPOIS do
+      // atestado já ter sido criado (ver Veterinario.jsx::emitir) — sem
+      // isso, um erro no segundo insert deixaria um atestado órfão, sem
+      // nenhum animal (exatamente o que a verificação da migração checava).
+      // Nunca exposto como "excluir atestado" pro usuário — histórico
+      // continua append-only.
+      delete: (id) => escopo(T('veterinario_atestados', { semFazenda: true }).raw().delete().eq('id', id), { semFazenda: true }),
+    },
+  },
 }

@@ -17,6 +17,7 @@ import SecaoDashboard from './secoes/SecaoDashboard'
 import SecaoRelatorios from './secoes/SecaoRelatorios'
 import SecaoComparativo from './secoes/SecaoComparativo'
 import SecaoBackup from './secoes/SecaoBackup'
+import SecaoVeterinario from './secoes/SecaoVeterinario'
 import SecaoAssistente from './secoes/SecaoAssistente'
 import SecaoFAQ from './secoes/SecaoFAQ'
 import SecaoRebanho from './secoes/SecaoRebanho'
@@ -37,6 +38,7 @@ export const CONTEUDOS = {
   relatorios: SecaoRelatorios,
   comparativo: SecaoComparativo,
   backup: SecaoBackup,
+  veterinario: SecaoVeterinario,
   assistente: SecaoAssistente,
   faq: SecaoFAQ,
   rebanho: SecaoRebanho,

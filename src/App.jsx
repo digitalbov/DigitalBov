@@ -19,6 +19,7 @@ const Sanidade    = lazy(() => import('./pages/Sanidade'))
 const Pesagens    = lazy(() => import('./pages/Pesagens'))
 const Estoque     = lazy(() => import('./pages/Estoque'))
 const Financeiro  = lazy(() => import('./pages/Financeiro'))
+const Veterinario = lazy(() => import('./pages/Veterinario'))
 const Relatorios  = lazy(() => import('./pages/Relatorios'))
 const Assistente  = lazy(() => import('./pages/Assistente'))
 const Calendario  = lazy(() => import('./pages/Calendario'))
@@ -198,6 +199,7 @@ export default function App() {
           <Route path="/pesagens"    element={<RotaProtegida modulo="pesagens"><Suspense fallback={null}><Pesagens /></Suspense></RotaProtegida>} />
           <Route path="/estoque"     element={<RotaProtegida modulo="estoque"><Suspense fallback={null}><Estoque /></Suspense></RotaProtegida>} />
           <Route path="/financeiro"  element={<RotaProtegida modulo="financeiro"><Suspense fallback={null}><Financeiro /></Suspense></RotaProtegida>} />
+          <Route path="/veterinario" element={<RotaProtegida modulo="veterinario"><Suspense fallback={null}><Veterinario /></Suspense></RotaProtegida>} />
           <Route path="/relatorios"  element={<RotaProtegida modulo="relatorios"><Suspense fallback={null}><Relatorios /></Suspense></RotaProtegida>} />
           <Route path="/comparativo" element={<Suspense fallback={null}><Comparativo /></Suspense>} />
           <Route path="/usuarios"   element={<Suspense fallback={null}><Usuarios /></Suspense>} />

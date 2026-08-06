@@ -13,8 +13,18 @@ const MODULOS = [
   ['propriedade','Propriedade'], ['animais','Animais'],
   ['reprodutivo','Reprodutivo'], ['rebanho','Rebanho'], ['sanidade','Sanidade'],
   ['pesagens','Pesagens'], ['estoque','Estoque'], ['financeiro','Financeiro'],
-  ['relatorios','Relatórios'], ['metas','Metas'],
+  ['relatorios','Relatórios'], ['metas','Metas'], ['veterinario','Veterinário'],
 ]
+
+// Aviso mostrado só na linha de 'veterinario' — esse módulo guarda dado da
+// CONTA inteira (config, clientes, lançamentos), não da fazenda selecionada
+// aqui, mas a concessão continua sendo por fazenda (mesmo mecanismo de
+// usuario_permissoes de todos os outros módulos — não criamos um segundo).
+// Na prática, um usuário só enxerga o módulo quando a fazenda ATUAL dele tem
+// a permissão marcada — o dado é o mesmo em qualquer fazenda da conta.
+const AVISO_MODULO_CONTA = {
+  veterinario: 'Dado é da conta inteira, não desta fazenda — para o usuário ver o módulo em qualquer fazenda, conceda em todas.',
+}
 
 export default function Usuarios() {
   const { contaAtual } = useConta()
@@ -356,7 +366,12 @@ export default function Usuarios() {
             <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
               {MODULOS.map(([key, label]) => (
                 <div key={key} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'6px 0', borderBottom:'.5px solid #F3F4F6', flexWrap:'wrap', gap:6 }}>
-                  <span style={{ fontSize:'.85rem' }}>{label}</span>
+                  <span style={{ fontSize:'.85rem' }}>
+                    {label}
+                    {AVISO_MODULO_CONTA[key] && (
+                      <div style={{ fontSize:'.7rem', color:'#9CA3AF', fontWeight:400 }}>{AVISO_MODULO_CONTA[key]}</div>
+                    )}
+                  </span>
                   <div className="pill-group">
                     <button type="button" className={`pill ${nivelDoModulo(key)==='sem_acesso'?'active':''}`} onClick={() => setNivel(key,'sem_acesso')}>Sem acesso</button>
                     <button type="button" className={`pill ${nivelDoModulo(key)==='ver'?'active':''}`} onClick={() => setNivel(key,'ver')}>Ver</button>

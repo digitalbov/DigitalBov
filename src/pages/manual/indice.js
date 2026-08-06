@@ -95,6 +95,10 @@ export const MANUAL_INDICE = [
     ],
   },
   {
+    id: 'veterinario', titulo: 'Veterinário', icone: 'ti-stethoscope',
+    resumo: 'Cadastro do veterinário, financeiro próprio (receitas/despesas por ciclo), clientes e emissão de prestação de contas e atestados em PDF.',
+  },
+  {
     id: 'usuarios', titulo: 'Usuários', icone: 'ti-users',
     resumo: 'Papéis (dono/admin/operador), permissões granulares por fazenda e módulo, e criação de operadores.',
   },

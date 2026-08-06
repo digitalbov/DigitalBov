@@ -53,7 +53,13 @@ export class PdfWriter {
   // proprietários do relatório de fechamento), desenhadas abaixo do
   // subtítulo, cada uma centralizada — capa rica sem precisar de um 2º
   // desenho por chamador (nada duplicado em pdfRelatorios.js).
-  constructor({ titulo, fazenda = '', subtitulo = '', linhasCapa = [], logoDataURL = null, numerarSecoes = false } = {}) {
+  // estilo: 'relatorio' (padrao, capa centralizada — Manual/Relatorios, N
+  // paginas) ou 'carta' (Veterinario: prestacao de contas/atestados — 1
+  // pagina normalmente, cabecalho compacto desenhado à parte via
+  // cabecalhoCarta(), NUNCA pela _capa() automatica). Construtor só chama
+  // _capa() no modo 'relatorio' — no modo 'carta' quem desenha o cabeçalho é
+  // o composer (veterinarioPdf.js), depois de construído o writer.
+  constructor({ titulo, fazenda = '', subtitulo = '', linhasCapa = [], logoDataURL = null, numerarSecoes = false, estilo = 'relatorio' } = {}) {
     // compress:true liga a compressão Flate dos content streams do jsPDF —
     // sem isso (não é o padrão), cada rect/linha/preenchimento de tabela vira
     // texto PDF cru sem compactação nenhuma, o que sozinho já respondia pela
@@ -74,7 +80,8 @@ export class PdfWriter {
     this.y = 20
     this.numerarSecoes = numerarSecoes
     this._numeroSecao = 0
-    this._capa(subtitulo, linhasCapa)
+    this.estilo = estilo
+    if (estilo === 'relatorio') this._capa(subtitulo, linhasCapa)
   }
 
   // Cabeçalho — só desenhado aqui, uma vez, na página 1 (nunca de novo em
@@ -117,6 +124,73 @@ export class PdfWriter {
     pdf.setDrawColor(...COR_BORDA)
     pdf.line(this.marginX, y, this.rightEdge, y)
     this.y = y + 9
+  }
+
+  // Cabecalho estilo carta (modulo Veterinario) — logo pequena a ESQUERDA em
+  // PROPORCAO ORIGINAL (nunca recortada em circulo: marca de clinica costuma
+  // ser retangular e ficaria mutilada — decisao explicita, diferente da capa
+  // de relatorio acima, que recorta foto de fazenda em circulo de proposito).
+  // Nome em destaque ao lado da logo, slogan em italico logo abaixo, titulo
+  // do documento centralizado mais embaixo, linha fina fechando o bloco.
+  // Só desenha nada além disso — quem chama decide o resto do conteudo.
+  cabecalhoCarta({ logoDataURL, nome = '', slogan = '', titulo = '' } = {}) {
+    const pdf = this.pdf
+    const topoLogo = 14
+    let textX = this.marginX
+    let yTexto = topoLogo + 4
+    if (logoDataURL) {
+      try {
+        const props = pdf.getImageProperties(logoDataURL)
+        const alturaMax = 18
+        const larguraLogo = (props.width * alturaMax) / props.height
+        pdf.addImage(logoDataURL, this.marginX, topoLogo, larguraLogo, alturaMax)
+        textX = this.marginX + larguraLogo + 6
+        yTexto = topoLogo + alturaMax / 2 - 2
+      } catch { /* segue sem logo */ }
+    }
+    if (nome) {
+      pdf.setFont(undefined, 'bold'); pdf.setFontSize(13); pdf.setTextColor(...COR_TITULO)
+      pdf.text(paraPdfTexto(nome), textX, yTexto)
+      yTexto += 5
+    }
+    if (slogan) {
+      pdf.setFont(undefined, 'italic'); pdf.setFontSize(9); pdf.setTextColor(...COR_MUTED)
+      pdf.text(paraPdfTexto(slogan), textX, yTexto)
+      yTexto += 5
+    }
+    let y = Math.max(yTexto, topoLogo + 18) + 6
+    if (titulo) {
+      pdf.setFont(undefined, 'bold'); pdf.setFontSize(15); pdf.setTextColor(...COR_TITULO)
+      pdf.text(paraPdfTexto(titulo), this.pgW / 2, y, { align: 'center' })
+      y += 6
+    }
+    pdf.setDrawColor(...COR_BORDA)
+    pdf.line(this.marginX, y, this.rightEdge, y)
+    pdf.setFont(undefined, 'normal')
+    this.y = y + 9
+  }
+
+  // Bloco de assinatura (Veterinario: prestacao de contas + os 2 atestados) —
+  // linha horizontal centralizada + nome + CRV abaixo dela. Reaproveitado
+  // pelos 3 documentos, nunca redesenhado por fora do writer.
+  assinatura(nome, crv) {
+    this.ensureSpace(28)
+    this.y += 12
+    const pdf = this.pdf
+    const larguraLinha = 75
+    const cx = this.pgW / 2
+    pdf.setDrawColor(...COR_TEXTO)
+    pdf.line(cx - larguraLinha / 2, this.y, cx + larguraLinha / 2, this.y)
+    this.y += 5
+    pdf.setFont(undefined, 'bold'); pdf.setFontSize(10); pdf.setTextColor(...COR_TEXTO)
+    pdf.text(paraPdfTexto(nome || ''), cx, this.y, { align: 'center' })
+    this.y += 4.5
+    if (crv) {
+      pdf.setFont(undefined, 'normal'); pdf.setFontSize(8.5); pdf.setTextColor(...COR_MUTED)
+      pdf.text(paraPdfTexto(`CRV ${crv}`), cx, this.y, { align: 'center' })
+      this.y += 4.5
+    }
+    pdf.setFont(undefined, 'normal')
   }
 
   ensureSpace(h) {
@@ -485,13 +559,32 @@ function segmentsHaveText(segments) {
 // Nunca rejeita a Promise: sem foto_url, ou se a imagem falhar ao carregar
 // (URL quebrada, CORS), resolve null — a capa segue sem logo, sem travar a
 // geração do PDF.
-export function carregarLogoFazenda(url, tamanhoMax = 240) {
+//
+// circular (Fase Veterinario): true (padrão, todo chamador existente
+// continua igual — foto de fazenda) recorta em círculo, JPEG. false
+// (logo do veterinário, cabecalhoCarta) mantém a PROPORÇÃO ORIGINAL da
+// imagem, sem recorte nenhum — marca de clínica costuma ser retangular e
+// ficaria mutilada num recorte circular. PNG nesse modo (não JPEG): sem
+// fundo forçado, preserva transparência se o arquivo original tiver.
+// Parametrizado em vez de duplicado — mesma função pros dois usos.
+export function carregarLogoFazenda(url, tamanhoMax = 240, { circular = true } = {}) {
   return new Promise((resolve) => {
     if (!url) { resolve(null); return }
     const img = new Image()
     img.crossOrigin = 'anonymous'
     img.onload = () => {
       try {
+        if (!circular) {
+          const maior = Math.max(img.naturalWidth, img.naturalHeight)
+          const escala = Math.min(1, tamanhoMax / maior)
+          const w = Math.round(img.naturalWidth * escala)
+          const h = Math.round(img.naturalHeight * escala)
+          const c = document.createElement('canvas')
+          c.width = w; c.height = h
+          c.getContext('2d').drawImage(img, 0, 0, w, h)
+          resolve(c.toDataURL('image/png'))
+          return
+        }
         const tamOriginal = Math.min(img.naturalWidth, img.naturalHeight)
         const tam = Math.min(tamOriginal, tamanhoMax)
         const sx = (img.naturalWidth - tamOriginal) / 2
