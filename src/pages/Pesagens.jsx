@@ -2,11 +2,14 @@
 import { db } from '../lib/supabase'
 import { usePermissoes } from '../lib/PermissoesContext'
 import { useCiclo, statusCiclo } from '../lib/CicloContext'
-import { fmtData, calcGMD, fmtPeso, numeroPositivo, dataNaoFutura, calcCategoria, calcCategoriaRebanho, mesesDeVida, algumErro, capitalizarPrimeira, agruparPesoPorData } from '../lib/helpers'
+import { fmtData, calcGMD, fmtPeso, numeroPositivo, dataNaoFutura, calcCategoria, calcCategoriaRebanho, catCor, mesesDeVida, algumErro, capitalizarPrimeira, agruparPesoPorData } from '../lib/helpers'
 import { hoje as hojeAgora, hojeISO } from '../lib/hoje'
 import { registrarDesmame as gravarDesmame, desfazerDesmame } from '../lib/reprodutivoDesmame'
+import { useSubmitGuard } from '../lib/useSubmitGuard'
 import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, IndexCard, BotaoPDF, Confirm, ErroCarregamento, BadgeSomenteLeitura } from '../components/UI'
 import GraficoEvolucaoPeso from '../components/GraficoEvolucaoPeso'
+
+const TAMANHO_PAGINA_LISTA = 100
 
 const TABS  = ['Registrar','Por Animal','Por Lote','Por Categoria','Desempenho','Projeção','Desmame']
 // 'compra'/'venda' são gerados só pelas RPCs de transação (Bloco D3) — nunca
@@ -33,6 +36,7 @@ function gmdMedioGrupo(pesagensArr, animalIds) {
 export default function Pesagens() {
   const refReg    = useRef(null)
   const refAnimal = useRef(null)
+  const refListaPeso = useRef(null)
   const refLote   = useRef(null)
   const refCat    = useRef(null)
   const refDesemp = useRef(null)
@@ -43,6 +47,7 @@ export default function Pesagens() {
   const { dentroDoCiclo, cicloDaData, dataEhEditavel, cicloSelecionado: cicloLocal } = useCiclo()
   const statusCicloLocal = statusCiclo(cicloLocal)
   const podeEditarPesagensCiclo = podeEditarPesagens && (statusCicloLocal === 'atual' || statusCicloLocal === 'carencia')
+  const guard = useSubmitGuard()
 
   const [tab,     setTab]    = useState(0)
   const [animais, setAnimais]= useState([])
@@ -72,7 +77,56 @@ export default function Pesagens() {
   const [ocupadoDesmameId,  setOcupadoDesmameId]  = useState(null)
   const [confirmDesfazerDesmame, setConfirmDesfazerDesmame] = useState(null)
 
+  // Por Animal (lista) — Fase Pesagens-Lista. `ultimaPorAnimal` vem de um RPC
+  // dedicado (1 linha por animal, não o histórico inteiro — ver
+  // migration_pesagens_ultima_por_animal.sql) porque a lista é TODOS os
+  // animais ativos, que numa fazenda grande pode ser milhares; puxar o
+  // histórico completo (como listAll() faz pras outras abas) não escalaria.
+  // `pesoDrafts` é o texto ainda não salvo de cada linha — enquanto uma linha
+  // não tem draft, o campo mostra o valor derivado de ultimaPorAnimal (só
+  // quando a data bate com dataPesagemTopo; senão fica em branco, pronto pra
+  // nova pesagem).
+  const [dataPesagemTopo, setDataPesagemTopo] = useState(() => hojeISO())
+  const [ultimaPorAnimal, setUltimaPorAnimal] = useState({})
+  const [pesoDrafts,      setPesoDrafts]      = useState({})
+  const [linhasSalvando,  setLinhasSalvando]  = useState({})
+  const [filtroLista,     setFiltroLista]     = useState('')
+  // Categoria/Lote/Proprietário compõem com filtroLista (busca por brinco) —
+  // mesmo padrão visual/funcional dos seletores de venda em Financeiro.jsx
+  // (3 <select> num flex row, "Todos/Todas..." como opção em branco).
+  const [filtroCategoriaLista,    setFiltroCategoriaLista]    = useState('')
+  const [filtroLoteLista,         setFiltroLoteLista]         = useState('')
+  const [filtroProprietarioLista, setFiltroProprietarioLista] = useState('')
+  const [paginaLista,     setPaginaLista]     = useState(1)
+  const [confirmDelLinha, setConfirmDelLinha] = useState(null)
+  // Overlay do gráfico (Por Animal) — abre por CIMA da lista, sem empurrar
+  // nada (a lista continua montada, só fica coberta), com rolagem suave até
+  // ele. scrollAntesGraficoRef guarda a posição do container rolável
+  // (.page-body, mesmo seletor já usado em Animais.jsx) pra devolver o
+  // usuário ao ponto exato de onde ele clicou, ao fechar.
+  const graficoOverlayRef  = useRef(null)
+  const scrollAntesGraficoRef = useRef(null)
+
   useEffect(() => { loadAll() }, [])
+
+  // Abre/fecha o overlay do gráfico (Por Animal) com rolagem suave. Disparado
+  // só na TRANSIÇÃO fechado→aberto ou aberto→fechado — trocar de brinco com o
+  // overlay já aberto (selBr passa de um valor não-vazio pra outro) não muda
+  // `graficoAberto` (continua true), então não rola de novo nem recaptura a
+  // posição salva; o conteúdo do overlay só troca de animal no lugar.
+  const graficoAberto = !!selBr
+  useEffect(() => {
+    if (graficoAberto) {
+      if (scrollAntesGraficoRef.current === null) {
+        scrollAntesGraficoRef.current = document.querySelector('.page-body')?.scrollTop ?? 0
+      }
+      graficoOverlayRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    } else if (scrollAntesGraficoRef.current !== null) {
+      document.querySelector('.page-body')?.scrollTo({ top: scrollAntesGraficoRef.current, behavior: 'smooth' })
+      scrollAntesGraficoRef.current = null
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [graficoAberto])
 
   const loadAll = async () => {
     setLoading(true)
@@ -85,9 +139,13 @@ export default function Pesagens() {
       ])
       if (algumErro('[Pesagens]', results)) { setLoadError(true); return }
       const [ra, rp, rl] = results
-      setAnimais(ra.data  || [])
+      const animaisAtivos = ra.data || []
+      setAnimais(animaisAtivos)
       setPesagens(rp.data || [])
       setLotesSistema(rl.data || [])
+      const { data: ultimas, error: errUltimas } = await db.pesagens.ultimaPorAnimal(animaisAtivos.map(a => a.id))
+      if (errUltimas) console.error('[Pesagens] erro ao carregar última pesagem por animal:', errUltimas)
+      setUltimaPorAnimal(Object.fromEntries((ultimas || []).map(u => [u.animal_id, u])))
     } catch (e) {
       console.error('[Pesagens] erro ao carregar:', e)
       setLoadError(true)
@@ -185,6 +243,176 @@ export default function Pesagens() {
     : null
   const chartData  = pesAnimal.map(p => ({ data: fmtData(p.data), peso: parseFloat(p.peso_kg) }))
 
+  // categoriasComAnimais — mesma derivação usada pela aba "Por Categoria" logo
+  // abaixo (calcCategoriaRebanho, 14 categorias oficiais) e pela coluna
+  // "Categoria" da lista "Por Animal". Declarada aqui (antes das duas) pra ser
+  // literalmente a MESMA variável nos dois lugares, não duas cópias do mesmo
+  // critério. Só categorias com pelo menos 1 animal ativo aparecem no filtro.
+  const categoriasComAnimais = [...new Set(
+    animais.map(a => calcCategoriaRebanho(a.data_nascimento, a.sexo, a.sit_reprodutiva, a.is_touro))
+  )].sort()
+
+  // proprietariosComAnimais — mesma ideia, derivada de `animais` (o mesmo
+  // `a.proprietario` já usado na coluna "Proprietário" da lista), não de uma
+  // query separada em proprietarios: só quem tem pelo menos 1 animal ativo
+  // aparece, e o nome exibido é sempre o mesmo texto da coluna.
+  const proprietariosComAnimaisMap = new Map()
+  animais.forEach(a => { if (a.proprietario_id && a.proprietario?.nome) proprietariosComAnimaisMap.set(a.proprietario_id, a.proprietario.nome) })
+  const proprietariosComAnimais = [...proprietariosComAnimaisMap.entries()].sort((a, b) => a[1].localeCompare(b[1]))
+
+  // Lista "Por Animal" — todos os animais ativos, ordenados por brinco
+  // (numérico, mesmo critério de candidatosDesmame acima). Busca por brinco +
+  // Categoria + Lote + Proprietário COMPÕEM entre si (todos aplicados juntos,
+  // AND — não um excluindo o outro), e são aplicados ANTES da paginação, pra
+  // ela refletir sempre o resultado já filtrado. Uma fazenda grande pode ter
+  // milhares de animais ativos, então a lista nunca renderiza tudo de uma vez
+  // (ver TAMANHO_PAGINA_LISTA).
+  const animaisListaFiltrados = [...animais]
+    .filter(a => !filtroLista || a.brinco.toLowerCase().includes(filtroLista.toLowerCase()))
+    .filter(a => !filtroCategoriaLista || calcCategoriaRebanho(a.data_nascimento, a.sexo, a.sit_reprodutiva, a.is_touro) === filtroCategoriaLista)
+    .filter(a => !filtroLoteLista || a.lote_id === filtroLoteLista)
+    .filter(a => !filtroProprietarioLista || a.proprietario_id === filtroProprietarioLista)
+    .sort((a, b) => a.brinco.localeCompare(b.brinco, undefined, { numeric: true }))
+  const totalPaginasLista = Math.max(1, Math.ceil(animaisListaFiltrados.length / TAMANHO_PAGINA_LISTA))
+  const paginaListaClamp  = Math.min(paginaLista, totalPaginasLista)
+  const animaisListaPagina = animaisListaFiltrados.slice(
+    (paginaListaClamp - 1) * TAMANHO_PAGINA_LISTA, paginaListaClamp * TAMANHO_PAGINA_LISTA)
+
+  // animal_id|data → pesagem tipo 'intermediaria' naquela data exata —
+  // construído a partir do `pesagens` já carregado (não é uma query nova).
+  // É o que decide, pra qualquer data escolhida no topo (hoje ou uma data
+  // antiga sendo corrigida), se "Nova pesagem" edita um lançamento que já
+  // existe NAQUELE DIA ou cria um novo — pesagens de outras datas nunca
+  // entram nessa decisão (são histórico, nunca tocadas por aqui).
+  const intermediariaPorAnimalData = new Map()
+  pesagens.forEach(p => {
+    if (p.tipo !== 'intermediaria') return
+    const chave = `${p.animal_id}|${p.data}`
+    const atual = intermediariaPorAnimalData.get(chave)
+    if (!atual || (p.criado_em || '') > (atual.criado_em || '')) intermediariaPorAnimalData.set(chave, p)
+  })
+
+  // Valor exibido no campo da linha: o que o usuário está digitando agora
+  // (draft) ou, se ele ainda não mexeu na linha, o que já está gravado pra
+  // essa data — em branco quando não há nada pra essa data (pronto pra nova
+  // pesagem, nunca herda o valor de outro dia).
+  const valorLinhaPeso = (a) => {
+    if (pesoDrafts[a.id] !== undefined) return pesoDrafts[a.id]
+    const p = intermediariaPorAnimalData.get(`${a.id}|${dataPesagemTopo}`)
+    return p ? String(p.peso_kg) : ''
+  }
+
+  const salvarLinhaPeso = (animal) => {
+    const draft = pesoDrafts[animal.id]
+    if (draft === undefined) return // nada editado nesta linha — blur sem alteração, no-op
+    if (!draft.trim()) {
+      setPesoDrafts(prev => { const n = { ...prev }; delete n[animal.id]; return n })
+      return // linha em branco nunca grava (regra g)
+    }
+    const valor = numeroPositivo(draft)
+    if (valor === null) { toast(`Peso inválido para ${animal.brinco}: informe um número maior que zero.`, 'error'); return }
+    if (valor > 1500) { toast(`Peso acima de 1500 kg para ${animal.brinco} — confira o valor digitado.`, 'error'); return }
+    if (animal.data_nascimento && animal.data_nascimento > dataPesagemTopo) {
+      toast(`${animal.brinco} nasceu em ${fmtData(animal.data_nascimento)} — não é possível registrar pesagem com data anterior.`, 'error')
+      return
+    }
+    if (!dataNaoFutura(dataPesagemTopo)) { toast('Data da pesagem não pode ser futura.', 'error'); return }
+    if (!dataEhEditavel(dataPesagemTopo)) {
+      const c = cicloDaData(dataPesagemTopo)
+      toast(c
+        ? 'Não é possível lançar nesta data: ela está fora do ciclo atual (ou em um ciclo já encerrado).'
+        : 'Data fora de qualquer ciclo cadastrado.', 'error')
+      return
+    }
+    const existenteNaData = intermediariaPorAnimalData.get(`${animal.id}|${dataPesagemTopo}`)
+    if (existenteNaData && parseFloat(existenteNaData.peso_kg) === valor) {
+      setPesoDrafts(prev => { const n = { ...prev }; delete n[animal.id]; return n }) // nada mudou, só limpa o draft
+      return
+    }
+    const outroTipoNaData = pesagens.find(p => p.animal_id === animal.id && p.data === dataPesagemTopo && p.tipo !== 'intermediaria')
+
+    guard(async () => {
+      setLinhasSalvando(prev => ({ ...prev, [animal.id]: true }))
+      const { data, error } = existenteNaData
+        ? await db.pesagens.update(existenteNaData.id, { peso_kg: valor })
+        : await db.pesagens.insert({ animal_id: animal.id, data: dataPesagemTopo, tipo: 'intermediaria', peso_kg: valor, observacoes: '' })
+      setLinhasSalvando(prev => { const n = { ...prev }; delete n[animal.id]; return n })
+      if (error) { toast(`Erro ao salvar pesagem de ${animal.brinco}: ` + error.message, 'error'); return }
+      if (!existenteNaData && outroTipoNaData) {
+        toast(`${animal.brinco} já tinha uma pesagem de ${TIPO_LABEL[outroTipoNaData.tipo] || outroTipoNaData.tipo} nesta data — mantida à parte, sem alteração.`, 'error')
+      }
+      // Só atualiza as colunas de "última pesagem" se este lançamento continua
+      // sendo, de fato, o mais recente do animal — nunca sobrescreve um
+      // registro mais novo já existente (ex.: backfill de uma data antiga).
+      setUltimaPorAnimal(prev => {
+        const atual = prev[animal.id]
+        const ehMaisRecenteOuIgual = !atual || data.data > atual.data
+          || (data.data === atual.data && (data.criado_em || '') >= (atual.criado_em || ''))
+        if (!ehMaisRecenteOuIgual) return prev
+        return { ...prev, [animal.id]: { animal_id: animal.id, pesagem_id: data.id, data: data.data, peso_kg: data.peso_kg, tipo: data.tipo, criado_em: data.criado_em } }
+      })
+      // Mantém `pesagens` (histórico completo, usado pelo gráfico e pelas
+      // outras abas) em sincronia, sem precisar recarregar a tela.
+      setPesagens(prev => [{ ...data, animal: { brinco: animal.brinco, proprietario_id: animal.proprietario_id } }, ...prev.filter(p => p.id !== data.id)])
+      setPesoDrafts(prev => { const n = { ...prev }; delete n[animal.id]; return n })
+    }, animal.id)
+  }
+
+  // Trocar filtro/data no topo NUNCA pode perder um peso digitado e ainda não
+  // gravado. Na prática, sair do campo (clicar num filtro, abrir o gráfico de
+  // outro brinco) já dispara o próprio onBlur da linha (mesmo mecanismo de
+  // sempre) — isto aqui é a rede de segurança pros casos em que o draft ficou
+  // pendente sem passar por um blur (ex.: digitou e mudou o filtro/data por
+  // teclado sem tabular pra fora). Decisão: grava (não avisa/bloqueia) — o
+  // valor já é válido no momento em que existe como draft (numeroPositivo já
+  // barrou o resto), então gravar direto mantém o fluxo rápido sem popup.
+  const salvarTodosDraftsPendentes = () => {
+    Object.keys(pesoDrafts).forEach(id => {
+      const animal = animais.find(a => a.id === id)
+      if (animal) salvarLinhaPeso(animal)
+    })
+  }
+
+  const excluirLinhaPeso = (animal) => guard(async () => {
+    const alvo = intermediariaPorAnimalData.get(`${animal.id}|${dataPesagemTopo}`)
+    setConfirmDelLinha(null)
+    if (!alvo) return
+    setLinhasSalvando(prev => ({ ...prev, [animal.id]: true }))
+    const { error } = await db.pesagens.delete(alvo.id)
+    setLinhasSalvando(prev => { const n = { ...prev }; delete n[animal.id]; return n })
+    if (error) { toast(`Erro ao excluir pesagem de ${animal.brinco}: ` + error.message, 'error'); return }
+    setPesagens(prev => prev.filter(p => p.id !== alvo.id))
+    setPesoDrafts(prev => { const n = { ...prev }; delete n[animal.id]; return n })
+    // A pesagem excluída podia ser a que aparecia nas colunas de "última
+    // pesagem" — reconsulta só ESTE animal (1 linha) pra saber qual volta a
+    // ser a mais recente (a anterior do histórico), nunca fica em branco à
+    // toa (regra e).
+    const { data: ultimas, error: errUltimas } = await db.pesagens.ultimaPorAnimal([animal.id])
+    if (!errUltimas) {
+      setUltimaPorAnimal(prev => {
+        const n = { ...prev }
+        if (ultimas && ultimas[0]) n[animal.id] = ultimas[0]
+        else delete n[animal.id]
+        return n
+      })
+    }
+  }, animal.id)
+
+  // Enter desce pro campo "Nova pesagem" da linha de baixo (mesmo espírito do
+  // Tab/Enter dos brincos do atestado em Veterinario.jsx — só que aqui é uma
+  // coluna só, então Enter sempre desce, nunca "anda pro lado"). Tab nativo
+  // já faz a mesma coisa sozinho, sem precisar de código (a lixeira de cada
+  // linha tem tabIndex=-1, então o navegador pula direto pro próximo campo de
+  // peso). Só intercepto Enter, que o browser não move foco sozinho.
+  const irParaProximaLinhaPeso = (e) => {
+    e.preventDefault()
+    const campos = Array.from(refListaPeso.current?.querySelectorAll('input[data-linha-peso]') || [])
+    const idx = campos.indexOf(e.target)
+    if (idx === -1 || idx === campos.length - 1) return
+    campos[idx + 1].focus()
+  }
+  const onKeyDownLinhaPeso = (e) => { if (e.key === 'Enter') irParaProximaLinhaPeso(e) }
+
   // Por Lote — mesmo padrão de Por Animal, só que o "animal" é substituído
   // por um conjunto de animais do mesmo lote (curva = média por data).
   const animaisDoLote  = selLoteId ? animais.filter(a => a.lote_id === selLoteId) : []
@@ -199,11 +427,8 @@ export default function Pesagens() {
   // genéricas, usada só pro corte etário de desmame acima). Categoria sempre
   // "hoje" — calcCategoriaRebanho não aceita outra data, então fica coerente
   // por construção com Metas/Rebanho/Dashboard, que usam a mesma função.
-  // categoriasComAnimais deriva DIRETO de `animais` (só ativos, ver loadAll) —
-  // categoria sem nenhum animal simplesmente não aparece no <select>.
-  const categoriasComAnimais = [...new Set(
-    animais.map(a => calcCategoriaRebanho(a.data_nascimento, a.sexo, a.sit_reprodutiva, a.is_touro))
-  )].sort()
+  // categoriasComAnimais (declarada mais acima, reaproveitada pelo filtro da
+  // lista "Por Animal" — mesma variável, não uma segunda cópia do critério).
   const animaisDaCategoria = selCategoria
     ? animais.filter(a => calcCategoriaRebanho(a.data_nascimento, a.sexo, a.sit_reprodutiva, a.is_touro) === selCategoria)
     : []
@@ -408,7 +633,8 @@ export default function Pesagens() {
           <div style={{ marginBottom:14, display:'flex', gap:14, flexWrap:'wrap', alignItems:'flex-end' }}>
             <div>
               <label style={{ marginBottom:6 }}>Buscar por brinco</label>
-              <input list="pesagens-lista-brincos" value={selBr} onChange={e => setSelBr(e.target.value)}
+              <input list="pesagens-lista-brincos" value={selBr}
+                onChange={e => { salvarTodosDraftsPendentes(); setSelBr(e.target.value) }}
                 placeholder="Digite o brinco..." style={{ maxWidth:200 }} />
               <datalist id="pesagens-lista-brincos">
                 {brincosDisponiveis.map(br => <option key={br} value={br} />)}
@@ -416,55 +642,200 @@ export default function Pesagens() {
             </div>
             <div>
               <label style={{ marginBottom:6 }}>ou selecione</label>
-              <select value={selBr} onChange={e => setSelBr(e.target.value)} style={{ maxWidth:260 }}>
+              <select value={selBr} onChange={e => { salvarTodosDraftsPendentes(); setSelBr(e.target.value) }} style={{ maxWidth:260 }}>
                 <option value="">— escolha um brinco —</option>
                 {brincosDisponiveis.map(br => (
                   <option key={br} value={br}>{br}</option>
                 ))}
               </select>
             </div>
+            {/* Mesmo padrão de "Data do registro" em Reprodutivo.jsx — um campo
+                só, no topo, valendo pra qualquer pesagem lançada na lista
+                abaixo (nunca a data de hoje por padrão implícito). */}
+            <div>
+              <label style={{ marginBottom:6 }}>Data da pesagem</label>
+              <input type="date" value={dataPesagemTopo}
+                onChange={e => { salvarTodosDraftsPendentes(); setDataPesagemTopo(e.target.value) }} style={{ maxWidth:170 }} />
+            </div>
+          </div>
+          <div style={{ marginTop:-6, marginBottom:14 }}>
+            <span style={{ fontSize:'.72rem', color:'#9CA3AF' }}>
+              Pesagens lançadas na coluna "Nova pesagem" da lista abaixo usam esta data — não a data de hoje.
+            </span>
           </div>
 
-          {selBr && pesAnimal.length > 0 && (
-            <div>
-              <div className="grid-4" style={{ marginBottom:14 }}>
-                <IndexCard value={fmtPeso(ultimoPeso?.peso_kg)} label="Último peso" color="#2B6CD9"/>
-                <IndexCard value={gmd ? `${gmd} kg/dia` : '—'} label="GMD" meta="≥0,80 kg/dia" ok={parseFloat(gmd)>=0.8}/>
-                <IndexCard value={diasEntrePesagens !== null ? `${diasEntrePesagens} dias` : '—'} label="Dias entre pesagens" color="#7B2FBE"/>
-                <IndexCard value={pesAnimal.length} label="Pesagens" color="#0C447C"/>
+          {/* Envolve filtros + lista — é sobre ESTA caixa que o gráfico se
+              sobrepõe (position:absolute, inset:0), sem empurrar nada abaixo
+              nem desmontar a lista por baixo (drafts/filtros/paginação
+              continuam intactos enquanto o gráfico está aberto). */}
+          <div style={{ position:'relative' }}>
+
+          {/* Filtros da lista — mesmo padrão visual/funcional dos seletores de
+              venda em Financeiro.jsx (3 <select> num flex row, "Todos/
+              Todas..." como opção em branco). Compõem entre si e com a busca
+              por brinco (AND), aplicados ANTES da paginação. */}
+          <div style={{ display:'flex', gap:8, marginBottom:8, flexWrap:'wrap' }}>
+            <input className="input" style={{ flex:1, minWidth:140 }} value={filtroLista}
+              onChange={e => { setFiltroLista(e.target.value); setPaginaLista(1) }}
+              placeholder="Filtrar por brinco..." />
+            <select className="input" style={{ flex:1, minWidth:140 }} value={filtroCategoriaLista}
+              onChange={e => { setFiltroCategoriaLista(e.target.value); setPaginaLista(1) }}>
+              <option value="">Todas as categorias</option>
+              {categoriasComAnimais.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+            <select className="input" style={{ flex:1, minWidth:140 }} value={filtroLoteLista}
+              onChange={e => { setFiltroLoteLista(e.target.value); setPaginaLista(1) }}>
+              <option value="">Todos os lotes</option>
+              {lotesSistema.map(l => <option key={l.id} value={l.id}>{l.nome}</option>)}
+            </select>
+            <select className="input" style={{ flex:1, minWidth:140 }} value={filtroProprietarioLista}
+              onChange={e => { setFiltroProprietarioLista(e.target.value); setPaginaLista(1) }}>
+              <option value="">Todos os proprietários</option>
+              {proprietariosComAnimais.map(([id, nome]) => <option key={id} value={id}>{nome}</option>)}
+            </select>
+          </div>
+          <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:8 }}>
+            <span style={{ fontSize:'.78rem', color:'#9CA3AF' }}>
+              {animaisListaFiltrados.length} de {animais.length} animais
+              {totalPaginasLista > 1 ? ` · página ${paginaListaClamp} de ${totalPaginasLista}` : ''}
+            </span>
+          </div>
+
+          {animaisListaFiltrados.length === 0 ? (
+            <EmptyState icon="⚖️" title="Nenhum animal ativo encontrado com esses filtros" />
+          ) : (
+            <>
+              <div className="table-wrap" ref={refListaPeso}>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Brinco</th><th>Categoria</th><th>Proprietário</th>
+                      <th>Data última pesagem</th><th style={{textAlign:'right'}}>Peso última pesagem</th>
+                      <th style={{textAlign:'right'}}>Nova pesagem</th><th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {animaisListaPagina.map(a => {
+                      const cat = calcCategoriaRebanho(a.data_nascimento, a.sexo, a.sit_reprodutiva, a.is_touro)
+                      const cc  = catCor[cat] || catCor.Vaca
+                      const ult = ultimaPorAnimal[a.id]
+                      const temLancamentoNaData = intermediariaPorAnimalData.has(`${a.id}|${dataPesagemTopo}`)
+                      const salvando = !!linhasSalvando[a.id]
+                      // Mesmo critério de candidatosDesmame (aba Desmame) —
+                      // terneiro/terneira ativo ainda sem data_desmame. Só um
+                      // aviso discreto (ícone com tooltip); não impede nem
+                      // sugere gravar desmame por aqui — pesar por esta lista
+                      // continua gerando uma pesagem intermediária comum.
+                      const elegivelDesmame = ['Terneiro','Terneira'].includes(calcCategoria(a.data_nascimento, a.sexo)) && !a.data_desmame
+                      return (
+                        <tr key={a.id}>
+                          <td>
+                            <button onClick={() => setSelBr(a.brinco)}
+                              style={{ background:'none', border:'none', padding:0, color:'#2B6CD9', textDecoration:'underline', cursor:'pointer', fontSize:'.85rem', fontWeight:600, textAlign:'left' }}>
+                              {a.brinco}
+                            </button>
+                            {elegivelDesmame && (
+                              <i className="ti ti-info-circle" title="Elegível para desmame — registre na aba Desmame, não aqui (esta pesagem fica como intermediária comum)."
+                                style={{ fontSize:12, color:'#9CA3AF', marginLeft:6 }} />
+                            )}
+                          </td>
+                          <td><Badge style={{ background:cc.bg, color:cc.text }}>{cat}</Badge></td>
+                          <td style={{ fontSize:'.85rem', color:'#374151' }}>{a.proprietario?.nome || '—'}</td>
+                          <td style={{ color:'#6B7280' }}>{ult ? fmtData(ult.data) : '—'}</td>
+                          <td style={{ textAlign:'right', fontWeight:500 }}>{ult ? fmtPeso(ult.peso_kg) : '—'}</td>
+                          <td style={{ textAlign:'right' }}>
+                            <input type="number" step="0.1" min="0" placeholder="0,0" data-linha-peso
+                              disabled={!podeEditarPesagensCiclo || salvando}
+                              value={valorLinhaPeso(a)}
+                              onChange={e => setPesoDrafts(prev => ({ ...prev, [a.id]: e.target.value }))}
+                              onBlur={() => salvarLinhaPeso(a)}
+                              onKeyDown={e => { onKeyDownLinhaPeso(e); if (e.key === 'Enter') salvarLinhaPeso(a) }}
+                              style={{ width:90, textAlign:'right' }} />
+                          </td>
+                          <td>
+                            {podeEditarPesagensCiclo && temLancamentoNaData && (
+                              <button className="btn-icon" tabIndex={-1} disabled={salvando} onClick={() => setConfirmDelLinha(a)} title="Excluir pesagem desta data">
+                                <i className="ti ti-trash" style={{fontSize:13}}/>
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
               </div>
-              <GraficoEvolucaoPeso data={chartData} titulo={`Evolução de peso — Brinco ${selBr}`} />
-              <div className="card">
-                <div className="card-title"><i className="ti ti-list"/> Histórico de pesagens</div>
-                <div className="table-wrap" style={{border:'none'}}>
-                  <table>
-                    <thead><tr><th>Data</th><th>Tipo</th><th style={{textAlign:'right'}}>Peso</th><th style={{textAlign:'right'}}>Variação</th></tr></thead>
-                    <tbody>
-                      {pesAnimal.map((p,i) => {
-                        const v = i > 0 ? parseFloat(p.peso_kg) - parseFloat(pesAnimal[i-1].peso_kg) : null
-                        return (
-                          <tr key={p.id}>
-                            <td>{fmtData(p.data)}</td>
-                            <td><Badge color={TIPO_COR[p.tipo]||'gray'}>{TIPO_LABEL[p.tipo]||p.tipo}</Badge></td>
-                            <td style={{textAlign:'right',fontWeight:500}}>{fmtPeso(p.peso_kg)}</td>
-                            <td style={{textAlign:'right',color:v===null?'':v>=0?'#1E55B0':'#791F1F'}}>
-                              {v===null?'—':(v>=0?'+':'')+v.toFixed(1)+' kg'}
-                            </td>
-                          </tr>
-                        )
-                      })}
-                    </tbody>
-                  </table>
+              {totalPaginasLista > 1 && (
+                <div style={{ display:'flex', justifyContent:'center', alignItems:'center', gap:12, marginTop:10 }}>
+                  <button className="btn btn-secondary btn-sm" disabled={paginaListaClamp<=1} onClick={() => setPaginaLista(p => Math.max(1,p-1))}>
+                    <i className="ti ti-chevron-left"/> Anterior
+                  </button>
+                  <span style={{ fontSize:'.82rem', color:'#6B7280' }}>{paginaListaClamp} / {totalPaginasLista}</span>
+                  <button className="btn btn-secondary btn-sm" disabled={paginaListaClamp>=totalPaginasLista} onClick={() => setPaginaLista(p => Math.min(totalPaginasLista,p+1))}>
+                    Próxima <i className="ti ti-chevron-right"/>
+                  </button>
                 </div>
+              )}
+            </>
+          )}
+
+          {/* Overlay do gráfico — cobre a lista (não empurra), com rolagem
+              suave até ele na abertura (ver useEffect de graficoAberto) e
+              devolvendo a posição de rolagem ao fechar. Trocar de brinco pela
+              busca/seletor do topo enquanto está aberto só troca os dados
+              exibidos aqui dentro (mesma condição selBr, não desmonta). */}
+          {graficoAberto && (
+            <div ref={graficoOverlayRef} style={{
+              position:'absolute', top:0, left:0, right:0, zIndex:20,
+              background:'var(--gray-0, #fff)', border:'1px solid var(--gray-200)',
+              borderRadius:12, boxShadow:'0 8px 28px rgba(0,0,0,.16)',
+              padding:16, maxHeight:'80vh', overflowY:'auto',
+            }}>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
+                <div style={{ fontWeight:600, fontSize:'.92rem' }}>Brinco {selBr}</div>
+                <button className="btn-icon" onClick={() => setSelBr('')} title="Fechar">
+                  <i className="ti ti-x" />
+                </button>
               </div>
+              {pesAnimal.length > 0 ? (
+                <div>
+                  <div className="grid-4" style={{ marginBottom:14 }}>
+                    <IndexCard value={fmtPeso(ultimoPeso?.peso_kg)} label="Último peso" color="#2B6CD9"/>
+                    <IndexCard value={gmd ? `${gmd} kg/dia` : '—'} label="GMD" meta="≥0,80 kg/dia" ok={parseFloat(gmd)>=0.8}/>
+                    <IndexCard value={diasEntrePesagens !== null ? `${diasEntrePesagens} dias` : '—'} label="Dias entre pesagens" color="#7B2FBE"/>
+                    <IndexCard value={pesAnimal.length} label="Pesagens" color="#0C447C"/>
+                  </div>
+                  <GraficoEvolucaoPeso data={chartData} titulo={`Evolução de peso — Brinco ${selBr}`} />
+                  <div className="card">
+                    <div className="card-title"><i className="ti ti-list"/> Histórico de pesagens</div>
+                    <div className="table-wrap" style={{border:'none'}}>
+                      <table>
+                        <thead><tr><th>Data</th><th>Tipo</th><th style={{textAlign:'right'}}>Peso</th><th style={{textAlign:'right'}}>Variação</th></tr></thead>
+                        <tbody>
+                          {pesAnimal.map((p,i) => {
+                            const v = i > 0 ? parseFloat(p.peso_kg) - parseFloat(pesAnimal[i-1].peso_kg) : null
+                            return (
+                              <tr key={p.id}>
+                                <td>{fmtData(p.data)}</td>
+                                <td><Badge color={TIPO_COR[p.tipo]||'gray'}>{TIPO_LABEL[p.tipo]||p.tipo}</Badge></td>
+                                <td style={{textAlign:'right',fontWeight:500}}>{fmtPeso(p.peso_kg)}</td>
+                                <td style={{textAlign:'right',color:v===null?'':v>=0?'#1E55B0':'#791F1F'}}>
+                                  {v===null?'—':(v>=0?'+':'')+v.toFixed(1)+' kg'}
+                                </td>
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <EmptyState icon="⚖️" title="Nenhuma pesagem para este animal"/>
+              )}
             </div>
           )}
-          {selBr && pesAnimal.length === 0 && (
-            <EmptyState icon="⚖️" title="Nenhuma pesagem para este animal"/>
-          )}
-          {!selBr && (
-            <EmptyState icon="⚖️" title="Selecione um animal" sub="Escolha um brinco para ver o histórico de pesagens e evolução de peso."/>
-          )}
+          </div>{/* end wrapper relative (filtros + lista + overlay) */}
           </div>{/* end refAnimal */}
         </div>
       )}
@@ -809,6 +1180,15 @@ export default function Pesagens() {
         onConfirm={() => desfazerDesmameAnimal(confirmDesfazerDesmame)}
         title="Desfazer desmame"
         message={`Desfazer o desmame de ${confirmDesfazerDesmame?.brinco || ''}? A data e o peso registrados serão apagados, e isso também muda o cálculo de Kg ao Desmame e Kg Desmamado/Matriz em Metas.`}
+        danger
+      />
+
+      <Confirm
+        open={!!confirmDelLinha}
+        onClose={() => setConfirmDelLinha(null)}
+        onConfirm={() => excluirLinhaPeso(confirmDelLinha)}
+        title="Excluir pesagem"
+        message={`Excluir a pesagem de ${confirmDelLinha?.brinco || ''} em ${fmtData(dataPesagemTopo)}? A última pesagem exibida volta a ser a anterior do histórico do animal.`}
         danger
       />
 

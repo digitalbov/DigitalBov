@@ -82,7 +82,7 @@ export default function SecaoPesagens({ item }) {
       <h4 style={{ fontSize: '.88rem', fontWeight: 700, color: '#1a1a1a', marginBottom: 8 }}>Abas do módulo</h4>
       <ul style={{ color: '#374151', fontSize: '.85rem', lineHeight: 1.8, marginBottom: 18, paddingLeft: 20 }}>
         <li><strong>Registrar</strong> — formulário de lançamento manual de uma pesagem, um animal por vez (ver demonstração abaixo).</li>
-        <li><strong>Por Animal</strong> — histórico de pesagens de um animal específico, com gráfico de evolução do peso e o GMD calculado. Escolha o animal digitando o brinco (com autocompletar) ou pelo seletor abaixo dele. Os cards mostram último peso, GMD, dias entre a 1ª e a última pesagem (o denominador do GMD) e o total de pesagens.</li>
+        <li><strong>Por Animal</strong> — duas coisas nesta aba: (1) o histórico de um animal específico, com gráfico de evolução do peso e o GMD calculado — escolha o animal digitando o brinco (com autocompletar), pelo seletor, ou clicando no brinco na lista abaixo; os cards mostram último peso, GMD, dias entre a 1ª e a última pesagem (o denominador do GMD) e o total de pesagens; (2) logo abaixo, a <strong>lista de todos os animais ativos</strong>, pronta pra pesar o rebanho inteiro — ver passo a passo dedicado mais abaixo.</li>
         <li><strong>Por Lote</strong> — peso médio e GMD médio de um lote inteiro, com gráfico da curva média.</li>
         <li><strong>Por Categoria</strong> — mesma ideia, mas agrupando por categoria (Terneira, Novilha 13-24m, Vaca Prenha...) em vez de lote. O seletor mostra as 14 categorias oficiais do rebanho (mesmas de Animais/Rebanho/Metas — não a lista antiga de 7 categorias genéricas) e só lista as que têm pelo menos um animal ativo hoje; categoria sem animal não aparece.</li>
         <li><strong>Desempenho</strong> — ranking de GMD de todos os animais com pesagem, do maior para o menor.</li>
@@ -103,6 +103,57 @@ export default function SecaoPesagens({ item }) {
         Experimente o formulário abaixo — é uma recriação exata da tela real, mas não grava nada:
       </p>
       <DemoFormularioPesagem />
+
+      <h4 style={{ fontSize: '.88rem', fontWeight: 700, color: '#1a1a1a', marginBottom: 8 }}>Passo a passo: pesar o rebanho pela lista (aba Por Animal)</h4>
+      <p style={{ color: '#374151', fontSize: '.85rem', lineHeight: 1.8, marginBottom: 8 }}>
+        Pensada pra descer a lista digitando peso atrás de peso, sem tirar a mão do teclado — o fluxo de pesar
+        um lote inteiro na hora do embarque ou da pesagem de rotina.
+      </p>
+      <ol style={{ color: '#374151', fontSize: '.85rem', lineHeight: 1.8, marginBottom: 8, paddingLeft: 20 }}>
+        <li>Na aba <strong>Por Animal</strong>, ajuste o campo <strong>"Data da pesagem"</strong> no topo — vale
+          para toda pesagem lançada na lista abaixo, não é sempre a data de hoje.</li>
+        <li>A lista mostra todos os animais <strong>ativos</strong>, com brinco, categoria, proprietário, e a
+          <strong> data/peso da última pesagem</strong> de cada um (o histórico mais recente, calculado na hora
+          — nunca um valor gravado no cadastro do animal).</li>
+        <li>Digite o peso na coluna <strong>"Nova pesagem"</strong> e aperte <strong>Enter</strong> — grava e já
+          leva o foco pro campo de peso da linha de baixo. As colunas de data/peso da última pesagem atualizam
+          na hora, sem precisar recarregar a tela.</li>
+        <li>Sair do campo (clicar em outro lugar, Tab) também grava, mesmo sem apertar Enter.</li>
+        <li>Lançar de novo, na <strong>mesma data</strong>, um peso diferente pra um animal que já tem pesagem
+          naquele dia <strong>corrige</strong> o valor (não cria um segundo registro). Pesagens de
+          <strong> outras datas</strong> nunca são alteradas — ficam no histórico do animal normalmente.</li>
+        <li>Quando existe uma pesagem lançada por aqui na data escolhida, aparece um ícone de lixeira ao lado do
+          campo — exclui só aquele lançamento; as colunas de última pesagem voltam a mostrar a pesagem anterior
+          do animal.</li>
+        <li>Acima da tabela, quatro filtros — <strong>brinco</strong>, <strong>categoria</strong>,
+          <strong> lote</strong> e <strong>proprietário</strong> — que se somam entre si (todos aplicados juntos,
+          não um cancelando o outro) e são aplicados antes de paginar, então "34 de 78 animais" já é o resultado
+          filtrado. Categoria e proprietário usam a mesma informação das colunas da lista, sem critério
+          diferente. O lote aqui é o mesmo lote de manejo do resto do sistema (Propriedade/Animais/Rebanho) —
+          não tem relação com "lote de inseminação" do Reprodutivo.</li>
+        <li>Uma lista muito grande (fazendas com milhares de animais ativos) vem paginada — os filtros acima
+          reduzem o total antes de paginar.</li>
+        <li>Clicar no brinco de uma linha abre o gráfico e o histórico daquele animal <strong>por cima da
+          lista</strong> (a lista continua ali embaixo, intacta), com a tela rolando suavemente até ele. O botão
+          ✕ fecha e devolve a rolagem para onde você estava antes de clicar. Clicar em outro brinco pela busca ou
+          pelo seletor do topo, com o gráfico já aberto, só troca o animal exibido — não fecha e reabre. Se você
+          estava com um peso digitado e ainda não gravado numa linha, abrir/trocar o gráfico grava esse peso
+          primeiro (nunca perde o que foi digitado).</li>
+      </ol>
+      <p style={{ color: '#374151', fontSize: '.85rem', lineHeight: 1.8, marginBottom: 18 }}>
+        Toda pesagem lançada por esta lista é do tipo <strong>Intermediária</strong> — a mesma pesagem de rotina
+        do formulário Registrar — e por isso entra normalmente no cálculo de <strong>GMD</strong> e alimenta as
+        abas <strong>Desempenho</strong> e <strong>Projeção</strong>, igualzinho a qualquer outra pesagem do
+        sistema. Ela <strong>não</strong> é, e nunca vira, o lançamento de Nascimento ou Desmame — e isso não é
+        uma limitação da lista, é uma diferença real entre os dois: um desmame não é só "uma pesagem que
+        aconteceu naquele dia", é um evento que também grava a <strong>data de desmame no cadastro do
+        animal</strong> (o que muda a categoria dele e o que entra em Kg ao Desmame/P205 em Metas) — sempre pelo
+        mesmo fluxo dedicado (aba <strong>Desmame</strong> ou o card de desmame no lote, em Reprodutivo), nunca
+        por um peso digitado numa lista genérica. Quando o animal da linha ainda pode ser desmamado (terneiro/
+        terneira sem desmame registrado), um pequeno ícone <i className="ti ti-info-circle" style={{ color: '#9CA3AF' }} /> ao lado
+        do brinco lembra disso — só um aviso, não impede nem sugere nada: pesar esse animal por aqui continua
+        gerando uma pesagem intermediária comum, e o desmame de verdade se registra na aba própria.
+      </p>
 
       <h4 style={{ fontSize: '.88rem', fontWeight: 700, color: '#1a1a1a', marginBottom: 8 }}>Registro em lote</h4>
       <p style={{ color: '#374151', fontSize: '.85rem', lineHeight: 1.8, marginBottom: 18 }}>

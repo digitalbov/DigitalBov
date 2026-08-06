@@ -259,6 +259,13 @@ export const db = {
     update:        (id, d)    => escopo(T('pesagens').raw().update(d).eq('id', id)).select().single(),
     delete:        (id)       => escopo(T('pesagens').raw().delete().eq('id', id)),
     countByAnimal: (animalId) => supabase.from('pesagens').select('id', { count:'exact', head:true }).eq('animal_id', animalId),
+    // 1 linha por animal (a mais recente) -- não o histórico inteiro. Usado
+    // pela lista "Por Animal" (potencialmente milhares de animais ativos),
+    // ver migration_pesagens_ultima_por_animal.sql.
+    ultimaPorAnimal: (animalIds) => {
+      if (!animalIds?.length) return Promise.resolve({ data: [], error: null })
+      return supabase.rpc('pesagens_ultima_por_animal', { p_animal_ids: animalIds })
+    },
   },
 
   sanidade: {
