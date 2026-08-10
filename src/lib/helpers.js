@@ -359,6 +359,19 @@ export const GESTACAO_ANGUS_DIAS = 283
 // 463 dias desde a monta.
 export const PERDA_PRESUMIDA_DIAS_APOS_PREVISTO = 180
 
+// Idade (dias de vida) a partir da qual um terneiro/terneira com cria ao pé
+// é considerado "apto ao desmame" — usado só pra sinalizar a pendência de
+// desmame no aviso de "Ver ciclo anterior" (Reprodutivo.jsx, item 6). ESTA É
+// UMA CONVENÇÃO DA FAZENDA (prática comum de manejo — desmame costuma
+// acontecer por volta dos 6 meses), NÃO uma regra do sistema: diferente de
+// GESTACAO_ANGUS_DIAS acima (biologia, não muda por decisão de manejo), o
+// desmame em si continua 100% manual e sem corte etário nenhum em
+// candidatosDesmame (Pesagens.jsx) — ninguém é IMPEDIDO de desmamar antes ou
+// depois disso. Se um dia isso precisar ser configurável por fazenda, É AQUI
+// que muda — nenhum outro lugar do código deve ter um número de dias de
+// desmame escrito solto.
+export const APTO_AO_DESMAME_DIAS = 180
+
 export function calcGestacaoLote(loteData, prenhas, nascimentos, nAbortos, hoje = hojeAgora()) {
   const diasDesdeMonta = loteData ? Math.round((hoje - new Date(loteData + 'T12:00:00')) / 86400000) : null
   const aindaDentroDaJanela = diasDesdeMonta !== null && diasDesdeMonta < GESTACAO_MAX_DIAS
@@ -621,6 +634,132 @@ export function classificarDesfechosPorSafra(animal, ciclosFazenda, reprodutivoB
     })
 }
 
+// ── Histórico reprodutivo do touro (ficha do animal, sexo=M + is_touro) ──────
+// Vínculo por ID (touro_animal_id em lotes_inseminacao, pai_animal_id em
+// animais — ver migration_touro_vinculo_id.sql) é a fonte dos números
+// PRINCIPAIS. Como a migração NÃO reescreveu dado antigo (decisão do
+// usuário — dados de teste, não vale a pena preservar por texto), lote/filho
+// de antes dessa migração continua só com o texto (`touro`/`pai`) batendo
+// com o brinco, sem nenhum dos dois ids — esse legado entra APARTADO
+// (qtdFilhosLegado/qtdCoberturasLegado), nunca somado aos números
+// principais. Quem chama já separa os dois grupos nas queries (ver
+// db.animais.filhosPorPai*/db.lotesInseminacao.porTouro* em supabase.js) —
+// esta função só reflete a separação, não decide ela.
+//
+// Lote com MAIS de um touro (lote_touros não vazio) tem paternidade
+// INDEFINIDA por definição — resolverPaiDerivado/resolverPaiIdDerivado nunca
+// gravam um touro específico em `pai`/`pai_animal_id` nesse caso, então os
+// filhos já saem automaticamente de fora de `filhos` (quem chama nem
+// precisa filtrar). Mas as INSEMINAÇÕES desses lotes (cobertura,
+// efetividade) SÓ existem via `lotesAtribuiveis`/`lotesExcluidos`, que quem
+// chama já separou — aqui só somamos os excluídos pra exibir a contagem,
+// nunca os usamos em nenhum número/gráfico.
+//
+// `filhos`/`filhosLegado` = animais com pai_animal_id=touro.id / com
+// pai=brinco sem nenhum dos dois ids (qualquer situação — vendido/morto
+// também nasceu, conta como filho de verdade). `pesagensFilhos` = pesagens
+// de TODOS os filhos das duas listas (db.pesagens.listPorAnimais, uma query
+// batelada). `lotesAtribuiveis`/`lotesLegado`/`lotesExcluidos` = retorno de
+// db.lotesInseminacao.porTouro*, já particionado por quem chama (lote_touros
+// vazio ou não, com id ou só texto). `partosContemporaneos` =
+// db.partos.porCiclos(cicloIds), MESMAS safras em que o touro teve lote
+// ATRIBUÍVEL (id) — nunca a fazenda inteira/todo o histórico, pra
+// comparação de GMD nunca virar touro antigo x bezerro de hoje (item 6 da
+// proposta aprovada).
+export const AMOSTRA_MINIMA_TOURO = 5
+
+export function calcHistoricoTouro({
+  filhos = [], filhosLegado = [], pesagensFilhos = [],
+  lotesAtribuiveis = [], lotesLegado = [], lotesExcluidos = [],
+  partosContemporaneos = [],
+} = {}) {
+  const qtdFilhos = filhos.length
+  const qtdMachos = filhos.filter(f => f.sexo === 'M').length
+  const qtdFemeas = filhos.filter(f => f.sexo === 'F').length
+
+  // GMD dos filhos e peso ao nascer — MESMO critério de "GMD Terneiros"
+  // (Metas.jsx: calcGMD por filho com 2+ pesagens, só enquanto ainda era
+  // Terneiro/Terneira na data da última pesagem usada, média dos valores
+  // >0) — não o critério mais solto de calcDesempenhoVidaFemea (GMD sobre
+  // TODAS as pesagens do filho, sem janela de categoria). Escolhido de
+  // propósito: o lado "contemporâneos" abaixo usa a MESMA restrição, porque
+  // os dois lados da comparação precisam da mesma fórmula (item 6 da
+  // proposta aprovada) — usar o critério mais solto só de um lado inflaria
+  // ou encolheria a média sem motivo real.
+  const gmdDeUmFilho = (dataNasc, sexo, pesagensDoFilho) => {
+    const ps = (pesagensDoFilho || []).filter(p => p.peso_kg != null).sort((a, b) => a.data.localeCompare(b.data))
+    if (ps.length < 2) return null
+    const dataUltima = ps[ps.length - 1].data
+    if (!['Terneiro', 'Terneira'].includes(calcCategoria(dataNasc, sexo, dataUltima))) return null
+    const g = parseFloat(calcGMD(ps))
+    return g > 0 ? g : null
+  }
+  const media = (arr, casas = 3) => arr.length > 0 ? Math.round(arr.reduce((s, v) => s + v, 0) / arr.length * 10 ** casas) / 10 ** casas : null
+
+  const gmdsFilhos = [], pesosNascFilhos = []
+  filhos.forEach(f => {
+    const ps = pesagensFilhos.filter(p => p.animal_id === f.id)
+    const pesoNasc = ps.find(p => p.tipo === 'nascimento')
+    if (pesoNasc) {
+      const pn = parseFloat(pesoNasc.peso_kg)
+      if (Number.isFinite(pn)) pesosNascFilhos.push(pn)
+    }
+    const g = gmdDeUmFilho(f.data_nascimento, f.sexo, ps)
+    if (g !== null) gmdsFilhos.push(g)
+  })
+
+  const gmdsContemporaneos = []
+  partosContemporaneos.forEach(p => {
+    const b = p.bezerro
+    if (!b || b.situacao === 'morto') return
+    const g = gmdDeUmFilho(b.data_nascimento, b.sexo, b.pesagens)
+    if (g !== null) gmdsContemporaneos.push(g)
+  })
+
+  // Efetividade de cobertura — reaproveita calcTaxaPrenhez/contarExpostas/
+  // contarPrenhas (fórmula OFICIAL única do app, ver comentário lá), só nas
+  // inseminações dos lotes ATRIBUÍVEIS (touro único).
+  const inseminacoesAtribuiveis = lotesAtribuiveis.flatMap(l => l.inseminacoes || [])
+  const expostas = contarExpostas(inseminacoesAtribuiveis)
+  const prenhas  = contarPrenhas(inseminacoesAtribuiveis)
+  const diagnosticadas = new Set(inseminacoesAtribuiveis.filter(i => i.diagnostico).map(i => i.animal_id)).size
+  const efetividade = calcTaxaPrenhez(inseminacoesAtribuiveis)
+
+  // Por safra (ciclo) — 1 ponto por ciclo em que o touro teve pelo menos um
+  // lote atribuível, mesma fórmula acima aplicada só às inseminações daquele
+  // ciclo. Ciclo sem nenhuma inseminação diagnosticada ainda (calcTaxaPrenhez
+  // devolve null) fica de fora do gráfico — nada a mostrar, não é 0%.
+  const porCiclo = new Map()
+  lotesAtribuiveis.forEach(l => {
+    if (!l.ciclo_id) return
+    if (!porCiclo.has(l.ciclo_id)) porCiclo.set(l.ciclo_id, { nome: l.ciclo?.nome || '—', ins: [] })
+    porCiclo.get(l.ciclo_id).ins.push(...(l.inseminacoes || []))
+  })
+  const efetividadePorSafra = [...porCiclo.values()]
+    .map(v => ({ safra: v.nome, efetividade: calcTaxaPrenhez(v.ins), expostas: contarExpostas(v.ins) }))
+    .filter(d => d.efetividade !== null)
+
+  const qtdCoberturasExcluidas = lotesExcluidos.reduce((s, l) => s + (l.inseminacoes?.length || 0), 0)
+
+  // Legado (sem vínculo por id, só texto) — CONTAGEM só, nunca entra em
+  // GMD/efetividade/gráfico: dado descartável (decisão do usuário), o card
+  // só precisa deixar claro que ele existe e quanto pesa, não recalcular
+  // métrica completa em cima de um vínculo que já sabemos ser frágil.
+  const qtdFilhosLegado = filhosLegado.length
+  const qtdCoberturasLegado = lotesLegado.reduce((s, l) => s + (l.inseminacoes?.length || 0), 0)
+
+  return {
+    qtdFilhos, qtdMachos, qtdFemeas,
+    gmdFilhos: media(gmdsFilhos), comGmdFilhos: gmdsFilhos.length,
+    gmdContemporaneos: media(gmdsContemporaneos), comGmdContemporaneos: gmdsContemporaneos.length,
+    pesoNascFilhos: media(pesosNascFilhos, 1), comPesoNascFilhos: pesosNascFilhos.length,
+    expostas, prenhas, diagnosticadas, efetividade,
+    efetividadePorSafra, qtdSafras: porCiclo.size,
+    qtdLotesExcluidos: lotesExcluidos.length, qtdCoberturasExcluidas,
+    qtdFilhosLegado, qtdCoberturasLegado,
+  }
+}
+
 // ── Estoque: saldo por lote (FEFO) ─────────────────────────────────────────────
 // Recebe as movimentações de UM item (tipo 'E'/'S') e devolve o saldo por lote de
 // validade, consumindo primeiro os lotes que vencem antes (First Expired, First
@@ -818,6 +957,21 @@ export function statusReprodutivoExibicao(animal, partos) {
 // respectivamente. `todosPartos` (opcional, 4º parâmetro) = TODOS os partos
 // da fazenda (sem escopo), cada item com mae_id/data_parto/natimorto/
 // bezerro_id/bezerro.{situacao,data_desmame} — usado só pra comCriaAoPe.
+// Tentativa MAIS RECENTE (maior lote.data) entre as inseminações do animal
+// ainda sem diagnóstico — extraído de dentro de desfechoReprodutivo (abaixo)
+// pra ser reaproveitado por quem precisa saber só isso, sem o resto da
+// categorização de falhada/em_aberto/etc. (ex: esconder da lista de "Novo
+// lote" uma vaca cuja tentativa mais recente ainda está em aberto, mesmo
+// critério, não um segundo). Linhas sem lote.data (dado antigo incompleto)
+// ficam de fora da comparação — sem data não dá pra saber se são "mais
+// recentes" que nada. `insAnimal` já filtrado pro animal (cada item precisa
+// de `diagnostico` e `lote.data`).
+export function tentativaMaisRecentePendente(insAnimal) {
+  const insComData = (insAnimal || []).filter(i => i.lote?.data)
+  const maisRecente = insComData.reduce((max, i) => (!max || i.lote.data > max.lote.data) ? i : max, null)
+  return !!maisRecente && !maisRecente.diagnostico
+}
+
 export function desfechoReprodutivo(animalId, { inseminacoes = [], partos = [], abortos = [] } = {}, hoje = hojeISO(), todosPartos = null) {
   const resultadoBase = (() => {
     const partoAnimal = (partos || []).find(p => p.mae_id === animalId)
@@ -826,15 +980,10 @@ export function desfechoReprodutivo(animalId, { inseminacoes = [], partos = [], 
     const prenhezes = insAnimal.filter(i => i.diagnostico === 'P' && i.data_diagnostico)
     if (prenhezes.length === 0) {
       const temV = insAnimal.some(i => i.diagnostico === 'V')
-      // Repasse em andamento = a tentativa MAIS RECENTE dela no escopo
-      // (maior lote.data) ainda não tem diagnóstico — não "existe alguma
-      // linha sem diagnóstico" (ver comentário do resultado 'em_repasse'
-      // acima pro bug que isso corrige). Linhas sem lote.data (dado antigo
-      // incompleto) ficam de fora dessa comparação — sem data não dá pra
-      // saber se são "mais recentes" que nada.
-      const insComData = insAnimal.filter(i => i.lote?.data)
-      const maisRecente = insComData.reduce((max, i) => (!max || i.lote.data > max.lote.data) ? i : max, null)
-      const temPendente = !!maisRecente && !maisRecente.diagnostico
+      // Repasse em andamento = a tentativa MAIS RECENTE dela no escopo ainda
+      // não tem diagnóstico — não "existe alguma linha sem diagnóstico" (ver
+      // comentário do resultado 'em_repasse' acima pro bug que isso corrige).
+      const temPendente = tentativaMaisRecentePendente(insAnimal)
       if (temV && temPendente) return { resultado: 'em_repasse' }
       return temV ? { resultado: 'falhou', motivo: 'nao_emprenhou' } : { resultado: 'nao_exposta' }
     }
@@ -1057,6 +1206,228 @@ export function resolverPaiDerivado(lote) {
   // pra saber qual touro efetivamente gerou o bezerro, então NUNCA escolhe um
   // nome entre eles: aponta pro lote (referência auditável) em vez disso.
   return `${PAI_MONTA_NATURAL_PREFIX} ${lote.numero}, Estação ${lote.estacao?.nome || '—'}`
+}
+
+// Companheiro de resolverPaiDerivado pro vínculo por ID (migration_touro_
+// vinculo_id.sql) — MESMA regra de paternidade indefinida: lote com mais de
+// um touro nunca grava vínculo nenhum, nem por texto (acima) nem por id
+// (aqui). `lote` precisa ter touro_animal_id/touro_externo_id (colunas
+// próprias de lotes_inseminacao — não confundir com o vínculo de um dos
+// touros ADICIONAIS em lote_touros, que nunca vira pai_*_id, exatamente
+// porque o lote sendo multi-touro já é o motivo da indefinição).
+export function resolverPaiIdDerivado(lote) {
+  const semVinculo = { pai_animal_id: null, pai_externo_id: null }
+  if (!lote) return semVinculo
+  if (lote.tipo === 'natural' && (lote.lote_touros || []).length > 0) return semVinculo
+  return { pai_animal_id: lote.touro_animal_id || null, pai_externo_id: lote.touro_externo_id || null }
+}
+
+// ── Normalização de nome (chave de entrada de nome_normalizado) — usada por
+// touros_externos (migration_touro_vinculo_id.sql) E por feiras
+// (migration_feiras_premiacoes.sql): mesmo mecanismo de find-or-create nos
+// dois, nunca uma segunda implementação. ─────────────────────────────────
+// Maiúsculas, sem acento e SEM espaço nenhum (não só colapsado — removido):
+// é assim que "Insano69"/"INSANO 69"/"Insano 69 " viram a MESMA chave — o
+// exemplo que motivou isso tem uma variante SEM espaço e duas COM espaço,
+// então só colapsar espaço duplicado não bastava, precisa tirar todos.
+// Precisa ser a MESMA regra tanto na hora de gravar (find-or-create) quanto
+// na hora de comparar — um único helper, nunca duas implementações que
+// possam divergir.
+export function normalizarNome(nome) {
+  // Filtra por code point (0x0300-0x036F = marcas diacríticas combinantes)
+  // em vez de regex com a faixa escrita por escape — evita depender de como
+  // o caractere combinante sobrevive a cópia/edição do arquivo fonte.
+  const semAcento = (nome || '').normalize('NFD').split('').filter(ch => {
+    const code = ch.codePointAt(0)
+    return code < 0x0300 || code > 0x036f
+  }).join('')
+  return semAcento.toUpperCase().replace(/\s+/g, '')
+}
+
+// ── Resolução AO VIVO do texto digitado num campo de touro — usada tanto
+// pra mostrar "qual touro vai ser usado" na tela (a cada tecla, 100% em
+// memória, sem consulta nenhuma — tourosCadastrados/tourosExternos já estão
+// carregados) quanto — com a MESMA função — na hora de salvar (Reprodutivo.
+// jsx). É de propósito que as duas chamadas rodem por aqui: o que o usuário
+// vê antes de salvar tem que ser IMPOSSÍVEL de divergir do que é gravado,
+// não só coincidir na prática.
+//
+// Não existe estado de "vínculo" guardado à parte (id capturado ao
+// escolher, que "cai" se o texto mudar depois) — cada chamada recalcula do
+// zero, só a partir do texto atual. Prioridade:
+//   1) texto bate (sem diferenciar maiúsculas) com o BRINCO de um touro
+//      cadastrado → é esse touro, sempre — mesmo que exista também um touro
+//      externo com o nome igual (ver `ambiguoExterno` abaixo, exposto pra
+//      tela nunca deixar essa coincidência rara passar em silêncio).
+//   2) senão, o texto normalizado (normalizarNome) bate com um touro
+//      externo já usado nesta fazenda → é esse touro externo.
+//   3) senão → vai criar um touro externo novo com este texto. Se houver
+//      touro(s) externo(s) parecido(s) (prefixo em comum de pelo menos 3
+//      caracteres normalizados, nos dois sentidos — "INSANO7" é prefixo de
+//      "INSANO70", e vice-versa pra digitação mais longa que o nome salvo),
+//      até 3 (mais perto do tamanho do texto digitado primeiro) entram em
+//      `aproximados` — sugestão, nunca escolhidos automaticamente.
+// Texto vazio devolve null (nada a mostrar/resolver).
+export function resolverTouroDigitado(texto, tourosCadastrados = [], tourosExternos = []) {
+  const t = (texto || '').trim()
+  if (!t) return null
+  const normalizado = normalizarNome(t)
+
+  const cadastro = tourosCadastrados.find(a => a.brinco?.toUpperCase() === t.toUpperCase())
+  if (cadastro) {
+    const ambiguoExterno = tourosExternos.find(x => normalizarNome(x.nome) === normalizado) || null
+    return { tipo: 'cadastro', touro: cadastro, ambiguoExterno }
+  }
+
+  const externoExato = tourosExternos.find(x => normalizarNome(x.nome) === normalizado)
+  if (externoExato) return { tipo: 'externo_exato', touro: externoExato }
+
+  let aproximados = []
+  if (normalizado.length >= 3) {
+    aproximados = tourosExternos
+      .filter(x => {
+        const n = normalizarNome(x.nome)
+        return n !== normalizado && (n.startsWith(normalizado) || normalizado.startsWith(n))
+      })
+      .sort((a, b) => Math.abs(normalizarNome(a.nome).length - normalizado.length) - Math.abs(normalizarNome(b.nome).length - normalizado.length))
+      .slice(0, 3)
+  }
+  return { tipo: 'novo', touro: null, aproximados }
+}
+
+// Tira um ano (19xx/20xx) do FIM de um nome de feira digitado, se houver —
+// só pra identidade da feira-base (feiras.nome/nome_normalizado) nunca
+// depender de o usuário lembrar de digitar o nome "sem ano": é comum
+// digitar "Expofeira 2028" por hábito (era a convenção antes desta
+// mudança), e sem essa limpeza isso criaria uma feira-base nova a cada ano
+// em vez de reconhecer a mesma feira. Só isso — NÃO extrai mais o ano da
+// participação (ver resolverFeiraDigitada: o ano agora vem sempre da Data
+// de início que o usuário preenche, nunca de regex no nome — foi regex no
+// nome que causou os dois bugs anteriores desta função).
+export function nomeBaseFeira(nome) {
+  const t = (nome || '').trim()
+  const matches = [...t.matchAll(/(19|20)\d{2}/g)]
+  if (matches.length === 0) return t
+  const m = matches[matches.length - 1]
+  return (t.slice(0, m.index) + t.slice(m.index + m[0].length)).replace(/\s+/g, ' ').trim()
+}
+
+// ── Resolução AO VIVO do texto digitado num campo de feira + da data de
+// início preenchida — mesmo mecanismo de resolverTouroDigitado acima
+// (reaproveitado, não reimplementado): recalculado do zero a cada
+// render/tecla, nunca de um id capturado à parte. Texto vazio devolve null.
+//
+// Duas perguntas INDEPENDENTES, nunca misturadas num enum só (foi misturar
+// "é a mesma feira?" com "é o mesmo ano?" numa única resposta que causou os
+// dois bugs anteriores — sempre inferindo o ano de um texto livre):
+//   1) o NOME (sem o ano, ver nomeBaseFeira) bate com uma feira já
+//      cadastrada nesta fazenda, ou vai ser uma feira nova?
+//   2) dado o ANO da data preenchida (a feira "acontece todo ano" — modelo
+//      (a) aprovado: uma feira, várias ocorrências por ano em
+//      public.feira_edicoes), já existe uma ocorrência desta feira nesse
+//      ano, ou vai ser uma nova?
+// O ano NUNCA é adivinhado — só existe quando `dataInicioISO` vem
+// preenchido (o usuário "informa quando foi"); sem data, a função só
+// responde a pergunta 1.
+//
+// `edicoesCadastradas`: todas as ocorrências (feira_edicoes) já
+// carregadas — mesmo padrão de feirasCadastradas, tudo em memória.
+export function resolverFeiraDigitada(texto, feirasCadastradas = [], edicoesCadastradas = [], dataInicioISO = null) {
+  const t = (texto || '').trim()
+  if (!t) return null
+  const nomeBase = nomeBaseFeira(t)
+  const normalizado = normalizarNome(nomeBase)
+  const feira = feirasCadastradas.find(f => normalizarNome(f.nome) === normalizado) || null
+  const ano = dataInicioISO ? parseInt(dataInicioISO.slice(0, 4), 10) : null
+
+  const edicoesDestaFeira = feira ? edicoesCadastradas.filter(e => e.feira_id === feira.id) : []
+  const edicao = (feira && ano != null) ? (edicoesDestaFeira.find(e => e.ano === ano) || null) : null
+  // Mais recente entre as já cadastradas desta feira — só pra sugerir o
+  // local de uma edição NOVA (nunca a data: uma data de outro ano copiada
+  // pra cá seria simplesmente errada). Editável, nunca gravada sem o
+  // usuário confirmar salvando.
+  const ultimaEdicao = edicoesDestaFeira.length > 0
+    ? [...edicoesDestaFeira].sort((a, b) => b.ano - a.ano)[0]
+    : null
+
+  let aproximadas = []
+  if (!feira && normalizado.length >= 3) {
+    aproximadas = feirasCadastradas
+      .filter(f => {
+        const n = normalizarNome(f.nome)
+        return n !== normalizado && (n.startsWith(normalizado) || normalizado.startsWith(n))
+      })
+      .sort((a, b) => Math.abs(normalizarNome(a.nome).length - normalizado.length) - Math.abs(normalizarNome(b.nome).length - normalizado.length))
+      .slice(0, 3)
+  }
+
+  return { nomeBase, feira, ano, edicao, ultimaEdicao, aproximadas }
+}
+
+// Estado de uma participação em feira — SEMPRE derivado, nunca gravado (ver
+// migration_feiras_premiacoes.sql, item 3 do plano aprovado): colocacao
+// preenchida = premiada; sem colocacao e a feira ainda não terminou =
+// agendada; sem colocacao e a feira já terminou = aguardando resultado
+// (mesmo critério do alerta em Calendario.jsx — um único ponto, reaproveitado
+// ali e na lista de Feiras.jsx e no painel da ficha do animal). `p` precisa
+// vir com o embed edicao:feira_edicoes(data_inicio,data_fim); `hojeISOStr` é
+// a data de hoje em 'YYYY-MM-DD' (hojeISO(), lib/hoje.js).
+export function statusFeiraParticipacao(p, hojeISOStr) {
+  if (p.colocacao) return { tipo: 'premiada', label: 'Premiada' }
+  const dataRef = p.edicao?.data_fim || p.edicao?.data_inicio
+  if (dataRef && hojeISOStr && dataRef < hojeISOStr) return { tipo: 'aguardando_resultado', label: 'Aguardando resultado' }
+  return { tipo: 'agendada', label: 'Agendada' }
+}
+
+// Resumo pro topo do painel "Feiras e Premiações" da ficha do animal
+// (participações[] já vem de db.feiraParticipacoes.listPorAnimal) — premiação
+// é qualquer participação com colocacao preenchida (resultado já lançado);
+// sem colocacao é agendamento/aguardando resultado, não conta como premiação.
+export function resumoFeirasAnimal(participacoes = []) {
+  const premiacoes = participacoes.filter(p => !!p.colocacao).length
+  return { participacoes: participacoes.length, premiacoes }
+}
+
+// ── Exibição do touro — SEMPRE por este helper, nunca reimplementado tela a
+// tela (Tarefa B.4). Regra: nome do touro cadastrado (ou o brinco dele, se
+// não tiver nome) > nome do touro externo > texto legado (sem vínculo por
+// id, dado anterior à migração). `comBrinco: true` mostra "Nome (Brinco)" —
+// só usado nos 4 pontos genealógicos/documentais (ficha, árvore
+// genealógica, PDF da ficha, export Excel), onde nome sozinho pode ser
+// ambíguo (animais.nome não tem UNIQUE); os demais lugares (cards, gráficos,
+// filtros, calendário, PDFs de relatório) usam nome puro.
+function resolverNomeVinculo({ animal, externo, textoLegado, comBrinco }) {
+  if (animal) {
+    const nome = animal.nome || animal.brinco
+    return (comBrinco && animal.nome) ? `${nome} (${animal.brinco})` : nome
+  }
+  if (externo) return externo.nome
+  return textoLegado || '—'
+}
+
+// `lote` precisa vir com os embeds touro_animal:animais(brinco,nome) e
+// touro_externo:touros_externos(nome) — ver db.lotesInseminacao (supabase.js).
+// Funciona tanto pra uma linha de lotes_inseminacao (campo de texto `touro`)
+// quanto pra uma linha de lote_touros — o 2º+ touro de uma monta natural
+// (campo de texto `nome`) — mesmos dois embeds, só o nome do campo de texto
+// muda; um helper só, nunca duas versões quase iguais.
+export function nomeTouro(lote, opts = {}) {
+  return resolverNomeVinculo({
+    animal: lote?.touro_animal, externo: lote?.touro_externo,
+    textoLegado: lote?.touro ?? lote?.nome, comBrinco: opts.comBrinco,
+  })
+}
+
+// `animal` precisa vir com os embeds pai_animal:animais!pai_animal_id(brinco,nome)
+// e pai_externo:touros_externos(nome). Monta natural com vários touros
+// (paternidade indefinida) continua mostrando a referência ao lote — nunca
+// tenta resolver nome nenhum nesse caso, mesma regra de sempre.
+export function nomePai(animal, opts = {}) {
+  if (paiEhMontaNaturalIndefinida(animal?.pai)) return animal.pai
+  return resolverNomeVinculo({
+    animal: animal?.pai_animal, externo: animal?.pai_externo,
+    textoLegado: animal?.pai, comBrinco: opts.comBrinco,
+  })
 }
 
 // ── Ordenação de brincos ──────────────────────────────────────────────────────

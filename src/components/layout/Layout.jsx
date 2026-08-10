@@ -16,7 +16,7 @@ const PAGE_TITLES = {
   '/':             { title: 'Dashboard',            sub: 'Visão geral da fazenda' },
   '/propriedade':  { title: 'Propriedade',           sub: 'Fazenda, piquetes e lotes' },
   '/animais':      { title: 'Cadastro de Animais',   sub: 'Registro individual do rebanho' },
-  '/reprodutivo':  { title: 'Painel Reprodutivo',    sub: 'Inseminação, diagnósticos e partos' },
+  '/reprodutivo':  { title: 'Gestão Reprodutiva',    sub: 'Inseminação, diagnósticos e partos' },
   '/rebanho':      { title: 'Controle de Rebanho',   sub: 'Estatísticas e índices zootécnicos' },
   '/sanidade':     { title: 'Sanidade',              sub: 'Vacinas, vermifugações e exames' },
   '/pesagens':     { title: 'Pesagens & Desempenho', sub: 'Pesos e GMD por animal' },

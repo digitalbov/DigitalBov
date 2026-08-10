@@ -55,21 +55,20 @@ const getImgs = async () => {
   return _imgs
 }
 
-export async function gerarPDFComMolduras(elemento, filename, titulo = '', fazenda = '', logoUrl = '') {
-  if (!elemento) return
+// Monta o jsPDF + calcula a geometria de página (topo/fundo/largura úteis) +
+// devolve as duas funções de desenho (cabeçalho/rodapé, marca d'água) —
+// extraído de gerarPDFComMolduras pra ser reaproveitado por
+// gerarPDFComMoldurasPorBlocos também, nunca duplicado entre os dois.
+async function _prepararDocumento(titulo, fazenda, logoUrl) {
   const { headerNovo, headerHoriz, marca } = await getImgs()
   // Logo da fazenda (fazendas.foto_url, upload feito no Dashboard) no lugar da
   // logo padrão do topo, quando cadastrada. Se falhar ao carregar (URL quebrada,
   // CORS, etc.) cai de volta para a logo padrão em vez de travar a geração do PDF.
   let logoTopo = headerNovo
-  // Só é a foto da fazenda (recortada em círculo) se realmente carregou uma —
-  // em caso de falha, logoTopo cai de volta pra headerNovo e deve usar o
-  // tamanho padrão, não o dobrado.
   let logoEhFazenda = false
   if (logoUrl) {
     try { logoTopo = await carregarImgCircular(logoUrl); logoEhFazenda = true } catch { logoTopo = headerNovo }
   }
-  const canvas = await html2canvas(elemento, { scale: 2, useCORS: true, logging: false, backgroundColor: '#ffffff' })
 
   const pdf  = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4', compress: true })
   registrarGreatVibes(pdf)
@@ -129,6 +128,14 @@ export async function gerarPDFComMolduras(elemento, filename, titulo = '', fazen
     }
   }
 
+  return { pdf, pgW, pgH, margem, contentTop, contentBot, contentH, contentW, desenharMolduras, desenharMarca }
+}
+
+export async function gerarPDFComMolduras(elemento, filename, titulo = '', fazenda = '', logoUrl = '') {
+  if (!elemento) return
+  const { pdf, contentTop, contentH, contentW, margem, desenharMolduras, desenharMarca } = await _prepararDocumento(titulo, fazenda, logoUrl)
+  const canvas = await html2canvas(elemento, { scale: 2, useCORS: true, logging: false, backgroundColor: '#ffffff' })
+
   const imgFullH = (canvas.height * contentW) / canvas.width
   const totalPag = Math.max(1, Math.ceil(imgFullH / contentH))
 
@@ -145,6 +152,56 @@ export async function gerarPDFComMolduras(elemento, filename, titulo = '', fazen
     pdf.addImage(slice.toDataURL('image/png'), 'PNG', margem, contentTop, contentW, sliceH)
     desenharMarca()
   }
+
+  const dateStr = new Date().toLocaleDateString('pt-BR').replace(/\//g,'-')
+  pdf.save(`${filename}-${dateStr}.pdf`)
+}
+
+// Variante por BLOCOS (Metas.jsx, item 3): cada elemento de `blocos` (um
+// contêiner de indicador inteiro) é capturado SEPARADO — diferente de
+// gerarPDFComMolduras, que tira UMA screenshot gigante do container inteiro
+// e fatia por altura fixa, sem noção nenhuma de onde cada bloco começa ou
+// termina (é essa limitação que torna impossível, ali, garantir "nunca
+// corta um bloco no meio" — o corte é só posição em pixels, não sabe o que
+// tem embaixo). Capturando bloco por bloco a altura de cada um é conhecida
+// ANTES de desenhar, então o empacotamento em páginas vira só: cabe no que
+// resta da página atual → entra ali (dois blocos dividem a mesma página se
+// os dois couberem); não cabe → nova página, o bloco começa do topo dela —
+// nunca desenhado pela metade. Bloco sozinho maior que uma página inteira
+// (não deveria acontecer nos contêineres de indicador de hoje, mas
+// defensivo): entra do jeito que é, estourando a margem inferior — não tem
+// como fatiar uma imagem rasterizada sem cortar uma linha/gráfico no lugar
+// errado, e isso é mais honesto que fingir que coube.
+export async function gerarPDFComMoldurasPorBlocos(blocos, filename, titulo = '', fazenda = '', logoUrl = '') {
+  const elementos = (blocos || []).filter(Boolean)
+  if (elementos.length === 0) return
+  const { pdf, contentTop, contentBot, contentW, margem, desenharMolduras, desenharMarca } = await _prepararDocumento(titulo, fazenda, logoUrl)
+
+  const capturas = await Promise.all(elementos.map(async el => {
+    const canvas = await html2canvas(el, { scale: 2, useCORS: true, logging: false, backgroundColor: '#ffffff' })
+    return { canvas, h: (canvas.height * contentW) / canvas.width }
+  }))
+
+  // Empacota os blocos em páginas ANTES de desenhar nada.
+  const paginas = [[]]
+  let y = contentTop
+  for (const { canvas, h } of capturas) {
+    if (y + h > contentBot && y > contentTop) {
+      paginas.push([])
+      y = contentTop
+    }
+    paginas[paginas.length - 1].push({ canvas, h, y })
+    y += h + 6
+  }
+
+  paginas.forEach((blocosDaPagina, i) => {
+    if (i > 0) pdf.addPage()
+    desenharMolduras(i + 1, paginas.length)
+    blocosDaPagina.forEach(({ canvas, h, y: yBloco }) => {
+      pdf.addImage(canvas.toDataURL('image/png'), 'PNG', margem, yBloco, contentW, h)
+    })
+    desenharMarca()
+  })
 
   const dateStr = new Date().toLocaleDateString('pt-BR').replace(/\//g,'-')
   pdf.save(`${filename}-${dateStr}.pdf`)

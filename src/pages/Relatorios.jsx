@@ -1,6 +1,6 @@
 ﻿import { useState, useEffect } from 'react'
 import { db } from '../lib/supabase'
-import { calcCategoria, calcCategoriaRebanho, calcTaxaPrenhez, contarExpostas, contarPrenhas, contarMatrizes, calcGestacaoLote, calcTaxaParicao, calcResultadoFinanceiro, calcDesmameMetrics, calcIntervaloPartos, calcGMD, estavaNoRebanho, fmtData, fmtMoeda, pct, ehMatriz, algumErro, CATEGORIAS_VALOR, gruposPorValor, sanidadeRealizada } from '../lib/helpers'
+import { calcCategoria, calcCategoriaRebanho, calcTaxaPrenhez, contarExpostas, contarPrenhas, contarMatrizes, calcGestacaoLote, calcTaxaParicao, calcResultadoFinanceiro, calcDesmameMetrics, calcIntervaloPartos, calcGMD, estavaNoRebanho, fmtData, fmtMoeda, pct, ehMatriz, algumErro, CATEGORIAS_VALOR, gruposPorValor, sanidadeRealizada, nomeTouro } from '../lib/helpers'
 import { Loading, Badge, AlertBox, toast, ErroCarregamento } from '../components/UI'
 import { useFazenda } from '../lib/FazendaContext'
 import { useCiclo } from '../lib/CicloContext'
@@ -459,7 +459,7 @@ export default function Relatorios() {
             const ins = (l.inseminacoes||[]).filter(i => !filtroProp || i.animal?.proprietario_id === filtroProp)
             const prn = ins.filter(i=>i.diagnostico==='P').length
             return {
-              numero: l.numero, touro: l.touro, dataFmt: fmtData(l.data),
+              numero: l.numero, touro: nomeTouro(l), dataFmt: fmtData(l.data),
               insCount: ins.length, prn, txPct: pct(prn, ins.length),
               partoPrevFmt: l.data ? new Date(new Date(l.data+'T12:00:00').setMonth(new Date(l.data+'T12:00:00').getMonth()+9)).toLocaleDateString('pt-BR') : '—',
             }
@@ -485,7 +485,7 @@ export default function Relatorios() {
               const ins = (l.inseminacoes||[]).filter(i => !filtroProp || i.animal?.proprietario_id === filtroProp)
               const prn = ins.filter(i=>i.diagnostico==='P').length
               return {
-                numero: l.numero, touro: l.touro, dataFmt: fmtData(l.data),
+                numero: l.numero, touro: nomeTouro(l), dataFmt: fmtData(l.data),
                 insCount: ins.length, prn, txPct: pct(prn, ins.length),
                 partoPrevFmt: l.data ? new Date(new Date(l.data+'T12:00:00').setMonth(new Date(l.data+'T12:00:00').getMonth()+9)).toLocaleDateString('pt-BR') : '—',
               }
@@ -535,7 +535,7 @@ export default function Relatorios() {
     return (
       <tr key={l.id}>
         <td><strong>{l.numero}</strong></td>
-        <td>{l.touro}</td>
+        <td>{nomeTouro(l)}</td>
         <td>{fmtData(l.data)}</td>
         <td>{ins.length}</td>
         <td style={{ color:'#1E55B0', fontWeight:500 }}>{prn}</td>

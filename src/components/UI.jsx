@@ -300,15 +300,26 @@ export function BadgeSomenteLeitura({ ciclo } = {}) {
 }
 
 // ── BotaoPDF ─────────────────────────────────────────────────────
-export function BotaoPDF({ contentRef, filename, titulo = '', label = 'Gerar PDF' }) {
+// `onGerar` (opcional): substitui a geração padrão (screenshot único de
+// contentRef.current, fatiado por altura fixa) por uma função própria do
+// chamador — usada por Metas.jsx (item 3) pra expandir todos os contêineres
+// recolhidos, capturar cada um separado (gerarPDFComMoldurasPorBlocos, ver
+// pdf.js) e restaurar o estado da tela depois. contentRef fica opcional
+// nesse caso; o botão/loading/erro continuam os mesmos pros dois modos,
+// nunca duplicados.
+export function BotaoPDF({ contentRef, filename, titulo = '', label = 'Gerar PDF', onGerar }) {
   const [gerando, setGerando] = useState(false)
   const { fazendaAtual } = useFazenda()
   const gerar = async () => {
-    if (!contentRef?.current) return
+    if (!onGerar && !contentRef?.current) return
     setGerando(true)
     try {
-      const { gerarPDFComMolduras } = await import('../lib/pdf')
-      await gerarPDFComMolduras(contentRef.current, filename, titulo, fazendaAtual?.nome || '', fazendaAtual?.foto_url || '')
+      if (onGerar) {
+        await onGerar()
+      } else {
+        const { gerarPDFComMolduras } = await import('../lib/pdf')
+        await gerarPDFComMolduras(contentRef.current, filename, titulo, fazendaAtual?.nome || '', fazendaAtual?.foto_url || '')
+      }
     } catch(e) {
       console.error(e)
       toast('Erro ao gerar PDF: ' + e.message, 'error')

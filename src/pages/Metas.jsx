@@ -1,20 +1,18 @@
-﻿import { useState, useEffect, useRef, lazy, Suspense } from 'react'
+﻿import { useState, useEffect, useRef } from 'react'
 import { db } from '../lib/supabase'
 import {
   calcCategoria, calcGMD, calcTaxaPrenhez, contarPrenhas, contarExpostas, contarMatrizes,
-  calcGestacaoLote, calcTaxaParicao, calcDesmameMetrics, calcIntervaloPartos, algumErro, fmtMoeda,
+  calcGestacaoLote, calcTaxaParicao, calcDesmameMetrics, calcIntervaloPartos, algumErro, fmtMoeda, nomeTouro,
 } from '../lib/helpers'
 import { Loading, Modal, toast, BotaoPDF, EmptyState, ErroCarregamento, AlertBox, Badge } from '../components/UI'
 import { usePermissoes } from '../lib/PermissoesContext'
 import { useCiclo } from '../lib/CicloContext'
+import { useFazenda } from '../lib/FazendaContext'
+import GraficoPrecoVenda from '../components/GraficoPrecoVenda'
 import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer, BarChart, Bar,
   XAxis, YAxis, CartesianGrid, LabelList, ReferenceLine, Legend,
 } from 'recharts'
-
-// three.js/@react-three/fiber só baixam quando esta tela abre (lazy), nunca no
-// bundle inicial do app — ver GraficoPrecoVenda3D.jsx.
-const GraficoPrecoVenda3D = lazy(() => import('../components/GraficoPrecoVenda3D'))
 
 // ── Metadata de cada indicador ────────────────────────────────────
 // semDadosMsg: mensagem mostrada no lugar de "Sem dados suficientes" quando o
@@ -137,6 +135,11 @@ const GRUPOS = [
   { titulo: 'Produção da Safra x Hectare Útil', indicadores: ['producao_kg', 'producao_kg_ha', 'producao_valor', 'receita_real_terneiros', 'producao_valor_ha', 'receita_real_terneiros_ha'] },
   { titulo: 'Custos', indicadores: ['custo_insem_terneiro', 'custo_insem_pct_valor', 'custo_insem_total', 'custo_insem_matriz'] },
 ]
+// Item 4 — título do 6º contêiner (Comparação entre ciclos), tratado com o
+// MESMO mecanismo de recolher/rolar/PDF dos 5 GRUPOS acima (ver
+// gruposRecolhidos/gruposDomRefs em Metas()) — nunca uma 2ª implementação
+// de "contêiner recolhível" só porque este não é um dos 5 de sempre.
+const TITULO_COMPARACAO = 'Comparação entre ciclos'
 const IDEAIS = {
   taxa_prenhez: '90%', taxa_paricao: '85%', taxa_paricao_expostas: '75%', gmd_terneiros: '0,8', mortalidade: '5%',
   taxa_aproveitamento: '100%', kg_bezerro_matriz: '>160kg', intervalo_partos: '~365d', taxa_aborto: '<5%',
@@ -618,6 +621,188 @@ function construirAtuais(blocos, modos, temValorCadastrado) {
   return out
 }
 
+// ── Item 4 — Comparação entre ciclos ────────────────────────────────────
+// calcularBlocoIndicadores: EXTRAÍDA de dentro de loadAll (era a closure
+// local `calcularBloco`) pra virar reaproveitável — corpo bit-a-bit
+// idêntico ao de antes, só que agora recebe tudo por parâmetro em vez de
+// fechar sobre variáveis do loadAll (regressão-zero: loadAll passa a
+// chamar esta função com exatamente os mesmos valores que already
+// calculava). Chamada 3x por loadAll (IA/Natural/Consolidado do ciclo em
+// foco) e 1x por ciclo por buscarIndicadoresConsolidadoCiclo (abaixo,
+// sempre Consolidado) — uma função só, nunca duas implementações da mesma
+// conta.
+function calcularBlocoIndicadores(lotesX, {
+  custoTotalModo, filtrarPorProp, matrizesAptas, animaisFiltrados, todasPesagens,
+  valorUnitTerneiro, valorUnitTerneira, hectareUtil, vendasAnimaisItens,
+}) {
+  const pesoTerneiroSafra = (bezerroId) => {
+    const todas = todasPesagens.filter(p => p.animal_id === bezerroId)
+    if (todas.length === 0) return null
+    const maisRecente = [...todas].sort((a, b) => b.data.localeCompare(a.data))[0]
+    return parseFloat(maisRecente.peso_kg) || null
+  }
+
+  const todasInseminacoes = filtrarPorProp(lotesX.flatMap(l => l.inseminacoes || []), i => i.animal?.proprietario_id)
+  const prenhas           = contarPrenhas(todasInseminacoes)
+  const matrizesExpostas  = contarExpostas(todasInseminacoes)
+  const taxaPrenhez       = calcTaxaPrenhez(todasInseminacoes)
+  const taxaAproveitamento = matrizesAptas > 0 ? (matrizesExpostas / matrizesAptas) * 100 : null
+
+  const partosSafra = filtrarPorProp(
+    lotesX.flatMap(l => (l.partos || []).map(p => ({
+      ...p,
+      _touroAnimalId: l.touro_animal_id, _touroExternoId: l.touro_externo_id, _touroNome: nomeTouro(l),
+      _loteNumero: l.numero, _loteTouros: l.lote_touros,
+    }))),
+    p => p.mae?.proprietario_id
+  )
+  const nPartos = partosSafra.length
+
+  const abortosSafra = filtrarPorProp(lotesX.flatMap(l => l.abortos || []), a => a.animal?.proprietario_id)
+  const nAbortos = abortosSafra.length
+  let gestandoTotal = 0
+  lotesX.forEach(l => {
+    const insLote     = filtrarPorProp(l.inseminacoes || [], i => i.animal?.proprietario_id)
+    const partosLote  = filtrarPorProp(l.partos || [],       p => p.mae?.proprietario_id)
+    const abortosLote = filtrarPorProp(l.abortos || [],      a => a.animal?.proprietario_id)
+    gestandoTotal += calcGestacaoLote(l.data, contarPrenhas(insLote), partosLote.length, abortosLote.length).gestando
+  })
+  const taxaParicao = (prenhas > 0 && nPartos > 0) ? (nPartos / prenhas) * 100 : null
+  const taxaParicaoExpostas = calcTaxaParicao(matrizesExpostas, nPartos, gestandoTotal)
+  const desmameMetrics  = calcDesmameMetrics(partosSafra, matrizesExpostas)
+  const kgBezerroMatriz = desmameMetrics.kgPorMatrizExposta
+  const kgNascimento    = desmameMetrics.pesoMedioNascimento
+  const kgDesmame       = desmameMetrics.pesoMedioDesmame
+
+  const perdasNaoIdentificadas = Math.max(0, prenhas - nPartos - nAbortos - gestandoTotal)
+  const desfechosResolvidos = nPartos + nAbortos + perdasNaoIdentificadas
+  const taxaAborto = (prenhas > 0 && desfechosResolvidos > 0) ? ((nAbortos + perdasNaoIdentificadas) / prenhas) * 100 : null
+
+  const bezerroIdsSafra = new Set(partosSafra.map(p => p.bezerro_id).filter(Boolean))
+  const candidatosGmd = animaisFiltrados.filter(a => a.situacao !== 'morto' && bezerroIdsSafra.has(a.id))
+  const gmdsT = [], gmdsF = [], gmdsM = []
+  for (const t of candidatosGmd) {
+    const ps = todasPesagens.filter(p => p.animal_id === t.id).sort((a, b) => a.data.localeCompare(b.data))
+    if (ps.length < 2) continue
+    const dataUltimaPesagem = ps[ps.length - 1].data
+    if (!['Terneiro', 'Terneira'].includes(calcCategoria(t.data_nascimento, t.sexo, dataUltimaPesagem))) continue
+    const g = parseFloat(calcGMD(ps))
+    if (g > 0) {
+      gmdsT.push(g)
+      if (t.sexo === 'F') gmdsF.push(g)
+      else if (t.sexo === 'M') gmdsM.push(g)
+    }
+  }
+  const media = (arr) => arr.length ? arr.reduce((s, v) => s + v, 0) / arr.length : null
+
+  const mortosBezerros = partosSafra.filter(p => p.bezerro?.situacao === 'morto').length
+  const mortalidade = nPartos > 0 ? (mortosBezerros / nPartos) * 100 : null
+
+  const qtdMachos = partosSafra.filter(p => p.bezerro?.sexo === 'M').length
+  const qtdFemeas = partosSafra.filter(p => p.bezerro?.sexo === 'F').length
+  const pesosSafra = partosSafra.map(p => p.bezerro_id ? pesoTerneiroSafra(p.bezerro_id) : null).filter(v => v != null && v > 0)
+  const kgProduzido = pesosSafra.reduce((s, v) => s + v, 0)
+  const kgPorSexo = partosSafra.reduce((acc, p) => {
+    if (!p.bezerro_id) return acc
+    const peso = pesoTerneiroSafra(p.bezerro_id)
+    if (peso == null || peso <= 0) return acc
+    if (p.bezerro?.sexo === 'M') acc.kgMachos += peso
+    else if (p.bezerro?.sexo === 'F') acc.kgFemeas += peso
+    return acc
+  }, { kgMachos: 0, kgFemeas: 0 })
+  const valorMachos = qtdMachos * valorUnitTerneiro
+  const valorFemeas = qtdFemeas * valorUnitTerneira
+  const valorProduzido = valorMachos + valorFemeas
+  const kgPorHa    = hectareUtil > 0 ? kgProduzido / hectareUtil : null
+  const valorPorHa = hectareUtil > 0 ? valorProduzido / hectareUtil : null
+
+  const vendasSafra = vendasAnimaisItens.filter(v => bezerroIdsSafra.has(v.animal_id))
+  const receitaRealTerneiros = vendasSafra.length > 0
+    ? vendasSafra.reduce((s, v) => s + (parseFloat(v.valor) || 0), 0)
+    : null
+  const receitaRealTerneirosHa = (hectareUtil > 0 && receitaRealTerneiros != null) ? receitaRealTerneiros / hectareUtil : null
+
+  const custoPorTerneiro = (custoTotalModo != null && nPartos > 0) ? custoTotalModo / nPartos : null
+  const custoPctValor    = (custoTotalModo != null && valorProduzido > 0) ? (custoTotalModo / valorProduzido) * 100 : null
+  const custoPorMatriz   = (custoTotalModo != null && matrizesExpostas > 0) ? custoTotalModo / matrizesExpostas : null
+
+  return {
+    partosSafra, prenhas, matrizesExpostas, taxaPrenhez, taxaAproveitamento,
+    nPartos, taxaParicao, taxaParicaoExpostas, kgBezerroMatriz, kgNascimento, kgDesmame,
+    nAbortos, gestandoTotal, perdasNaoIdentificadas, taxaAborto,
+    gmdTerneiros: media(gmdsT), gmdTerneirosFemeas: media(gmdsF), gmdTerneirosMachos: media(gmdsM),
+    gmdIndividuais: gmdsT,
+    mortosBezerros, mortalidade,
+    qtdMachos, qtdFemeas, pesosSafraLength: pesosSafra.length, kgProduzido, kgPorSexo,
+    valorMachos, valorFemeas, valorProduzido, kgPorHa, valorPorHa,
+    vendasSafraLength: vendasSafra.length, receitaRealTerneiros, receitaRealTerneirosHa,
+    custoPorTerneiro, custoPctValor, custoPorMatriz,
+  }
+}
+
+// Índices de UM ciclo (sempre Consolidado — "sem exibir as metas, só os
+// índices", proposta aprovada) pra Comparação entre ciclos. Só 1 query nova
+// por ciclo (lotesInseminacao.list, a única coisa realmente ciclo-
+// específica) — todo o resto (animais/pesagens/lançamentos/vendas/preços)
+// já está carregado pelo loadAll do ciclo em foco e é reaproveitado tal
+// qual (`base`, ver dadosBaseComparacaoRef em Metas()). intervalo_partos é
+// SEMPRE o mesmo valor pra qualquer ciclo (é fazenda inteira, não recorte
+// por ciclo — mesmo comportamento de hoje, ver loadAll) — por isso vem
+// pronto em `base`, não recalculado aqui.
+async function buscarIndicadoresConsolidadoCiclo(cicloAlvo, base) {
+  const { data: rLotes, error } = await db.lotesInseminacao.list(cicloAlvo.id)
+  if (error) return { error: error.message }
+  const lotesCiclo = rLotes || []
+  const primeiraMontaCiclo = lotesCiclo.map(l => l.data).filter(Boolean).sort()[0] || null
+  const matrizesAptas = primeiraMontaCiclo ? contarMatrizes(base.animaisFiltrados, primeiraMontaCiclo) : 0
+  const dentroCiclo = (d) => !!(d && d >= cicloAlvo.inicio && d <= cicloAlvo.fim)
+  const despesasIA  = base.todosLancamentos.filter(l => l.tipo === 'D' && l.grupo === 'Inseminação'  && dentroCiclo(l.data))
+  const despesasNat = base.todosLancamentos.filter(l => l.tipo === 'D' && l.grupo === 'Monta Natural' && dentroCiclo(l.data))
+  const custoIA  = despesasIA.length  > 0 ? despesasIA.reduce((s, l) => s + (parseFloat(l.valor) || 0), 0)  : null
+  const custoNat = despesasNat.length > 0 ? despesasNat.reduce((s, l) => s + (parseFloat(l.valor) || 0), 0) : null
+  const custoConsolidado = (custoIA != null || custoNat != null) ? (custoIA || 0) + (custoNat || 0) : null
+
+  const bloco = calcularBlocoIndicadores(lotesCiclo, {
+    custoTotalModo: custoConsolidado,
+    filtrarPorProp: base.filtrar,
+    matrizesAptas, animaisFiltrados: base.animaisFiltrados, todasPesagens: base.todasPesagens,
+    valorUnitTerneiro: base.valorUnitTerneiro, valorUnitTerneira: base.valorUnitTerneira,
+    hectareUtil: base.hectareUtil, vendasAnimaisItens: base.vendasAnimaisItens,
+  })
+  bloco.intervaloPartos = base.intervaloPartosConsolidado
+  bloco.custoInseminacaoTotal = custoConsolidado
+
+  const out = {}
+  GRUPOS.forEach(g => g.indicadores.forEach(ind => { out[ind] = valorIndicadorDoBloco(ind, bloco, base.temValorCadastrado) }))
+  return { data: out }
+}
+
+// Formatação de célula da tabela de comparação — mesma regra de unidade já
+// usada em IndicadorCard (UNIDADES_PADRAO), só reescrita pra devolver uma
+// string única (o card separa valor/sufixo por causa do layout do card;
+// aqui é só uma célula de tabela).
+function formatarValorIndicador(indicador, v) {
+  if (v === null || v === undefined || isNaN(v)) return null
+  const unidade = UNIDADES_PADRAO[indicador] || ''
+  const ehMonetario = unidade === 'R$' || unidade.startsWith('R$/')
+  if (ehMonetario) return fmtMoeda(v)
+  if (unidade === 'kg/dia') return `${v.toFixed(3)} ${unidade}`
+  return `${v.toFixed(1)}${unidade ? ' ' + unidade : ''}`
+}
+
+// Seta de variação vs. o ciclo anterior (coluna à esquerda, comparação
+// aprovada) — cor pelo MESMO `inverted` de CFG que já decide o semáforo dos
+// cards (nunca um critério de cor novo). Percentual só pra dentro do
+// `title` (tooltip nativo do navegador) — a célula em si só mostra a seta,
+// pra não poluir 23 linhas × N ciclos com número extra.
+function setaVariacao(atual, anterior, inverted) {
+  if (atual == null || anterior == null || anterior === 0) return null
+  const delta = atual - anterior
+  if (delta === 0) return { seta: '—', cor: '#9CA3AF', pct: 0 }
+  const melhorou = inverted ? delta < 0 : delta > 0
+  return { seta: delta > 0 ? '▲' : '▼', cor: melhorou ? '#166534' : '#DC2626', pct: (delta / Math.abs(anterior)) * 100 }
+}
+
 const MODOS_LABEL = { ia: 'Inseminação', natural: 'Monta Natural', consolidado: 'Consolidado' }
 // Seletor de 3 estados acima de cada contêiner — default sempre 'consolidado'.
 function SeletorModo({ value, onChange }) {
@@ -668,6 +853,80 @@ function GraficoComparativoModo({ indicadores, blocoIA, blocoNatural, temValorCa
 // ── Página principal ──────────────────────────────────────────────
 export default function Metas() {
   const contentRef = useRef(null)
+  const { fazendaAtual } = useFazenda()
+  // Item 3 — contêineres de indicador (GRUPOS) recolhíveis, TODOS recolhidos
+  // ao entrar no módulo (Set com todos os títulos já no useState inicial,
+  // recalculado só uma vez — GRUPOS é uma constante do módulo, não muda).
+  // TITULO_COMPARACAO (item 4) entra no MESMO Set — é um 6º contêiner
+  // recolhível pros mesmos mecanismos, não um caso especial à parte.
+  const [gruposRecolhidos, setGruposRecolhidos] = useState(() => new Set([...GRUPOS.map(g => g.titulo), TITULO_COMPARACAO]))
+  const gruposDomRefs = useRef({}) // { [titulo]: HTMLElement } — pro PDF por blocos (ver gerarPDFMetas abaixo)
+  // Item 4 — Comparação entre ciclos: dados-base já carregados por loadAll
+  // (tudo que NÃO é ciclo-específico), guardados em ref (não precisa
+  // re-renderizar por isto) pra buscarIndicadoresConsolidadoCiclo reaproveitar
+  // sem repetir as queries. indicadoresPorCiclo é o cache calculado nesta
+  // sessão da tela (buscado 1x, ao abrir o contêiner pela 1ª vez — nunca de
+  // novo enquanto a baseline não mudar, ver comparacaoSeqRef/loadAll).
+  const dadosBaseComparacaoRef = useRef(null)
+  const comparacaoSeqRef = useRef(0)
+  const [indicadoresPorCiclo, setIndicadoresPorCiclo] = useState({}) // { [cicloId]: {indicador:valor} | 'erro' }
+  const [carregandoComparacao, setCarregandoComparacao] = useState(false)
+  // Depois de EXPANDIR um contêiner (nunca ao recolher), rola pra deixar o
+  // TOPO dele centralizado na tela — guardado à parte (não dentro do
+  // toggle) porque só dá pra medir a posição REAL depois que o React já
+  // pintou o contêiner aberto, daí o useEffect abaixo, disparado pela
+  // mudança deste estado.
+  const [grupoParaRolar, setGrupoParaRolar] = useState(null)
+  useEffect(() => {
+    if (!grupoParaRolar) return
+    const el = gruposDomRefs.current[grupoParaRolar]
+    if (el) {
+      const rect = el.getBoundingClientRect()
+      window.scrollTo({ top: window.scrollY + rect.top - window.innerHeight / 2, behavior: 'smooth' })
+    }
+    setGrupoParaRolar(null)
+  }, [grupoParaRolar])
+  const toggleGrupo = (titulo) => {
+    setGruposRecolhidos(prev => {
+      const next = new Set(prev)
+      if (next.has(titulo)) { next.delete(titulo); setGrupoParaRolar(titulo) }
+      else next.add(titulo)
+      return next
+    })
+  }
+  // PDF (item 3): tem que sair com TODOS os contêineres expandidos,
+  // independente do que está recolhido na tela — expande tudo, espera dois
+  // frames (garante que o browser já pintou o novo layout antes de
+  // capturar; um setState não pinta no mesmo tick), gera com
+  // gerarPDFComMoldurasPorBlocos (cada contêiner é uma captura própria,
+  // nunca cortada ao meio entre páginas — ver comentário em pdf.js) e
+  // restaura o estado de recolhimento que a tela tinha antes, pra a sessão
+  // do usuário não mudar por causa de ter gerado um PDF.
+  const gerarPDFMetas = async () => {
+    const anterior = gruposRecolhidos
+    // Só expande os 5 GRUPOS — Comparação entre ciclos fica de fora do PDF
+    // (ver comentário abaixo), então nem precisa abrir (e disparar a busca
+    // sob demanda dela) só pra gerar o arquivo.
+    setGruposRecolhidos(prev => {
+      const next = new Set(prev)
+      GRUPOS.forEach(g => next.delete(g.titulo))
+      return next
+    })
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+    try {
+      const { gerarPDFComMoldurasPorBlocos } = await import('../lib/pdf')
+      // Comparação entre ciclos (item 4) fica FORA do PDF de propósito — os
+      // dados dela só existem depois de buscados sob demanda (ao abrir o
+      // contêiner), e o PDF não tem como esperar essa busca terminar antes
+      // de capturar sem arriscar sair com a tabela vazia/"Carregando...".
+      // Item 3 (PDF sempre expandido) valia pros 5 GRUPOS originais, que já
+      // têm os dados prontos desde o loadAll.
+      const blocos = GRUPOS.map(g => gruposDomRefs.current[g.titulo]).filter(Boolean)
+      await gerarPDFComMoldurasPorBlocos(blocos, 'metas-indicadores', 'Metas: Indicadores', fazendaAtual?.nome || '', fazendaAtual?.foto_url || '')
+    } finally {
+      setGruposRecolhidos(anterior)
+    }
+  }
   // Guarda contra corrida entre loadAll()s sobrepostos — cicloLocal começa
   // null e vira o ciclo real assim que carrega, disparando o
   // useEffect [cicloLocal?.id] de novo com uma 2ª chamada em paralelo. Sem
@@ -694,12 +953,16 @@ export default function Metas() {
   const [sexoTerneiros, setSexoTerneiros] = useState({ machos: 0, femeas: 0 })
   const [nascPorTouro,  setNascPorTouro]  = useState([])
   const [nascPorTouroSexo, setNascPorTouroSexo] = useState([])
+  // Partos sem nenhum vínculo por id (legado de antes da migração, ou sem
+  // pai informado) — apartado das fatias nomeadas de nascPorTouro, nunca
+  // somado a um touro específico.
+  const [nascSemVinculoTouro, setNascSemVinculoTouro] = useState(0)
   const [nascPorPeriodo,   setNascPorPeriodo]   = useState([])
   const [modoAgrupamento,  setModoAgrupamento]  = useState(null)
   const [producaoSafra,    setProducaoSafra]    = useState(null)
   const [custosDetalhes,   setCustosDetalhes]   = useState(null)
   const [custoPorCiclo,    setCustoPorCiclo]    = useState([])
-  const [seriesPrecoVenda3D,   setSeriesPrecoVenda3D]   = useState([])
+  const [seriesPrecoVenda,   setSeriesPrecoVenda]   = useState([])
   // Fase 2 — Monta Natural: bloco de indicadores calculado 3x por load (uma
   // vez por modo: ia/natural/consolidado — ver calcularBloco em loadAll),
   // guardado bruto aqui. `atuais`/gmdIndividuais/desfechosSafra/produção-por-
@@ -732,6 +995,42 @@ export default function Metas() {
   const { podeEditar } = usePermissoes()
   const podeEditarMetas = podeEditar('metas')
   const { cicloSelecionado: cicloLocal, ciclos } = useCiclo()
+
+  // Item 4 — busca os índices de TODOS os ciclos, sempre Consolidado, só
+  // quando o contêiner "Comparação entre ciclos" é aberto (nunca no load
+  // inicial da tela) — e só 1x por baseline (loadAll já limpa
+  // indicadoresPorCiclo quando o ciclo em foco ou o filtro de proprietário
+  // mudam, ver dadosBaseComparacaoRef ali). Guarda de corrida idêntica à de
+  // loadAll (loadSeqRef acima): mySeq descarta a resposta se uma baseline
+  // mais nova já tiver assumido no meio do caminho.
+  // `force`: usado só pelo fim de loadAll (abaixo), quando a baseline acabou
+  // de mudar e o contêiner já estava aberto — nesse caso não dá pra confiar
+  // em indicadoresPorCiclo (setIndicadoresPorCiclo({}) chamado ali mesmo
+  // ainda não refletiu no closure desta chamada sequencial). Sem force,
+  // respeita o cache: reabrir o contêiner na MESMA baseline não refaz a busca.
+  const carregarComparacaoCiclos = async ({ force = false } = {}) => {
+    const base = dadosBaseComparacaoRef.current
+    if (!base) return
+    if (!force && Object.keys(indicadoresPorCiclo).length > 0) return
+    const mySeq = ++comparacaoSeqRef.current
+    setCarregandoComparacao(true)
+    const resultados = await Promise.all(ciclos.map(async c => {
+      const r = await buscarIndicadoresConsolidadoCiclo(c, base)
+      return [c.id, r.error ? 'erro' : r.data]
+    }))
+    // Só aplica se ninguém superou esta busca no meio do caminho (mesma
+    // guarda de sequência de loadAll/loadSeqRef) — mas SEMPRE libera o
+    // "carregando", inclusive quando descartada, senão uma busca superada
+    // deixaria o indicador de carregamento travado pra sempre.
+    if (mySeq === comparacaoSeqRef.current) setIndicadoresPorCiclo(Object.fromEntries(resultados))
+    setCarregandoComparacao(false)
+  }
+  // Dispara a busca na transição pra "aberto" — nunca no load inicial (o
+  // contêiner começa recolhido, ver gruposRecolhidos acima).
+  useEffect(() => {
+    if (!gruposRecolhidos.has(TITULO_COMPARACAO)) carregarComparacaoCiclos()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gruposRecolhidos.has(TITULO_COMPARACAO)])
 
   useEffect(() => { loadAll() }, [cicloLocal?.id, filtroProp])
 
@@ -826,15 +1125,9 @@ export default function Metas() {
       // de calcularBloco (bezerroIdsSafra), não aqui: sem escopo de categoria
       // nem de ciclo, ver comentário em db.transacaoAnimaisItens.listVendasAnimais.
       const vendasAnimaisItens = rVendasAnimaisItens.data || []
-
-      // Peso mais recente do bezerro — TODA pesagem conta, inclusive
-      // compra/venda (peso real do lote pesado no negócio).
-      const pesoTerneiroSafra = (bezerroId) => {
-        const todas = todasPesagens.filter(p => p.animal_id === bezerroId)
-        if (todas.length === 0) return null
-        const maisRecente = [...todas].sort((a, b) => b.data.localeCompare(a.data))[0]
-        return parseFloat(maisRecente.peso_kg) || null
-      }
+      // pesoTerneiroSafra (peso mais recente do bezerro) agora vive DENTRO de
+      // calcularBlocoIndicadores (module-level) — não precisa mais de uma
+      // cópia aqui, ela recebe todasPesagens por parâmetro.
 
       // ── Custos — cada modo tem seu PRÓPRIO grupo financeiro de origem:
       // IA usa 'Inseminação', Natural usa 'Monta Natural' (espelha 'Inseminação'
@@ -869,158 +1162,21 @@ export default function Metas() {
 
       // ── Bloco de indicadores POR MODO (Fase 2 — Monta Natural). Mecanismo
       // único: filtra os LOTES por tipo antes de rodar a MESMA fórmula que já
-      // existia. calcularBloco(lotesCiclo) [= "Consolidado"] é bit-a-bit o
-      // cálculo de hoje, sem nenhuma linha alterada — regressão-zero por
+      // existia. calcularBlocoIndicadores(lotesCiclo) [= "Consolidado"] é
+      // bit-a-bit o cálculo de hoje — a função foi EXTRAÍDA pra fora de
+      // loadAll (era uma closure local aqui) só pra virar reaproveitável pela
+      // Comparação entre ciclos (item 4, ver buscarIndicadoresConsolidadoCiclo
+      // acima), sem alterar nenhuma linha de lógica: regressão-zero por
       // construção, nunca por coincidência.
-      const calcularBloco = (lotesX, custoTotalModo) => {
-        // taxa_prenhez / taxa_aproveitamento — prenhas deduplica por
-        // animal_id (contarPrenhas), senão nem taxaPrenhez nem os
-        // denominadores abaixo ficam corretos.
-        const todasInseminacoes = filtrar(lotesX.flatMap(l => l.inseminacoes || []), i => i.animal?.proprietario_id)
-        const prenhas           = contarPrenhas(todasInseminacoes)
-        const matrizesExpostas  = contarExpostas(todasInseminacoes)
-        const taxaPrenhez       = calcTaxaPrenhez(todasInseminacoes)
-        const taxaAproveitamento = matrizesAptas > 0 ? (matrizesExpostas / matrizesAptas) * 100 : null
-
-        // taxa_paricao / kg_bezerro_matriz — partos ANCORADOS no lote (safra
-        // da monta): podem cair no ciclo seguinte, mas pertencem à safra da
-        // monta deste ciclo/modo. _touroLote/_loteNumero/_loteTouros só pra
-        // resolver o rótulo do gráfico "por touro" mais abaixo (Frente B —
-        // lote de monta natural com vários touros vira paternidade indefinida,
-        // nunca atribuída ao 1º touro).
-        const partosSafra = filtrar(
-          lotesX.flatMap(l => (l.partos || []).map(p => ({
-            ...p, _touroLote: l.touro, _loteNumero: l.numero, _loteTouros: l.lote_touros,
-          }))),
-          p => p.mae?.proprietario_id
-        )
-        const nPartos     = partosSafra.length
-
-        // taxa_aborto (perda gestacional) — soma "gestando" lote a lote, pois
-        // cada lote tem sua própria data de monta; calcGestacaoLote é a MESMA
-        // fórmula usada em Reprodutivo.jsx. abortos JÁ têm lote_inseminacao_id
-        // gravado (confirmado no insert de salvarAborto em Reprodutivo.jsx) —
-        // então perda gestacional por modo é confiável, sem dado faltando.
-        // Movido pra ANTES de taxaParicao/taxaParicaoExpostas (abaixo): as
-        // duas agora precisam de gestandoTotal (ver calcTaxaParicao, helpers.js).
-        const abortosSafra = filtrar(lotesX.flatMap(l => l.abortos || []), a => a.animal?.proprietario_id)
-        const nAbortos = abortosSafra.length
-        let gestandoTotal = 0
-        lotesX.forEach(l => {
-          const insLote     = filtrar(l.inseminacoes || [], i => i.animal?.proprietario_id)
-          const partosLote  = filtrar(l.partos || [],       p => p.mae?.proprietario_id)
-          const abortosLote = filtrar(l.abortos || [],      a => a.animal?.proprietario_id)
-          gestandoTotal += calcGestacaoLote(l.data, contarPrenhas(insLote), partosLote.length, abortosLote.length).gestando
-        })
-        // "Eficiência Gestacional" (partos ÷ prenhas) — métrica diferente da
-        // Taxa de Parição oficial, não fazia parte do levantamento de
-        // divergência; mantida como estava (guarda própria, nPartos > 0).
-        const taxaParicao = (prenhas > 0 && nPartos > 0) ? (nPartos / prenhas) * 100 : null
-        // Fase 8 — "Taxa de Parição" oficial (padrão do setor): partos ÷
-        // matrizes EXPOSTAS, não prenhas (ver CFG.taxa_paricao_expostas).
-        // calcTaxaParicao é a fórmula única (helpers.js) — consolida esta
-        // implementação com as de Reprodutivo.jsx/Relatorios.jsx, que
-        // divergiam no tratamento de "expostas>0 e 0 partos" (ver comentário
-        // na função).
-        const taxaParicaoExpostas = calcTaxaParicao(matrizesExpostas, nPartos, gestandoTotal)
-        const desmameMetrics  = calcDesmameMetrics(partosSafra, matrizesExpostas)
-        const kgBezerroMatriz = desmameMetrics.kgPorMatrizExposta
-        const kgNascimento    = desmameMetrics.pesoMedioNascimento
-        const kgDesmame       = desmameMetrics.pesoMedioDesmame
-
-        const perdasNaoIdentificadas = Math.max(0, prenhas - nPartos - nAbortos - gestandoTotal)
-        const desfechosResolvidos = nPartos + nAbortos + perdasNaoIdentificadas
-        const taxaAborto = (prenhas > 0 && desfechosResolvidos > 0) ? ((nAbortos + perdasNaoIdentificadas) / prenhas) * 100 : null
-
-        // gmd_terneiros/_femeas/_machos — cohort ANCORADO NA SAFRA DA MONTA
-        // (mesmo anchor de nPartos/produção acima), EXATAMENTE partosSafra
-        // deste modo — GMD, nPartos e produção sempre falam do mesmo conjunto
-        // de terneiros, agora também dentro de cada modo. Só exclui morto.
-        // TODA pesagem do animal entra (inclusive compra/venda). Categoria
-        // avaliada na data da ÚLTIMA pesagem, não em "hoje".
-        const bezerroIdsSafra = new Set(partosSafra.map(p => p.bezerro_id).filter(Boolean))
-        const candidatosGmd = animaisFiltrados.filter(a => a.situacao !== 'morto' && bezerroIdsSafra.has(a.id))
-        const gmdsT = [], gmdsF = [], gmdsM = []
-        for (const t of candidatosGmd) {
-          const ps = todasPesagens.filter(p => p.animal_id === t.id).sort((a, b) => a.data.localeCompare(b.data))
-          if (ps.length < 2) continue
-          const dataUltimaPesagem = ps[ps.length - 1].data
-          if (!['Terneiro', 'Terneira'].includes(calcCategoria(t.data_nascimento, t.sexo, dataUltimaPesagem))) continue
-          const g = parseFloat(calcGMD(ps))
-          if (g > 0) {
-            gmdsT.push(g)
-            if (t.sexo === 'F') gmdsF.push(g)
-            else if (t.sexo === 'M') gmdsM.push(g)
-          }
-        }
-        const media = (arr) => arr.length ? arr.reduce((s, v) => s + v, 0) / arr.length : null
-
-        // mortalidade — de bezerros da safra (partosSafra deste modo), não do
-        // rebanho geral; só avalia depois que nasceu o 1º bezerro (nPartos>0).
-        const mortosBezerros = partosSafra.filter(p => p.bezerro?.situacao === 'morto').length
-        const mortalidade = nPartos > 0 ? (mortosBezerros / nPartos) * 100 : null
-
-        // Proporção de sexo + produção (kg/valor/ha) — mesma base partosSafra
-        // deste modo, mesmas fórmulas de sempre (ver comentário original em
-        // versões anteriores deste arquivo/git history).
-        const qtdMachos = partosSafra.filter(p => p.bezerro?.sexo === 'M').length
-        const qtdFemeas = partosSafra.filter(p => p.bezerro?.sexo === 'F').length
-        const pesosSafra = partosSafra.map(p => p.bezerro_id ? pesoTerneiroSafra(p.bezerro_id) : null).filter(v => v != null && v > 0)
-        const kgProduzido = pesosSafra.reduce((s, v) => s + v, 0)
-        const kgPorSexo = partosSafra.reduce((acc, p) => {
-          if (!p.bezerro_id) return acc
-          const peso = pesoTerneiroSafra(p.bezerro_id)
-          if (peso == null || peso <= 0) return acc
-          if (p.bezerro?.sexo === 'M') acc.kgMachos += peso
-          else if (p.bezerro?.sexo === 'F') acc.kgFemeas += peso
-          return acc
-        }, { kgMachos: 0, kgFemeas: 0 })
-        const valorMachos = qtdMachos * valorUnitTerneiro
-        const valorFemeas = qtdFemeas * valorUnitTerneira
-        const valorProduzido = valorMachos + valorFemeas
-        const kgPorHa    = hectareUtil > 0 ? kgProduzido / hectareUtil : null
-        const valorPorHa = hectareUtil > 0 ? valorProduzido / hectareUtil : null
-
-        // Receita REAL (venda efetiva) — mesma população de bezerroIdsSafra do
-        // GMD/kg produzido acima, não filtrada por categoria de venda: um
-        // terneiro vendido bem depois (já Novilho/Novilha, ou sob categoria com
-        // override) ainda é resultado desta safra. null (não 0) sem nenhuma
-        // venda ainda — "sem vendas no período" é diferente de "vendeu por
-        // zero". Pode ficar abaixo do valor ESTIMADO (valorProduzido) enquanto
-        // houver terneiros da safra ainda não vendidos — vai preenchendo
-        // conforme as vendas acontecem, mesmo que atravessem ciclo.
-        const vendasSafra = vendasAnimaisItens.filter(v => bezerroIdsSafra.has(v.animal_id))
-        const receitaRealTerneiros = vendasSafra.length > 0
-          ? vendasSafra.reduce((s, v) => s + (parseFloat(v.valor) || 0), 0)
-          : null
-        const receitaRealTerneirosHa = (hectareUtil > 0 && receitaRealTerneiros != null) ? receitaRealTerneiros / hectareUtil : null
-
-        // Custos — divide o total do grupo financeiro DESTE modo
-        // (custoTotalModo — Inseminação/Monta Natural/soma dos dois, ver
-        // chamada de calcularBloco abaixo) pelo cohort deste mesmo modo.
-        const custoPorTerneiro = (custoTotalModo != null && nPartos > 0) ? custoTotalModo / nPartos : null
-        const custoPctValor    = (custoTotalModo != null && valorProduzido > 0) ? (custoTotalModo / valorProduzido) * 100 : null
-        const custoPorMatriz   = (custoTotalModo != null && matrizesExpostas > 0) ? custoTotalModo / matrizesExpostas : null
-
-        return {
-          partosSafra, prenhas, matrizesExpostas, taxaPrenhez, taxaAproveitamento,
-          nPartos, taxaParicao, taxaParicaoExpostas, kgBezerroMatriz, kgNascimento, kgDesmame,
-          nAbortos, gestandoTotal, perdasNaoIdentificadas, taxaAborto,
-          gmdTerneiros: media(gmdsT), gmdTerneirosFemeas: media(gmdsF), gmdTerneirosMachos: media(gmdsM),
-          gmdIndividuais: gmdsT,
-          mortosBezerros, mortalidade,
-          qtdMachos, qtdFemeas, pesosSafraLength: pesosSafra.length, kgProduzido, kgPorSexo,
-          valorMachos, valorFemeas, valorProduzido, kgPorHa, valorPorHa,
-          vendasSafraLength: vendasSafra.length, receitaRealTerneiros, receitaRealTerneirosHa,
-          custoPorTerneiro, custoPctValor, custoPorMatriz,
-        }
+      const paramsBloco = {
+        filtrarPorProp: filtrar, matrizesAptas, animaisFiltrados, todasPesagens,
+        valorUnitTerneiro, valorUnitTerneira, hectareUtil, vendasAnimaisItens,
       }
-
       const lotesIA      = lotesCiclo.filter(l => l.tipo !== 'natural')
       const lotesNatural  = lotesCiclo.filter(l => l.tipo === 'natural')
-      const blocoIA          = calcularBloco(lotesIA, custoInseminacaoTotal)
-      const blocoNatural     = calcularBloco(lotesNatural, custoMontaNaturalTotal)
-      const blocoConsolidado = calcularBloco(lotesCiclo, custoConsolidadoTotal)
+      const blocoIA          = calcularBlocoIndicadores(lotesIA,      { ...paramsBloco, custoTotalModo: custoInseminacaoTotal })
+      const blocoNatural     = calcularBlocoIndicadores(lotesNatural, { ...paramsBloco, custoTotalModo: custoMontaNaturalTotal })
+      const blocoConsolidado = calcularBlocoIndicadores(lotesCiclo,   { ...paramsBloco, custoTotalModo: custoConsolidadoTotal })
 
       // ── intervalo_partos — todo o histórico (não só este ciclo), mesma mãe.
       // Consolidado usa TODOS os partos (mesmo os sem lote vinculado — monta
@@ -1067,8 +1223,8 @@ export default function Metas() {
       // por (data, categoria): quando há mais de uma venda da mesma categoria
       // no mesmo dia, usa a média ponderada por quantidade, não a última —
       // mais representativo do preço praticado naquele dia. Alimenta o
-      // gráfico 3D no rodapé da tela (GraficoPrecoVenda3D) — uma série (linha)
-      // por categoria, cada uma com sua lista de pontos {data, precoKg}.
+      // gráfico do rodapé da tela (GraficoPrecoVenda) — uma linha por
+      // categoria, cada uma com sua lista de pontos {data, precoKg}.
       const vendasComPreco = (rVendas.data || []).filter(v => v.preco_kg > 0 && v.data && v.categoria)
       const categoriasVenda = [...new Set(vendasComPreco.map(v => v.categoria))].sort()
       const agregadoDataCategoria = {}
@@ -1079,7 +1235,7 @@ export default function Metas() {
         agregadoDataCategoria[chave].somaPonderada += parseFloat(v.preco_kg) * qtd
         agregadoDataCategoria[chave].qtdTotal += qtd
       })
-      setSeriesPrecoVenda3D(categoriasVenda.map(categoria => ({
+      setSeriesPrecoVenda(categoriasVenda.map(categoria => ({
         categoria,
         pontos: Object.entries(agregadoDataCategoria)
           .filter(([chave]) => chave.endsWith('|' + categoria))
@@ -1088,35 +1244,44 @@ export default function Metas() {
       })))
 
       // ── Nascimentos por touro / Sexo por touro — SEMPRE Consolidado (não é
-      // um dos 5 contêineres com seletor de modo). Frente B: lote de monta
-      // natural com VÁRIOS touros (_loteTouros) vira paternidade indefinida —
-      // nunca atribuída ao 1º touro (_touroLote sozinho); sem lote cai pro
-      // campo `pai` gravado no bezerro (mesmo fallback de sempre).
-      const rotuloTouroDoParto = (p) => {
-        if (p._loteTouros?.length > 0) return `Monta natural (vários touros) — Lote Nº ${p._loteNumero}`
-        return (p._touroLote || p.bezerro?.pai || '').trim() || 'Não informado'
+      // um dos 5 contêineres com seletor de modo). Grupo por ID
+      // (migration_touro_vinculo_id.sql), não por texto — dois lotes do
+      // MESMO touro digitado com grafias diferentes agora somam no mesmo
+      // grupo em vez de virar duas fatias fantasmas. Lote de monta natural
+      // com VÁRIOS touros (_loteTouros) vira paternidade indefinida — nunca
+      // atribuída a um touro nomeado, uma fatia própria por lote. Parto sem
+      // nenhum vínculo por id (legado, de antes da migração, ou realmente
+      // sem pai informado) fica FORA das fatias nomeadas — apartado numa
+      // contagem à parte (nascSemVinculoTouro), nunca somado a um touro
+      // específico (mesmo tratamento do histórico do touro, Animais.jsx).
+      const grupoTouroDoParto = (p) => {
+        if (p._loteTouros?.length > 0) return { chave: `indefinida:${p._loteNumero}`, touro: `Monta natural (vários touros) — Lote Nº ${p._loteNumero}` }
+        if (p._touroAnimalId) return { chave: `animal:${p._touroAnimalId}`, touro: p._touroNome }
+        if (p._touroExternoId) return { chave: `externo:${p._touroExternoId}`, touro: p._touroNome }
+        return null
       }
       const porTouroMap = {}
+      let semVinculoQtd = 0
       blocoConsolidado.partosSafra.forEach(p => {
-        const touro = rotuloTouroDoParto(p)
-        porTouroMap[touro] = (porTouroMap[touro] || 0) + 1
+        const g = grupoTouroDoParto(p)
+        if (!g) { semVinculoQtd += 1; return }
+        if (!porTouroMap[g.chave]) porTouroMap[g.chave] = { chave: g.chave, touro: g.touro, qtd: 0 }
+        porTouroMap[g.chave].qtd += 1
       })
-      setNascPorTouro(
-        Object.entries(porTouroMap)
-          .map(([touro, qtd]) => ({ touro, qtd }))
-          .sort((a, b) => b.qtd - a.qtd)
-      )
+      setNascPorTouro(Object.values(porTouroMap).sort((a, b) => b.qtd - a.qtd))
+      setNascSemVinculoTouro(semVinculoQtd)
 
       const porTouroSexoMap = {}
       blocoConsolidado.partosSafra.forEach(p => {
-        const touro = rotuloTouroDoParto(p)
-        if (!porTouroSexoMap[touro]) porTouroSexoMap[touro] = { machos: 0, femeas: 0 }
-        if (p.bezerro?.sexo === 'M') porTouroSexoMap[touro].machos++
-        else if (p.bezerro?.sexo === 'F') porTouroSexoMap[touro].femeas++
+        const g = grupoTouroDoParto(p)
+        if (!g) return
+        if (!porTouroSexoMap[g.chave]) porTouroSexoMap[g.chave] = { chave: g.chave, touro: g.touro, machos: 0, femeas: 0 }
+        if (p.bezerro?.sexo === 'M') porTouroSexoMap[g.chave].machos++
+        else if (p.bezerro?.sexo === 'F') porTouroSexoMap[g.chave].femeas++
       })
       setNascPorTouroSexo(
-        Object.entries(porTouroSexoMap)
-          .map(([touro, v]) => ({ touro, ...v, total: v.machos + v.femeas }))
+        Object.values(porTouroSexoMap)
+          .map(v => ({ ...v, total: v.machos + v.femeas }))
           .sort((a, b) => b.total - a.total)
       )
 
@@ -1132,6 +1297,27 @@ export default function Metas() {
       // construirAtuais, fora do loadAll), conforme o modo selecionado em
       // cada contêiner — trocar o seletor não recarrega os dados.
       setBlocosPorModo({ ia: blocoIA, natural: blocoNatural, consolidado: blocoConsolidado })
+
+      // Item 4 — base pra Comparação entre ciclos: guarda (em ref, não
+      // state — não precisa re-renderizar nada) tudo que
+      // buscarIndicadoresConsolidadoCiclo precisa e que já foi carregado
+      // aqui, pra buscar só a lotesInseminacao de CADA ciclo quando o
+      // contêiner for aberto, em vez de repetir todas as outras queries.
+      // Muda de baseline (ciclo em foco ou filtro de proprietário) → invalida
+      // o cache já calculado (indicadoresPorCiclo), pra nunca misturar
+      // números de dois filtros diferentes na mesma tabela.
+      dadosBaseComparacaoRef.current = {
+        filtrar, animaisFiltrados, todasPesagens, todosLancamentos,
+        valorUnitTerneiro, valorUnitTerneira, hectareUtil, vendasAnimaisItens,
+        temValorCadastrado, intervaloPartosConsolidado: intervaloConsolidado,
+      }
+      comparacaoSeqRef.current += 1
+      setIndicadoresPorCiclo({})
+      // Contêiner já estava aberto quando a baseline mudou (troca de ciclo
+      // em foco ou de filtro de proprietário) — busca de novo com a baseline
+      // nova, force:true porque o clear acima ainda não refletiu no closure
+      // desta mesma chamada de loadAll.
+      if (!gruposRecolhidos.has(TITULO_COMPARACAO)) carregarComparacaoCiclos({ force: true })
     } catch (e) {
       console.error('[Metas] erro ao carregar:', e)
       setLoadError(true)
@@ -1270,7 +1456,7 @@ export default function Metas() {
               <i className="ti ti-settings" /> Editar metas
             </button>
           )}
-          <BotaoPDF contentRef={contentRef} filename="metas-indicadores" titulo="Metas: Indicadores" />
+          <BotaoPDF filename="metas-indicadores" titulo="Metas: Indicadores" onGerar={gerarPDFMetas} />
         </div>
       </div>
 
@@ -1310,69 +1496,186 @@ export default function Metas() {
               .filter(Boolean)
             const ehProducao = grupo.titulo.startsWith('Produção')
             const [modoAtual, setModoAtual] = SELETORES[grupo.titulo] || ['consolidado', () => {}]
+            const recolhido = gruposRecolhidos.has(grupo.titulo)
             return (
-              <div key={grupo.titulo} className="card" style={{ marginBottom: 14 }}>
-                <div className="card-title">{grupo.titulo}</div>
-                <SeletorModo value={modoAtual} onChange={setModoAtual} />
-                {ehProducao && producaoSafra && !producaoSafra.temValorCadastrado && (
-                  <div style={{ marginBottom: 12 }}>
-                    <AlertBox type="amber" icon="ti-alert-triangle"
-                      title="Preço médio de Terneiro/Terneira não cadastrado"
-                      body='Cadastre o peso médio e o preço/kg das categorias "Terneiro" e "Terneira" em Financeiro → Parâmetros para calcular o valor produzido.' />
-                  </div>
-                )}
-                <div className="grid-4">
-                  {cardsDoGrupo.map(m => (
-                    <IndicadorCard key={m.id} meta={m} atual={atuais[m.indicador] ?? null}
-                      subtitulo={subtituloProducao(m.indicador, producaoDetalhes) || subtituloCustos(m.indicador, custosDetalhes, modoAtual)} />
-                  ))}
+              <div key={grupo.titulo} className="card" style={{ marginBottom: 14 }}
+                ref={el => { gruposDomRefs.current[grupo.titulo] = el }}>
+                <div className="card-title" style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
+                  onClick={() => toggleGrupo(grupo.titulo)}>
+                  <i className={`ti ti-chevron-${recolhido ? 'right' : 'down'}`} style={{ fontSize: 14, color: '#9CA3AF' }} />
+                  {grupo.titulo}
                 </div>
-
-                {/* Gráfico do container — abaixo dos cards, mesmo card visual */}
-                <div style={{ marginTop: 18, paddingTop: 16, borderTop: '.5px solid #F3F4F6' }}>
-                  {grupo.titulo === 'Reprodução' && (
-                    <GraficoParicao dados={nascPorPeriodo} modo={modoAgrupamento} cicloNome={cicloLocal?.nome} />
-                  )}
-                  {grupo.titulo === 'Perdas' && (
-                    <GraficoDesfechos dados={desfechosSafra} />
-                  )}
-                  {grupo.titulo === 'GMD' && (
-                    <div className="grid-2">
-                      <div>
-                        <div style={{ fontSize: '.78rem', fontWeight: 600, color: '#374151', marginBottom: 6 }}>Distribuição de GMD individual</div>
-                        <GraficoHistogramaGMD valores={gmdIndividuais} />
+                {!recolhido && (
+                  <>
+                    <SeletorModo value={modoAtual} onChange={setModoAtual} />
+                    {ehProducao && producaoSafra && !producaoSafra.temValorCadastrado && (
+                      <div style={{ marginBottom: 12 }}>
+                        <AlertBox type="amber" icon="ti-alert-triangle"
+                          title="Preço médio de Terneiro/Terneira não cadastrado"
+                          body='Cadastre o peso médio e o preço/kg das categorias "Terneiro" e "Terneira" em Financeiro → Parâmetros para calcular o valor produzido.' />
                       </div>
-                      <div>
-                        <div style={{ fontSize: '.78rem', fontWeight: 600, color: '#374151', marginBottom: 6 }}>Fêmeas x Machos x Meta</div>
-                        <GraficoComparativoGMD femeas={atuais.gmd_terneiros_femeas} machos={atuais.gmd_terneiros_machos} />
-                      </div>
+                    )}
+                    <div className="grid-4">
+                      {cardsDoGrupo.map(m => (
+                        <IndicadorCard key={m.id} meta={m} atual={atuais[m.indicador] ?? null}
+                          subtitulo={subtituloProducao(m.indicador, producaoDetalhes) || subtituloCustos(m.indicador, custosDetalhes, modoAtual)} />
+                      ))}
                     </div>
-                  )}
-                  {ehProducao && (
-                    <GraficoProducaoPorSexo dados={producaoPorSexo} />
-                  )}
-                  {grupo.titulo === 'Custos' && (
-                    <GraficoCustoPorCiclo dados={custoPorCiclo} cicloAtualNome={cicloLocal?.nome} />
-                  )}
-                </div>
 
-                {/* Modo Consolidado: comparativo IA × Monta Natural — mesmos
-                    números já calculados nos 2 modos, só visualização. Custos
-                    entra aqui também (deixou de ser só uma nota "não aplicável"
-                    — grupo 'Monta Natural' dá número de verdade pro modo Natural). */}
-                {modoAtual === 'consolidado' && blocosPorModo && (
-                  <div style={{ marginTop: 16, paddingTop: 16, borderTop: '.5px solid #F3F4F6' }}>
-                    <GraficoComparativoModo
-                      indicadores={grupo.indicadores}
-                      blocoIA={blocosPorModo.ia}
-                      blocoNatural={blocosPorModo.natural}
-                      temValorCadastrado={producaoSafra?.temValorCadastrado}
-                    />
-                  </div>
+                    {/* Gráfico do container — abaixo dos cards, mesmo card visual */}
+                    <div style={{ marginTop: 18, paddingTop: 16, borderTop: '.5px solid #F3F4F6' }}>
+                      {grupo.titulo === 'Reprodução' && (
+                        <GraficoParicao dados={nascPorPeriodo} modo={modoAgrupamento} cicloNome={cicloLocal?.nome} />
+                      )}
+                      {grupo.titulo === 'Perdas' && (
+                        <GraficoDesfechos dados={desfechosSafra} />
+                      )}
+                      {grupo.titulo === 'GMD' && (
+                        <div className="grid-2">
+                          <div>
+                            <div style={{ fontSize: '.78rem', fontWeight: 600, color: '#374151', marginBottom: 6 }}>Distribuição de GMD individual</div>
+                            <GraficoHistogramaGMD valores={gmdIndividuais} />
+                          </div>
+                          <div>
+                            <div style={{ fontSize: '.78rem', fontWeight: 600, color: '#374151', marginBottom: 6 }}>Fêmeas x Machos x Meta</div>
+                            <GraficoComparativoGMD femeas={atuais.gmd_terneiros_femeas} machos={atuais.gmd_terneiros_machos} />
+                          </div>
+                        </div>
+                      )}
+                      {ehProducao && (
+                        <GraficoProducaoPorSexo dados={producaoPorSexo} />
+                      )}
+                      {grupo.titulo === 'Custos' && (
+                        <GraficoCustoPorCiclo dados={custoPorCiclo} cicloAtualNome={cicloLocal?.nome} />
+                      )}
+                    </div>
+
+                    {/* Modo Consolidado: comparativo IA × Monta Natural — mesmos
+                        números já calculados nos 2 modos, só visualização. Custos
+                        entra aqui também (deixou de ser só uma nota "não aplicável"
+                        — grupo 'Monta Natural' dá número de verdade pro modo Natural). */}
+                    {modoAtual === 'consolidado' && blocosPorModo && (
+                      <div style={{ marginTop: 16, paddingTop: 16, borderTop: '.5px solid #F3F4F6' }}>
+                        <GraficoComparativoModo
+                          indicadores={grupo.indicadores}
+                          blocoIA={blocosPorModo.ia}
+                          blocoNatural={blocosPorModo.natural}
+                          temValorCadastrado={producaoSafra?.temValorCadastrado}
+                        />
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             )
           })
+        })()}
+
+        {/* Item 4 — Comparação entre ciclos: índices nas linhas (agrupados
+            pelos mesmos 5 GRUPOS), ciclos nas colunas, sempre Consolidado
+            ("sem exibir as metas — só os índices", proposta aprovada).
+            Recolhível pelo MESMO mecanismo dos 5 acima (gruposRecolhidos/
+            gruposDomRefs) — nunca um 2º jeito de "contêiner que recolhe". */}
+        {(() => {
+          const recolhidoComparacao = gruposRecolhidos.has(TITULO_COMPARACAO)
+          const ciclosOrdenados = [...ciclos].sort((a, b) => a.inicio.localeCompare(b.inicio))
+          return (
+            <div className="card" style={{ marginBottom: 14 }}
+              ref={el => { gruposDomRefs.current[TITULO_COMPARACAO] = el }}>
+              <div className="card-title" style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
+                onClick={() => toggleGrupo(TITULO_COMPARACAO)}>
+                <i className={`ti ti-chevron-${recolhidoComparacao ? 'right' : 'down'}`} style={{ fontSize: 14, color: '#9CA3AF' }} />
+                {TITULO_COMPARACAO}
+              </div>
+              {!recolhidoComparacao && (
+                carregandoComparacao ? (
+                  <div style={{ fontSize: '.82rem', color: '#9CA3AF', padding: '20px 0', textAlign: 'center' }}>
+                    <i className="ti ti-loader" /> Calculando os índices de cada ciclo...
+                  </div>
+                ) : ciclosOrdenados.length === 0 ? (
+                  <div style={{ fontSize: '.82rem', color: '#9CA3AF', padding: '20px 0', textAlign: 'center' }}>Nenhum ciclo cadastrado.</div>
+                ) : (
+                  <>
+                    <div style={{ fontSize: '.72rem', color: '#9CA3AF', marginBottom: 8 }}>
+                      Passe o mouse sobre a seta para ver a variação em %. Coluna do ciclo em foco destacada.
+                    </div>
+                    {/* overflowX próprio (não .table-wrap) — a 1ª coluna
+                        (nome do índice) fica sticky à esquerda dentro deste
+                        scroll, senão ela rola junto e some de vista, que é
+                        exatamente o problema apontado. */}
+                    <div style={{ overflowX: 'auto', borderRadius: 10, border: '.5px solid #E5E7EB' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '.82rem' }}>
+                        <thead>
+                          <tr>
+                            <th style={{
+                              position: 'sticky', left: 0, zIndex: 2, background: '#F9FAFB',
+                              padding: '9px 12px', textAlign: 'left', fontWeight: 500, color: '#6B7280',
+                              borderBottom: '.5px solid #E5E7EB', whiteSpace: 'nowrap',
+                            }}>Índice</th>
+                            {ciclosOrdenados.map(c => (
+                              <th key={c.id} style={{
+                                padding: '9px 12px', textAlign: 'right', whiteSpace: 'nowrap',
+                                borderBottom: '.5px solid #E5E7EB',
+                                fontWeight: c.id === cicloLocal?.id ? 700 : 500,
+                                color: c.id === cicloLocal?.id ? '#1E55B0' : '#6B7280',
+                                background: c.id === cicloLocal?.id ? '#EEF3FC' : '#F9FAFB',
+                              }}>{c.nome}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {GRUPOS.flatMap(grupo => [
+                            <tr key={grupo.titulo + '-hdr'}>
+                              <td colSpan={ciclosOrdenados.length + 1} style={{
+                                padding: '6px 12px', fontWeight: 700, fontSize: '.72rem', color: '#9CA3AF',
+                                textTransform: 'uppercase', letterSpacing: '.03em', background: '#FBFBFC',
+                                borderBottom: '.5px solid #F3F4F6',
+                              }}>{grupo.titulo}</td>
+                            </tr>,
+                            ...grupo.indicadores.map(ind => {
+                              const cfg = CFG[ind] || {}
+                              return (
+                                <tr key={ind}>
+                                  <td style={{
+                                    position: 'sticky', left: 0, zIndex: 1, background: 'white',
+                                    padding: '8px 12px', fontWeight: 500, whiteSpace: 'nowrap',
+                                    borderBottom: '.5px solid #F3F4F6', color: '#374151',
+                                  }}>{cfg.icon} {labelComSexo(cfg.label)}</td>
+                                  {ciclosOrdenados.map((c, i) => {
+                                    const valoresCiclo = indicadoresPorCiclo[c.id]
+                                    const destacado = c.id === cicloLocal?.id
+                                    const tdStyle = {
+                                      padding: '8px 12px', textAlign: 'right', whiteSpace: 'nowrap',
+                                      borderBottom: '.5px solid #F3F4F6',
+                                      background: destacado ? '#F3F7FD' : undefined,
+                                    }
+                                    if (valoresCiclo === 'erro') return <td key={c.id} style={{ ...tdStyle, color: '#DC2626' }}>erro</td>
+                                    const v = valoresCiclo ? valoresCiclo[ind] : null
+                                    const cicloAnteriorNaTabela = i > 0 ? ciclosOrdenados[i - 1] : null
+                                    const valoresAnterior = cicloAnteriorNaTabela ? indicadoresPorCiclo[cicloAnteriorNaTabela.id] : null
+                                    const vAnterior = (valoresAnterior && valoresAnterior !== 'erro') ? valoresAnterior[ind] : null
+                                    const variacao = setaVariacao(v, vAnterior, cfg.inverted)
+                                    return (
+                                      <td key={c.id} style={tdStyle}
+                                        title={variacao && cicloAnteriorNaTabela ? `${variacao.pct > 0 ? '+' : ''}${variacao.pct.toFixed(1)}% vs. ${cicloAnteriorNaTabela.nome}` : undefined}>
+                                        {v == null
+                                          ? <span style={{ color: '#D1D5DB' }}>—</span>
+                                          : <>{formatarValorIndicador(ind, v)}{variacao && <span style={{ color: variacao.cor, marginLeft: 4 }}>{variacao.seta}</span>}</>}
+                                      </td>
+                                    )
+                                  })}
+                                </tr>
+                              )
+                            }),
+                          ])}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                )
+              )}
+            </div>
+          )
         })()}
 
         {/* Sexo dos terneiros + GMD fêmea×macho + nascimentos por touro — mesmo
@@ -1480,7 +1783,7 @@ export default function Metas() {
                   return <p style={{ color: '#9CA3AF', fontSize: '.82rem', textAlign: 'center', padding: '20px 0' }}>Sem nascimentos registrados neste ciclo.</p>
                 }
                 const pieDataTouro = nascPorTouro.map((t, i) => ({
-                  name: t.touro, value: t.qtd,
+                  chave: t.chave, name: t.touro, value: t.qtd,
                   pct: Math.round((t.qtd / totalTouro) * 100),
                   color: CORES_TOURO[i % CORES_TOURO.length],
                 }))
@@ -1496,7 +1799,7 @@ export default function Metas() {
                     </ResponsiveContainer>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 150, overflowY: 'auto' }}>
                       {pieDataTouro.map(d => (
-                        <div key={d.name} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <div key={d.chave} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                           <span style={{ width: 10, height: 10, borderRadius: '50%', background: d.color, display: 'inline-block', flexShrink: 0 }} />
                           <span style={{ fontSize: '.85rem', color: '#374151' }}>
                             {d.name}: <strong>{d.value} nascimento{d.value !== 1 ? 's' : ''} · {d.pct}%</strong>
@@ -1504,6 +1807,13 @@ export default function Metas() {
                         </div>
                       ))}
                     </div>
+                    {/* Legado (sem vínculo por id) — apartado, nunca somado a
+                        um touro específico nas fatias acima. */}
+                    {nascSemVinculoTouro > 0 && (
+                      <div style={{ width: '100%', fontSize: '.72rem', color: '#9CA3AF' }}>
+                        <i className="ti ti-info-circle" style={{ fontSize: 11 }} /> +{nascSemVinculoTouro} nascimento(s) sem vínculo de cadastro do touro (texto legado ou sem pai informado) — fora do gráfico acima.
+                      </div>
+                    )}
                   </div>
                 )
               })()}
@@ -1528,7 +1838,7 @@ export default function Metas() {
                       { name: 'Fêmeas', value: t.femeas, pct: pctF, color: '#DB2777' },
                     ].filter(d => d.value > 0)
                     return (
-                      <div key={t.touro} style={{ textAlign: 'center', width: 128 }}>
+                      <div key={t.chave} style={{ textAlign: 'center', width: 128 }}>
                         <div style={{ fontSize: '.76rem', fontWeight: 600, color: '#374151', marginBottom: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={t.touro}>
                           {t.touro}
                         </div>
@@ -1556,16 +1866,16 @@ export default function Metas() {
         {/* Preço de venda por kg/@, por categoria — histórico completo (não só o
             ciclo selecionado), fonte transacoes_animais tipo='V'. Rodapé da
             tela, de propósito — é uma série de mercado, não um índice de safra,
-            então fica separada dos containers de indicadores acima. Substitui o
-            gráfico 2D que existia aqui (mesmos dados) — 3D real, lazy-loaded. */}
+            então fica separada dos containers de indicadores acima. 2D (item 5,
+            revisão da sessão) — o que importa é a variação do preço no tempo,
+            não os quilos; volta a ser recharts puro, sem three.js/@react-three
+            (removidos do projeto, eram só pra este gráfico). */}
         <div className="card" style={{ marginTop: 14 }}>
           <div className="card-title"><i className="ti ti-chart-line" /> Preço de venda por categoria — histórico completo</div>
           <div style={{ fontSize: '.72rem', color: '#9CA3AF', marginBottom: 8 }}>
-            Todas as vendas de animais já registradas (qualquer safra) — arraste pra girar, role pra zoom.
+            Todas as vendas de animais já registradas (qualquer safra).
           </div>
-          <Suspense fallback={<p style={{ color: '#9CA3AF', fontSize: '.82rem', textAlign: 'center', padding: '28px 0' }}>Carregando gráfico 3D…</p>}>
-            <GraficoPrecoVenda3D series={seriesPrecoVenda3D} />
-          </Suspense>
+          <GraficoPrecoVenda series={seriesPrecoVenda} />
         </div>
 
       </div>

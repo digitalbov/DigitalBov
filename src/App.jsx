@@ -13,6 +13,7 @@ import Login           from './components/auth/Login'
 const Dashboard   = lazy(() => import('./pages/Dashboard'))
 const Propriedade = lazy(() => import('./pages/Propriedade'))
 const Animais     = lazy(() => import('./pages/Animais'))
+const Feiras      = lazy(() => import('./pages/Feiras'))
 const Reprodutivo = lazy(() => import('./pages/Reprodutivo'))
 const Rebanho     = lazy(() => import('./pages/Rebanho'))
 const Sanidade    = lazy(() => import('./pages/Sanidade'))
@@ -193,6 +194,7 @@ export default function App() {
           <Route path="/backup"      element={<Suspense fallback={null}><Backup /></Suspense>} />
           <Route path="/propriedade" element={<RotaProtegida modulo="propriedade"><Suspense fallback={null}><Propriedade /></Suspense></RotaProtegida>} />
           <Route path="/animais"     element={<RotaProtegida modulo="animais"><Suspense fallback={null}><Animais /></Suspense></RotaProtegida>} />
+          <Route path="/feiras"      element={<RotaProtegida modulo="feiras"><Suspense fallback={null}><Feiras /></Suspense></RotaProtegida>} />
           <Route path="/reprodutivo" element={<RotaProtegida modulo="reprodutivo"><Suspense fallback={null}><Reprodutivo /></Suspense></RotaProtegida>} />
           <Route path="/rebanho"     element={<RotaProtegida modulo="rebanho"><Suspense fallback={null}><Rebanho /></Suspense></RotaProtegida>} />
           <Route path="/sanidade"    element={<RotaProtegida modulo="sanidade"><Suspense fallback={null}><Sanidade /></Suspense></RotaProtegida>} />

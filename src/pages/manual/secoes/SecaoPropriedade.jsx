@@ -60,7 +60,7 @@ export default function SecaoPropriedade({ item }) {
           body='Excluir um piquete ou um lote só desvincula os animais dele (ele "fica vazio") — o histórico e o cadastro dos animais são preservados.' />
         <AlertBox type="amber" icon="ti-swords"
           title='"Lote" tem dois sentidos diferentes no sistema'
-          body='O "lote" desta tela é um agrupamento de animais (manejo geral). Já o "lote de inseminação/monta" — usado para IATF, repasse e monta natural, com sua "estação de monta" — é outra coisa, cadastrado dentro do módulo Reprodutivo. Veja a seção Gestão Reprodutiva.' />
+          body='O "lote" desta tela é um agrupamento de animais (manejo geral). Já o "lote de inseminação/monta" — usado para IATF, repasse e monta natural, com sua "estação de monta" — é outra coisa, cadastrado dentro do módulo Gestão Reprodutiva. Veja a seção Gestão Reprodutiva.' />
       </div>
     </div>
   )

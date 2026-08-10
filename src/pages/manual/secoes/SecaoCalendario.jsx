@@ -11,24 +11,25 @@ export default function SecaoCalendario({ item }) {
 
       <p style={{ ...P, marginBottom: 16 }}>
         O <strong>Calendário</strong> junta numa lista só tudo que está vencido ou vencendo na fazenda — você
-        não precisa entrar em Reprodutivo, Sanidade e Estoque separadamente para saber o que fazer esta
+        não precisa entrar em Gestão Reprodutiva, Sanidade e Estoque separadamente para saber o que fazer esta
         semana.
       </p>
 
       <h4 style={H4}>O que aparece na agenda</h4>
       <ul style={UL}>
-        <li><strong>🍼 Previsão de parto</strong> — uma por fêmea diagnosticada Prenha que ainda não pariu nem abortou naquele lote. A data é sempre a data da monta + 283 dias (fixo, a mesma estimativa usada em Reprodutivo) — não é o mesmo cálculo de janela de 260-300 dias usado para o aviso de gestação fora do padrão.</li>
+        <li><strong>🍼 Previsão de parto</strong> — uma por fêmea diagnosticada Prenha que ainda não pariu nem abortou naquele lote. A data é sempre a data da monta + 283 dias (fixo, a mesma estimativa usada em Gestão Reprodutiva) — não é o mesmo cálculo de janela de 260-300 dias usado para o aviso de gestação fora do padrão.</li>
         <li><strong>💉 Retorno sanitário</strong> — um por procedimento de Sanidade JÁ REALIZADO que tem "Próxima aplicação" preenchida e ainda não foi marcado como concluído.</li>
         <li><strong>📅 Vacinação agendada</strong> — um por procedimento de Sanidade com status "agendado" (data futura, criado na aba Calendário de vacinação de Sanidade e ainda não confirmado por lá) — a data do evento é a data agendada da vacinação, não uma "próxima aplicação". Some da agenda só quando você marcar como concluído ou excluir o agendamento em Sanidade.</li>
         <li><strong>📦 Vencimento de estoque</strong> — um por lote de entrada (mesmo lote/validade do FEFO, veja a seção Estoque) que ainda tem saldo positivo.</li>
+        <li><strong>🏆 Feira agendada</strong> — uma por participação em feira sem resultado lançado, enquanto a feira ainda não terminou (veja a seção Feiras e Premiações). <strong>⚠️ Resultado pendente</strong> — a mesma participação vira este alerta (na área de Atrasados/Vencidos) se a feira já terminou e ninguém lançou Colocação/Título ainda.</li>
         <li><strong>🔄 Pendências sem data — Repasse de Vazias</strong> — uma seção separada, sem prazo, listando toda fêmea ativa com situação reprodutiva "Vazia": um lembrete de quem precisa entrar no próximo lote de monta, não um evento com data.</li>
       </ul>
 
       <h4 style={H4}>Como navegar</h4>
       <p style={P}>
         Escolha o <strong>ciclo</strong> no seletor do topo — só eventos com data dentro dele aparecem (as
-        pendências sem data não são afetadas). Filtre por tipo (Todos, Partos, Sanidade, Estoque, Reprodução)
-        nas pílulas. 4 KPIs resumem: atrasados/vencidos, esta semana, este mês e total. Os eventos ficam
+        pendências sem data não são afetadas). Filtre por tipo (Todos, Partos, Sanidade, Estoque, Feiras,
+        Reprodução) nas pílulas. 4 KPIs resumem: atrasados/vencidos, esta semana, este mês e total. Os eventos ficam
         organizados em duas listas — <strong>Atrasados/Vencidos</strong> primeiro, depois
         <strong> Próximos eventos</strong> — cada um com uma cor de urgência (vermelho = atrasado, amarelo =
         hoje, laranja = até 7 dias, azul = até 30 dias, cinza = mais adiante). Dá para exportar a agenda em
@@ -37,7 +38,7 @@ export default function SecaoCalendario({ item }) {
 
       <AlertBox type="green" icon="ti-info-circle"
         title="Você não lança nada aqui"
-        body="O Calendário só lê eventos já registrados em outros módulos (Reprodutivo, Sanidade, Estoque) — não existe um botão de criar evento nesta tela. Para adiantar ou resolver um item, vá até o módulo de origem (ex: marcar o retorno sanitário como concluído em Sanidade)." />
+        body="O Calendário só lê eventos já registrados em outros módulos (Gestão Reprodutiva, Sanidade, Estoque) — não existe um botão de criar evento nesta tela. Para adiantar ou resolver um item, vá até o módulo de origem (ex: marcar o retorno sanitário como concluído em Sanidade)." />
     </div>
   )
 }

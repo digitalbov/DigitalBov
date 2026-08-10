@@ -23,10 +23,19 @@ const CHUNK = 500
 // (confirmado no schema real, não em arquivo do repo — ver queries com
 // .eq('ciclo_id',...) nessas 4 tabelas em supabase.js) — as 4 têm coluna
 // ciclo_id própria, além das outras FKs já mapeadas.
+// pai_animal_id (auto-referência, migration_touro_vinculo_id.sql): mesmo
+// princípio de lancamento_origem_id (auto-referência de lancamentos_
+// financeiros) — o mapa de ids é gerado ANTES de qualquer insert
+// (gerarMapaIds), então remapear funciona; mas o INSERT em si só é seguro
+// se o "pai" (linha referenciada) já existir na tabela quando o "filho" for
+// inserido. Só um touro cadastrado (is_touro=true) pode ser pai_animal_id
+// — nunca outro bezerro — então basta os touros entrarem SEMPRE primeiro no
+// insert de animais (ver ordenação em linhasOriginaisParaTabela, abaixo) pra
+// nunca haver ordem errada, sem precisar de um segundo passe de UPDATE.
 const FKS_POR_TABELA = {
-  animais:                  { proprietario_id: 'proprietarios', lote_id: 'lotes' },
-  lotes_inseminacao:        { ciclo_id: 'ciclos_financeiros', estacao_monta_id: 'estacoes_monta' },
-  lote_touros:              { lote_id: 'lotes_inseminacao' },
+  animais:                  { proprietario_id: 'proprietarios', lote_id: 'lotes', pai_animal_id: 'animais', pai_externo_id: 'touros_externos' },
+  lotes_inseminacao:        { ciclo_id: 'ciclos_financeiros', estacao_monta_id: 'estacoes_monta', touro_animal_id: 'animais', touro_externo_id: 'touros_externos' },
+  lote_touros:              { lote_id: 'lotes_inseminacao', touro_animal_id: 'animais', touro_externo_id: 'touros_externos' },
   inseminacoes:             { lote_inseminacao_id: 'lotes_inseminacao', animal_id: 'animais' },
   partos:                   { lote_inseminacao_id: 'lotes_inseminacao', mae_id: 'animais', bezerro_id: 'animais', ciclo_id: 'ciclos_financeiros' },
   abortos:                  { animal_id: 'animais', lote_inseminacao_id: 'lotes_inseminacao', ciclo_id: 'ciclos_financeiros' },
@@ -39,6 +48,8 @@ const FKS_POR_TABELA = {
   sanidade_animais:         { procedimento_id: 'procedimentos_sanitarios', animal_id: 'animais' },
   estoque_movimentacoes:    { item_id: 'estoque_itens', procedimento_id: 'procedimentos_sanitarios' },
   planejamento_acoes:       { planejamento_id: 'planejamentos' },
+  feira_edicoes:            { feira_id: 'feiras' },
+  feira_participacoes:      { edicao_id: 'feira_edicoes', animal_id: 'animais' },
 }
 
 // Ordem de FK, camada a camada (ver diagnóstico) — "fazendas" fica de fora
@@ -48,6 +59,9 @@ const FKS_POR_TABELA = {
 // inserirLancamentos(), não pelo caminho genérico.
 const ORDEM_GENERICA = [
   'proprietarios', 'piquetes', 'lotes', 'ciclos_financeiros', 'categorias_preco', 'estacoes_monta',
+  'touros_externos',
+  'feiras',
+  'feira_edicoes',
   'animais',
   'lotes_inseminacao',
   'lote_touros', 'inseminacoes',
@@ -58,6 +72,7 @@ const ORDEM_GENERICA = [
   'transacoes_animais', 'transacao_animais_itens',
   'pesagens',
   'procedimentos_sanitarios', 'sanidade_animais',
+  'feira_participacoes',
   'estoque_itens', 'estoque_movimentacoes',
   'metas', 'planejamentos', 'planejamento_acoes', 'simulacoes_transacoes',
 ]
@@ -237,7 +252,14 @@ export async function importarBackup(payload, { contaId, nomeFazenda }, onProgre
 
   for (const passo of sequencia) {
     const tabela = passo === '__lancamentos__' ? 'lancamentos_financeiros' : passo
-    const linhasOriginais = dados[tabela] || []
+    // animais: touros (is_touro=true) sempre primeiro — são os únicos que
+    // podem ser referenciados por pai_animal_id (auto-referência), então
+    // isso garante que o "pai" já existe na tabela quando o "filho" for
+    // inserido, sem precisar de um segundo passe de UPDATE (ver comentário
+    // em FKS_POR_TABELA).
+    const linhasOriginais = tabela === 'animais'
+      ? [...(dados[tabela] || [])].sort((a, b) => (b.is_touro ? 1 : 0) - (a.is_touro ? 1 : 0))
+      : (dados[tabela] || [])
     const esperado = linhasOriginais.length
     report({ tabela, status: 'rodando', esperado, importado: 0 })
 

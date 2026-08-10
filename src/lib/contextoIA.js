@@ -1,5 +1,5 @@
 import { db } from './supabase'
-import { calcCategoria, sanidadeRealizada, labelTipoSanidade } from './helpers'
+import { calcCategoria, sanidadeRealizada, labelTipoSanidade, nomeTouro } from './helpers'
 import { hoje as hojeAgora } from './hoje'
 
 export async function coletarContexto() {
@@ -43,7 +43,7 @@ export async function coletarContexto() {
       const nPend    = ins.filter(i => !i.diagnostico).length
       const total    = ins.length
       return {
-        lote: `Lote ${l.numero} — ${l.touro}`,
+        lote: `Lote ${l.numero} — ${nomeTouro(l)}`,
         data: l.data,
         total_inseminadas: total,
         prenhas: nPrenhas,

@@ -2,10 +2,10 @@
 import { useNavigate, useLocation } from 'react-router-dom'
 import { usePermissoes } from '../lib/PermissoesContext'
 import { db } from '../lib/supabase'
-import { calcCategoria, calcCategoriaRebanho, idadeFormatada, fmtData, catCor, sitCor, repCor, sortBrinco, dataNaoFutura, algumErro, statusReprodutivoExibicao, statusReprodutivoDetalhado, statusReprodutivoCiclo, STATUS_CICLO_ANIMAL, desfechoReprodutivo, FALHA_MOTIVO_LABEL, PERDA_PRESUMIDA_DIAS_APOS_PREVISTO, paiEhMontaNaturalIndefinida, capitalizarPrimeira, capitalizarNome, sanidadeRealizada, calcDesempenhoVidaFemea, agruparPesoPorData, calcGMD, classificarDesfechosPorSafra, CORES_DESFECHO, ROTULOS_DESFECHO } from '../lib/helpers'
+import { calcCategoria, calcCategoriaRebanho, idadeFormatada, fmtData, pct, catCor, sitCor, repCor, sortBrinco, dataNaoFutura, algumErro, statusReprodutivoExibicao, statusReprodutivoDetalhado, statusReprodutivoCiclo, STATUS_CICLO_ANIMAL, desfechoReprodutivo, FALHA_MOTIVO_LABEL, PERDA_PRESUMIDA_DIAS_APOS_PREVISTO, paiEhMontaNaturalIndefinida, capitalizarPrimeira, capitalizarNome, sanidadeRealizada, calcDesempenhoVidaFemea, agruparPesoPorData, calcGMD, classificarDesfechosPorSafra, CORES_DESFECHO, ROTULOS_DESFECHO, calcHistoricoTouro, AMOSTRA_MINIMA_TOURO, nomePai, nomeTouro, resumoFeirasAnimal, statusFeiraParticipacao } from '../lib/helpers'
 import { hojeISO } from '../lib/hoje'
 import { confirmarPerdaPresumida } from '../lib/perdaGestacionalPresumida'
-import { Loading, EmptyState, Modal, Field, MicButton, Badge, toast, BotaoPDF, ErroCarregamento, Confirm } from '../components/UI'
+import { Loading, EmptyState, Modal, Field, MicButton, Badge, toast, BotaoPDF, ErroCarregamento, Confirm, AlertBox } from '../components/UI'
 import { baixarModeloAnimais, lerPlanilhaAnimais, validarLinhas } from '../lib/importacaoAnimais'
 import GraficoEvolucaoPeso from '../components/GraficoEvolucaoPeso'
 import { BarChart, Bar, Cell, LabelList, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
@@ -189,7 +189,12 @@ function ArvoreGenealogica({ animal, animais, onSelect, onClickPai }) {
     (mae.mae_brinco && x.brinco === mae.mae_brinco) ||
     (mae.mae_id && !mae.mae_brinco && x.id === mae.mae_id)
   ) || null : null
-  const avoPaiMae = mae?.pai || null  // touro (texto)
+  // Touro (nomePai — "Nome (Brinco)" quando cadastrado, ver helpers.js —
+  // um dos 4 pontos genealógicos/documentais aprovados, Tarefa B.4). Só
+  // resolve quando mae.pai existe de fato — nomePai devolve '—' (string
+  // truthy) pra "sem pai", o que quebraria os checks hasAvos/hasPai abaixo
+  // se chamado sem essa guarda.
+  const avoPaiMae = mae?.pai ? nomePai(mae, { comBrinco: true }) : null
 
   // Filhos: animais com mae_brinco = brinco deste animal
   const filhos = animais
@@ -214,8 +219,16 @@ function ArvoreGenealogica({ animal, animais, onSelect, onClickPai }) {
     )
   }
 
-  // Alerta de consanguinidade: mesmo touro em mais de um nível
-  const touros = [animal.pai, avoPaiMae, avoMae?.pai, mae?.pai].filter(Boolean)
+  // Alerta de consanguinidade: mesmo touro em mais de um nível — nomePai
+  // resolvido (não o texto cru) pra dois lotes do MESMO touro cadastrado
+  // nunca escaparem da detecção só por terem sido digitados de forma
+  // diferente em cada monta.
+  const touros = [
+    hasPai ? nomePai(animal, { comBrinco: true }) : null,
+    avoPaiMae,
+    avoMae?.pai ? nomePai(avoMae, { comBrinco: true }) : null,
+    mae?.pai ? nomePai(mae, { comBrinco: true }) : null,
+  ].filter(Boolean)
   const tc = {}; touros.forEach(t => { tc[t] = (tc[t] || 0) + 1 })
   const repetidos = Object.entries(tc).filter(([, n]) => n > 1).map(([t]) => t)
 
@@ -256,7 +269,7 @@ function ArvoreGenealogica({ animal, animais, onSelect, onClickPai }) {
             <>
               <GenRowLabel>Pais</GenRowLabel>
               <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
-                {hasPai      && <NodoCard tipo="touro"   nome={animal.pai} onClickTouro={onClickPai} />}
+                {hasPai      && <NodoCard tipo="touro"   nome={nomePai(animal, { comBrinco: true })} onClickTouro={onClickPai} />}
                 {hasMae      && <NodoCard tipo="animal"  animal={mae} onSelect={onSelect} />}
                 {hasMaeSoText && <NodoCard tipo="unknown" nome={`Brinco ${animal.mae_brinco}`} />}
               </div>
@@ -353,6 +366,13 @@ export default function Animais() {
   // statusReprodutivoCiclo em helpers.js) — mesma fonte que já alimenta a
   // timeline, só guardada em bruto em vez de achatada em eventos.
   const [reprodutivoBruto, setReprodutivoBruto] = useState({ partos: [], inseminacoes: [], abortos: [] })
+  // Histórico reprodutivo do TOURO (sexo=M + is_touro) — sob demanda, só
+  // quando a ficha de um touro é aberta (ver useEffect abaixo), nunca no
+  // load geral da tela: são 3 queries pequenas escopadas SÓ aos dados deste
+  // touro (filhos por pai=brinco, lotes por touro=brinco, partos das MESMAS
+  // safras pra comparação), nunca um scan da fazenda inteira.
+  const [historicoTouroBruto, setHistoricoTouroBruto] = useState(null)
+  const [historicoTouroLoading, setHistoricoTouroLoading] = useState(false)
   // Pesagens do animal selecionado, em bruto — alimenta o gráfico de evolução
   // de peso (mesmo componente reaproveitado de Pesagens.jsx) ao lado da timeline.
   const [pesagensAnimal, setPesagensAnimal] = useState([])
@@ -368,6 +388,11 @@ export default function Animais() {
   const [partoComoFilho,  setPartoComoFilho]  = useState(null)
   // Histórico sanitário
   const [histSanidade,    setHistSanidade]     = useState([])
+  // Feiras e premiações — mesmo padrão de carregamento de histSanidade acima
+  // (query própria, disparada quando `selected` muda, não misturada em
+  // loadTimeline: aqui vira um CARD à parte, não um evento na timeline —
+  // ver loadTimeline abaixo pra saber quais participações também entram lá).
+  const [histFeiras,      setHistFeiras]       = useState([])
   // Perda gestacional presumida (Fase 10) — mesmo par de estados do detalhe
   // do lote em Reprodutivo.jsx: confirmPerdaAlvo guarda o contexto pendente,
   // confirmandoPerda desabilita o botão durante a gravação.
@@ -429,6 +454,57 @@ export default function Animais() {
     )
   }, [selected?.id])
 
+  // Feiras e premiações do animal selecionado — mesmo padrão do histórico
+  // sanitário acima.
+  useEffect(() => {
+    if (!selected?.id) { setHistFeiras([]); return }
+    db.feiraParticipacoes.listPorAnimal(selected.id).then(({ data }) => setHistFeiras(data || []))
+  }, [selected?.id])
+
+  // Histórico reprodutivo do touro — só dispara pra sexo=M + is_touro (nunca
+  // pra fêmea, nunca pra macho comum). `cancelado` evita sobrescrever com uma
+  // resposta antiga se o usuário trocar de touro rápido (mesma guarda de
+  // corrida simples já usada noutras telas do app). Vínculo por ID
+  // (pai_animal_id/touro_animal_id — migration_touro_vinculo_id.sql) é a
+  // fonte PRINCIPAL; o texto legado (dado de antes da migração, nunca
+  // migrado — decisão do usuário) entra numa busca separada, pra o card
+  // mostrar os dois grupos apartados (calcHistoricoTouro, helpers.js).
+  useEffect(() => {
+    if (!(selected?.id && selected.sexo === 'M' && selected.is_touro)) { setHistoricoTouroBruto(null); return }
+    let cancelado = false
+    setHistoricoTouroLoading(true)
+    const touroId = selected.id
+    const brinco = selected.brinco
+    ;(async () => {
+      const [rf, rfLegado, rl, rlLegado] = await Promise.all([
+        db.animais.filhosPorPaiAnimalId(touroId),
+        db.animais.filhosPorPaiTextoLegado(brinco),
+        db.lotesInseminacao.porTouroAnimalId(touroId),
+        db.lotesInseminacao.porTouroTextoLegado(brinco),
+      ])
+      if (cancelado) return
+      const filhos = rf.data || []
+      const filhosLegado = rfLegado.data || []
+      const filhoIds = [...filhos, ...filhosLegado].map(f => f.id)
+      const rp = await db.pesagens.listPorAnimais(filhoIds)
+      if (cancelado) return
+      const lotesTodos = rl.data || []
+      const lotesAtribuiveis = lotesTodos.filter(l => !(l.lote_touros?.length > 0))
+      const lotesExcluidos   = lotesTodos.filter(l => l.lote_touros?.length > 0)
+      const lotesLegado = (rlLegado.data || []).filter(l => !(l.lote_touros?.length > 0))
+      const cicloIds = [...new Set(lotesAtribuiveis.map(l => l.ciclo_id).filter(Boolean))]
+      const rc = await db.partos.porCiclos(cicloIds)
+      if (cancelado) return
+      setHistoricoTouroBruto({
+        filhos, filhosLegado, pesagensFilhos: rp.data || [],
+        lotesAtribuiveis, lotesLegado, lotesExcluidos,
+        partosContemporaneos: rc.data || [],
+      })
+      setHistoricoTouroLoading(false)
+    })()
+    return () => { cancelado = true }
+  }, [selected?.id, selected?.sexo, selected?.is_touro])
+
   const loadAll = async () => {
     setLoading(true)
     setLoadError(false)
@@ -477,13 +553,14 @@ export default function Animais() {
     }
     setNContemporaneos(contemporaneosIds.length)
 
-    const [rPes, rIns, rPartosMae, rPartoBezerro, rAbortos, rPesContemp] = await Promise.all([
+    const [rPes, rIns, rPartosMae, rPartoBezerro, rAbortos, rPesContemp, rFeiras] = await Promise.all([
       db.pesagens.list(animal.id),
       db.inseminacoes.byAnimal(animal.id),
       db.partos.byMae(animal.id),
       db.partos.byBezerro(animal.id),
       db.abortos.byAnimal(animal.id),
       contemporaneosIds.length >= 3 ? db.pesagens.listPorAnimais(contemporaneosIds) : Promise.resolve({ data: [], error: null }),
+      db.feiraParticipacoes.listPorAnimal(animal.id),
     ])
 
     if (rPes.error)         console.error('[Timeline] Erro pesagens:', rPes.error)
@@ -492,6 +569,7 @@ export default function Animais() {
     if (rPartoBezerro.error) console.error('[Timeline] Erro parto (como bezerro):', rPartoBezerro.error)
     if (rAbortos.error)     console.error('[Timeline] Erro abortos:', rAbortos.error)
     if (rPesContemp.error)  console.error('[Timeline] Erro pesagens contemporâneos:', rPesContemp.error)
+    if (rFeiras.error)      console.error('[Timeline] Erro feiras:', rFeiras.error)
 
     // Guardado em bruto (não achatado em eventos) pro card "Histórico
     // reprodutivo" calcular o status por ciclo (statusReprodutivoCiclo).
@@ -546,7 +624,7 @@ export default function Animais() {
           data:     dataIns,
           icon:     TL_ICONS.inseminacao,
           titulo:   `Inseminação — Lote ${ins.lote.numero}`,
-          descricao: `Touro: ${ins.lote.touro || '?'}`
+          descricao: `Touro: ${nomeTouro(ins.lote) || '?'}`
         })
       }
       if (ins.diagnostico && ins.data_diagnostico) {
@@ -555,7 +633,7 @@ export default function Animais() {
           data:     ins.data_diagnostico,
           icon:     prenha ? TL_ICONS.dg_prenha : TL_ICONS.dg_vazia,
           titulo:   `Diagnóstico: ${prenha ? 'Prenha' : 'Vazia'}`,
-          descricao: `Lote ${ins.lote?.numero || '?'} — ${ins.lote?.touro || '?'}`
+          descricao: `Lote ${ins.lote?.numero || '?'} — ${ins.lote ? nomeTouro(ins.lote) : '?'}`
         })
       }
     }
@@ -583,7 +661,22 @@ export default function Animais() {
         data:     ab.data,
         icon:     TL_ICONS.aborto,
         titulo:   'Aborto',
-        descricao: `Causa: ${CAUSA_LABEL[ab.causa] || ab.causa || '—'}${ab.lote ? ` · Lote ${ab.lote.numero} — ${ab.lote.touro}` : ''}`
+        descricao: `Causa: ${CAUSA_LABEL[ab.causa] || ab.causa || '—'}${ab.lote ? ` · Lote ${ab.lote.numero} — ${nomeTouro(ab.lote)}` : ''}`
+      })
+    }
+
+    // Feiras — só participações cuja feira já começou (data_inicio <= hoje);
+    // agendamento puramente futuro fica só no Calendário, não na timeline
+    // (que é histórico, não agenda — mesmo raciocínio de sanidade agendada
+    // não entrar aqui).
+    const hojeStr = hojeISO()
+    for (const p of (rFeiras.data || [])) {
+      if (!p.edicao?.data_inicio || p.edicao.data_inicio > hojeStr) continue
+      eventos.push({
+        data:     p.edicao.data_inicio,
+        icon:     '🏆',
+        titulo:   `Participação em feira: ${p.edicao.feira?.nome || '—'}${p.edicao.ano ? ` (${p.edicao.ano})` : ''}`,
+        descricao: [p.categoria_julgamento, [p.colocacao, p.titulo].filter(Boolean).join(' — ') || null].filter(Boolean).join(' · ') || undefined,
       })
     }
 
@@ -768,7 +861,7 @@ export default function Animais() {
       brinco:'', sexo:'F', data_nascimento:'', raca:'Angus', pelagem:'Preto',
       pai:'', mae_brinco:'', proprietario_id:'', lote_id:'',
       situacao:'ativo', sit_reprodutiva:'vazia', is_touro: false,
-      numero_registro:'', classificacao:'', sisbov:'',
+      numero_registro:'', classificacao:'', sisbov:'', nome:'',
     })
     setModal(true)
   }
@@ -779,7 +872,7 @@ export default function Animais() {
   }
 
   const limparVazios = (obj) => {
-    const camposNullable = ['data_baixa', 'mae_id', 'lote_id', 'numero_registro', 'classificacao', 'sisbov']
+    const camposNullable = ['data_baixa', 'mae_id', 'lote_id', 'numero_registro', 'classificacao', 'sisbov', 'nome']
     const out = { ...obj }
     for (const c of camposNullable) if (out[c] === '') out[c] = null
     return out
@@ -793,6 +886,7 @@ export default function Animais() {
     payload = limparVazios(payload)
     payload.raca    = capitalizarNome(payload.raca)
     payload.pelagem = capitalizarNome(payload.pelagem)
+    payload.nome    = capitalizarNome(payload.nome)
     payload.pai     = paiEhMontaNaturalIndefinida(payload.pai) ? payload.pai : capitalizarNome(payload.pai)
     if (!payload.brinco)          { toast('Preencha o brinco.', 'error'); return }
     if (!payload.sexo)            { toast('Selecione o sexo.', 'error'); return }
@@ -967,20 +1061,23 @@ export default function Animais() {
     // "Pai" clicável só no único caso resolvível hoje: monta natural com
     // vários touros ("Monta natural — Lote N, Estação X", paternidade
     // indefinida) — leva pro detalhe do LOTE via parto.lote_inseminacao_id
-    // (partoComoFilho, carregado junto com a timeline). Um pai com nome de
-    // touro comum (IA ou monta natural de 1 touro) NÃO vira link: não existe
-    // vínculo confiável entre esse texto livre e um registro de animal (touro
-    // quase nunca é cadastrado como animais.* no sistema) — linkar por
-    // nome bateria risco de dar match errado.
+    // (partoComoFilho, carregado junto com a timeline). Vínculo por id
+    // (pai_animal_id/pai_externo_id) não muda esse comportamento — é sobre
+    // exibir o NOME certo, não sobre navegação nova.
+    // Texto sempre por nomePai (helpers.js) — "Nome (Brinco)" aqui, um dos 4
+    // pontos genealógicos/documentais aprovados (Tarefa B.4): nome sozinho
+    // pode ser ambíguo (animais.nome não tem UNIQUE), então o brinco
+    // acompanha sempre que houver nome.
     const paiClicavel = paiEhMontaNaturalIndefinida(a.pai) && partoComoFilho?.lote_inseminacao_id
+    const paiTexto = nomePai(a, { comBrinco: true })
     const paiValor = paiClicavel
       ? <button type="button" onClick={() => navigate('/reprodutivo', {
             state: { abrirLoteId: partoComoFilho.lote_inseminacao_id, cicloId: partoComoFilho.lote?.ciclo_id }
           })}
           style={{ background:'none', border:'none', padding:0, color:'#2B6CD9', textDecoration:'underline', cursor:'pointer', fontSize:'.82rem', textAlign:'left' }}>
-          {a.pai} <i className="ti ti-external-link" style={{ fontSize:11 }} />
+          {paiTexto} <i className="ti ti-external-link" style={{ fontSize:11 }} />
         </button>
-      : (a.pai || '—')
+      : paiTexto
 
     return (
       <div>
@@ -1047,6 +1144,7 @@ export default function Animais() {
                     ['Nascimento',    `${fmtData(a.data_nascimento)} · ${idadeFormatada(a.data_nascimento)}`],
                     ['Categoria',     <Badge style={{ background: cc.bg, color: cc.text }}>{cat} <span style={{ fontSize: '.65rem', color: '#9CA3AF', marginLeft: 3 }}>automático</span></Badge>],
                     ['Nº Registro',   a.numero_registro || '—'],
+                    ['Nome',          a.nome || '—'],
                     ['Classificação', a.classificacao ? (CLASSIFICACAO_LABEL[a.classificacao] || a.classificacao) : '—'],
                     ['Raça',          a.raca],
                     ['Pelagem',       a.pelagem],
@@ -1085,6 +1183,48 @@ export default function Animais() {
                           {h.procedimento?.observacoes && <div style={{ fontSize: '.75rem', color: '#9CA3AF' }}>{h.procedimento.observacoes}</div>}
                         </div>
                       ))
+                }
+              </div>
+
+              {/* Feiras e Premiações — logo abaixo do Histórico Sanitário,
+                  mesma largura (coluna esquerda). Contagem no topo
+                  (participações/premiações) porque um histórico longo sem
+                  resumo é difícil de ler de relance (Fase Feiras — item extra
+                  aprovado). */}
+              <div className="card" style={{ marginTop: 12 }}>
+                <div className="card-title"><i className="ti ti-trophy" /> Feiras e Premiações</div>
+                {histFeiras.length === 0
+                  ? <div style={{ fontSize: '.82rem', color: '#9CA3AF' }}>Nenhuma participação em feira registrada para este animal.</div>
+                  : (() => {
+                      const { participacoes: nPart, premiacoes: nPrem } = resumoFeirasAnimal(histFeiras)
+                      return (
+                        <>
+                          <div style={{ fontSize: '.78rem', color: '#374151', marginBottom: 8, fontWeight: 500 }}>
+                            {nPart} participaç{nPart === 1 ? 'ão' : 'ões'}, {nPrem} premiaç{nPrem === 1 ? 'ão' : 'ões'}
+                          </div>
+                          {histFeiras.map(p => {
+                            const st = statusFeiraParticipacao(p, hojeISO())
+                            return (
+                              <div key={p.id} style={{ padding: '8px 0', borderBottom: '.5px solid #F3F4F6' }}>
+                                <div style={{ fontWeight: 500, fontSize: '.85rem' }}>
+                                  {p.edicao?.feira?.nome || '—'}{p.edicao?.ano ? ` — ${p.edicao.ano}` : ''}
+                                </div>
+                                <div style={{ fontSize: '.75rem', color: '#6B7280' }}>
+                                  {p.edicao?.data_inicio ? fmtData(p.edicao.data_inicio) : '—'}
+                                  {p.categoria_julgamento && ` · ${p.categoria_julgamento}`}
+                                  {' · '}{st.label}
+                                </div>
+                                {(p.colocacao || p.titulo) && (
+                                  <div style={{ fontSize: '.75rem', color: '#1F7A3F', fontWeight: 500 }}>
+                                    {[p.colocacao, p.titulo].filter(Boolean).join(' — ')}
+                                  </div>
+                                )}
+                              </div>
+                            )
+                          })}
+                        </>
+                      )
+                    })()
                 }
               </div>
             </div>
@@ -1170,6 +1310,162 @@ export default function Animais() {
                   </div>
                 </div>
               )}
+
+              {/* Histórico reprodutivo do TOURO (sexo=M + is_touro) — Tarefa D.
+                  Carregamento sob demanda (ver useEffect de historicoTouroBruto):
+                  queries pequenas escopadas só a este touro, nunca um scan da
+                  fazenda inteira. Vínculo touro→filho/lote é por ID
+                  (pai_animal_id/touro_animal_id, migration_touro_vinculo_id.sql)
+                  — os números principais são confiáveis. Dado de ANTES dessa
+                  migração (nunca migrado, decisão do usuário) ainda só tem o
+                  texto batendo com o brinco; esse legado aparece apartado, nunca
+                  somado — nunca uma lacuna silenciosa. */}
+              {a.sexo === 'M' && a.is_touro && (() => {
+                if (historicoTouroLoading || !historicoTouroBruto) {
+                  return (
+                    <div className="card" style={{ marginBottom: 12 }}>
+                      <div className="card-title"><i className="ti ti-dna" /> Histórico reprodutivo do touro</div>
+                      <Loading text="Carregando histórico..." />
+                    </div>
+                  )
+                }
+                const h = calcHistoricoTouro(historicoTouroBruto)
+                const pequena = n => n > 0 && n < AMOSTRA_MINIMA_TOURO
+                const BadgePequena = ({ n }) => pequena(n) ? (
+                  <span style={{
+                    marginLeft: 6, fontSize: '.62rem', fontWeight: 700, color: '#92620A',
+                    background: '#FEF3C7', border: '.5px solid #F3D5A3', borderRadius: 999, padding: '1px 7px',
+                  }}>
+                    amostra pequena
+                  </span>
+                ) : null
+
+                const dadosSexo = (h.qtdMachos + h.qtdFemeas) > 0
+                  ? [{ sexo: 'Machos', qtd: h.qtdMachos, fill: '#2B6CD9' }, { sexo: 'Fêmeas', qtd: h.qtdFemeas, fill: '#E24B4A' }]
+                  : []
+                const dadosGMDComparacao = [
+                  { grupo: `Filhos deste touro (${h.comGmdFilhos})`, gmd: h.gmdFilhos },
+                  { grupo: `Fazenda, mesmas safras (${h.comGmdContemporaneos})`, gmd: h.gmdContemporaneos },
+                ].filter(d => d.gmd !== null)
+
+                return (
+                  <div className="card" style={{ marginBottom: 12 }}>
+                    <div className="card-title"><i className="ti ti-dna" /> Histórico reprodutivo do touro</div>
+
+                    {h.qtdCoberturasExcluidas > 0 && (
+                      <AlertBox type="amber" icon="ti-alert-triangle"
+                        title='Lotes com mais de um touro ficam fora do histórico individual'
+                        body={`${h.qtdCoberturasExcluidas} cobertura(s) em ${h.qtdLotesExcluidos} lote(s) com MAIS DE UM touro ficaram de fora de todo o histórico — paternidade indefinida não gera número.`} />
+                    )}
+
+                    <div className="kpi-grid" style={{ marginTop: 10, marginBottom: 0 }}>
+                      <div className="kpi-card" style={{ padding: '10px 12px' }}>
+                        <div className="kpi-value" style={{ fontSize: '1.05rem' }}>{h.qtdFilhos}</div>
+                        <div className="kpi-label">Filhos</div>
+                      </div>
+                      <div className="kpi-card" style={{ padding: '10px 12px' }}>
+                        <div className="kpi-value" style={{ fontSize: '1.05rem', color: h.qtdFilhos === 0 ? '#9CA3AF' : '#111827' }}>
+                          {h.qtdFilhos > 0 ? `${pct(h.qtdMachos, h.qtdFilhos)} M / ${pct(h.qtdFemeas, h.qtdFilhos)} F` : 'sem dados'}
+                          <BadgePequena n={h.qtdFilhos} />
+                        </div>
+                        <div className="kpi-label">Machos × fêmeas</div>
+                      </div>
+                      <div className="kpi-card" style={{ padding: '10px 12px' }}>
+                        <div className="kpi-value" style={{ fontSize: '1.05rem', color: h.gmdFilhos === null ? '#9CA3AF' : '#111827' }}>
+                          {h.gmdFilhos !== null ? `${h.gmdFilhos} kg/dia` : 'sem dados'}
+                          <BadgePequena n={h.comGmdFilhos} />
+                        </div>
+                        <div className="kpi-label">GMD médio dos filhos{h.comGmdFilhos > 0 ? ` (${h.comGmdFilhos} de ${h.qtdFilhos} com pesagem)` : ''}</div>
+                      </div>
+                      <div className="kpi-card" style={{ padding: '10px 12px' }}>
+                        <div className="kpi-value" style={{ fontSize: '1.05rem', color: h.pesoNascFilhos === null ? '#9CA3AF' : '#111827' }}>
+                          {h.pesoNascFilhos !== null ? `${h.pesoNascFilhos} kg` : 'sem dados'}
+                          <BadgePequena n={h.comPesoNascFilhos} />
+                        </div>
+                        <div className="kpi-label">Peso médio ao nascer{h.comPesoNascFilhos > 0 ? ` (${h.comPesoNascFilhos} de ${h.qtdFilhos} com peso)` : ''}</div>
+                      </div>
+                      <div className="kpi-card" style={{ padding: '10px 12px' }}>
+                        <div className="kpi-value" style={{ fontSize: '1.05rem', color: h.efetividade === null ? '#9CA3AF' : '#111827' }}>
+                          {h.efetividade !== null ? `${h.efetividade}%` : 'sem dados'}
+                          <BadgePequena n={h.diagnosticadas} />
+                        </div>
+                        <div className="kpi-label">Efetividade de cobertura{h.diagnosticadas > 0 ? ` (${h.prenhas} de ${h.diagnosticadas} diagnosticadas)` : ''}</div>
+                      </div>
+                      <div className="kpi-card" style={{ padding: '10px 12px' }}>
+                        <div className="kpi-value" style={{ fontSize: '1.05rem' }}>{h.qtdSafras}</div>
+                        <div className="kpi-label">Safras em que atuou</div>
+                      </div>
+                    </div>
+
+                    {dadosSexo.length > 0 && (
+                      <div style={{ marginTop: 14 }}>
+                        <div style={{ fontSize: '.72rem', fontWeight: 700, color: '#6B7280', marginBottom: 4 }}>Machos × fêmeas entre os filhos</div>
+                        <ResponsiveContainer width="100%" height={130}>
+                          <BarChart data={dadosSexo} layout="vertical" margin={{ top: 5, right: 25, left: 10, bottom: 5 }}>
+                            <XAxis type="number" tick={{ fontSize: 10 }} allowDecimals={false} />
+                            <YAxis type="category" dataKey="sexo" tick={{ fontSize: 10 }} width={55} />
+                            <Tooltip />
+                            <Bar dataKey="qtd">
+                              {dadosSexo.map((d, i) => <Cell key={i} fill={d.fill} />)}
+                              <LabelList dataKey="qtd" position="right" style={{ fontSize: 10, fill: '#6B7280' }} />
+                            </Bar>
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                    )}
+
+                    {dadosGMDComparacao.length > 0 && (
+                      <div style={{ marginTop: 14 }}>
+                        <div style={{ fontSize: '.72rem', fontWeight: 700, color: '#6B7280', marginBottom: 4 }}>GMD dos filhos deste touro × média da fazenda (mesmas safras, mesma fórmula)</div>
+                        <ResponsiveContainer width="100%" height={170}>
+                          <BarChart data={dadosGMDComparacao} margin={{ top: 20, right: 10, left: -10, bottom: 5 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" />
+                            <XAxis dataKey="grupo" tick={{ fontSize: 9 }} />
+                            <YAxis tick={{ fontSize: 10 }} />
+                            <Tooltip formatter={v => [`${v} kg/dia`, 'GMD médio']} />
+                            <Bar dataKey="gmd" fill="#2B6CD9">
+                              <LabelList dataKey="gmd" position="top" style={{ fontSize: 10, fill: '#6B7280' }} />
+                            </Bar>
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                    )}
+
+                    {h.efetividadePorSafra.length > 0 && (
+                      <div style={{ marginTop: 14 }}>
+                        <div style={{ fontSize: '.72rem', fontWeight: 700, color: '#6B7280', marginBottom: 4 }}>Efetividade de cobertura por safra</div>
+                        <ResponsiveContainer width="100%" height={170}>
+                          <BarChart data={h.efetividadePorSafra} margin={{ top: 20, right: 10, left: -10, bottom: 5 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" />
+                            <XAxis dataKey="safra" tick={{ fontSize: 10 }} />
+                            <YAxis tick={{ fontSize: 10 }} unit="%" />
+                            <Tooltip formatter={(v, _n, props) => [`${v}% (${props.payload.expostas} expostas)`, 'Efetividade']} />
+                            <Bar dataKey="efetividade" fill="#27A838">
+                              <LabelList dataKey="efetividade" position="top" style={{ fontSize: 10, fill: '#6B7280' }} formatter={v => `${v}%`} />
+                            </Bar>
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                    )}
+
+                    {h.qtdFilhos === 0 && h.expostas === 0 && h.qtdFilhosLegado === 0 && h.qtdCoberturasLegado === 0 && (
+                      <div style={{ fontSize: '.82rem', color: '#9CA3AF', marginTop: 8 }}>
+                        Nenhum lote ou filho vinculado a este touro ainda.
+                      </div>
+                    )}
+
+                    {/* Legado — dado de ANTES da vinculação por id, nunca
+                        migrado (decisão do usuário: dados de teste, não vale
+                        preservar por texto). Só contagem, nunca entra em
+                        GMD/efetividade/gráfico acima (Tarefa A.5, aprovado). */}
+                    {(h.qtdFilhosLegado > 0 || h.qtdCoberturasLegado > 0) && (
+                      <div style={{ fontSize: '.75rem', color: '#9CA3AF', marginTop: 12, paddingTop: 10, borderTop: '.5px solid #F3F4F6' }}>
+                        <i className="ti ti-info-circle" style={{ fontSize: 12 }} /> Além disso, {h.qtdFilhosLegado} filho(s) e {h.qtdCoberturasLegado} cobertura(s) vinculados só por texto (de antes da vinculação por id, brinco "{a.brinco}") — não entram nos números acima.
+                      </div>
+                    )}
+                  </div>
+                )
+              })()}
 
               {desempenhoVida && (() => {
                 const d = desempenhoVida
@@ -1622,6 +1918,12 @@ export default function Animais() {
                 <input value={editData.sisbov || ''} inputMode="numeric" placeholder="15 dígitos"
                   onChange={e => setEditData(p => ({ ...p, sisbov: e.target.value.replace(/\D/g, '') }))} />
               </Field>
+              <Field label="Número do Registro">
+                <input value={editData.numero_registro || ''} onChange={e => setEditData(p => ({ ...p, numero_registro: e.target.value }))} placeholder="ex: PO-12345" />
+              </Field>
+              <Field label="Nome" hint="Opcional — o brinco continua sendo a identificação principal" hintInline>
+                <input value={editData.nome || ''} onChange={e => setEditData(p => ({ ...p, nome: e.target.value }))} placeholder="ex: Estrela" />
+              </Field>
               <Field label="Sexo" required>
                 <select value={editData.sexo} onChange={e => setEditData(p => ({ ...p, sexo: e.target.value, sit_reprodutiva: e.target.value === 'M' ? 'nao_se_aplica' : 'vazia' }))}>
                   <option value="F">Fêmea ♀</option>
@@ -1635,9 +1937,6 @@ export default function Animais() {
                 <input readOnly value={editData.data_nascimento && editData.sexo
                   ? calcCategoriaRebanho(editData.data_nascimento, editData.sexo, editData.sit_reprodutiva, editData.is_touro)
                   : '—'} />
-              </Field>
-              <Field label="Número do Registro">
-                <input value={editData.numero_registro || ''} onChange={e => setEditData(p => ({ ...p, numero_registro: e.target.value }))} placeholder="ex: PO-12345" />
               </Field>
               <Field label="Classificação">
                 <select value={editData.classificacao || ''} onChange={e => setEditData(p => ({ ...p, classificacao: e.target.value }))}>

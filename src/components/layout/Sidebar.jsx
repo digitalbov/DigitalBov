@@ -10,7 +10,7 @@ import Tutorial from '../Tutorial'
 // desta lista (assistente, calendário, backup) ficam sempre visíveis: o
 // sistema de permissões não os cobre.
 const MODULOS_GERENCIAVEIS = [
-  'propriedade', 'animais', 'reprodutivo', 'rebanho', 'sanidade',
+  'propriedade', 'animais', 'feiras', 'reprodutivo', 'rebanho', 'sanidade',
   'pesagens', 'estoque', 'financeiro', 'relatorios', 'metas', 'veterinario',
 ]
 
@@ -33,6 +33,7 @@ const NAV = [
   { section: 'GESTÃO OPERACIONAL' },
   { path: '/propriedade', icon: 'ti-home-2',           label: 'Propriedades' },
   { path: '/animais',     icon: 'ti-clipboard-list',   label: 'Cadastro de Animais' },
+  { path: '/feiras',      icon: 'ti-trophy',           label: 'Feiras e Premiações' },
   { path: '/reprodutivo', icon: 'ti-activity',         label: 'Gestão Reprodutiva' },
   { path: '/sanidade',    icon: 'ti-shield-check',     label: 'Sanidade' },
   { path: '/pesagens',    icon: 'ti-weight',           label: 'Pesagens' },

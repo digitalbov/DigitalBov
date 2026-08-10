@@ -18,6 +18,28 @@ export default function SecaoMetas({ item }) {
         você confia no que ele está medindo.
       </p>
 
+      <AlertBox type="green" icon="ti-chevron-down"
+        title="Os contêineres são recolhíveis"
+        body='Ao entrar na tela, todos os contêineres (Reprodução, Perdas, GMD, Produção, Custos e Comparação entre ciclos) começam recolhidos, mostrando só o título — clique para abrir um de cada vez. O "Gerar PDF" ignora o que está aberto/fechado na tela: o arquivo sempre sai com os 5 primeiros contêineres expandidos, cada um inteiro numa única página (dois só dividem a mesma página se os dois couberem inteiros nela). Comparação entre ciclos fica FORA do PDF — os números dela só existem depois de você abrir o contêiner na tela.' />
+
+      <div id="metas-comparacao" style={{ scrollMarginTop: 90 }}>
+        <h4 style={H4}>Comparação entre ciclos</h4>
+        <p style={P}>
+          Uma tabela com todos os 23 índices (das linhas, agrupados pelos mesmos 5 contêineres) contra todos
+          os ciclos cadastrados (nas colunas, do mais antigo ao mais recente) — sempre no modo
+          <strong> Consolidado</strong>, sem mostrar metas, só os números em si. A 1ª coluna (nome do índice)
+          fica fixa mesmo rolando a tabela pros lados, pra você nunca perder de vista o que cada linha
+          significa. A coluna do ciclo em foco na tela aparece destacada. Uma seta ao lado do número mostra se
+          o índice melhorou (verde) ou piorou (vermelho) em relação ao ciclo anterior na tabela — a cor
+          respeita se o indicador é "maior é melhor" ou "menor é melhor", mesmo critério do semáforo dos
+          cards; passe o mouse sobre a seta pra ver a variação em %. Um traço (—) significa que não havia dado
+          suficiente pra calcular aquele índice naquele ciclo — nunca aparece 0% ali, que seria enganoso.
+        </p>
+        <AlertBox type="amber" icon="ti-clock-hour-4"
+          title="Os números só são calculados quando você abre o contêiner"
+          body="Comparar todos os ciclos de uma vez é uma conta mais pesada que os outros contêineres (recalcula os índices de CADA ciclo cadastrado) — por isso ela só roda quando você efetivamente abre este contêiner pela primeira vez, nunca ao carregar a tela. Depois de calculada, fica guardada enquanto você estiver nesta tela; trocar o ciclo em foco ou o filtro de proprietário recalcula de novo na próxima vez que você abrir o contêiner." />
+      </div>
+
       <div id="metas-modos" style={{ scrollMarginTop: 90 }}>
         <h4 style={H4}>Os 3 modos: Inseminação, Monta Natural e Consolidado</h4>
         <p style={P}>
@@ -81,7 +103,7 @@ export default function SecaoMetas({ item }) {
         <h5 style={H5}>Perda Gestacional <span style={{ fontWeight: 400, color: '#9CA3AF' }}>(menor é melhor)</span></h5>
         <div style={FORMULA}>(Abortos registrados + Perdas não identificadas) ÷ Prenhas × 100</div>
         <p style={P}>
-          <strong>Aborto</strong> é um evento que você registrou explicitamente na tela Reprodutivo.
+          <strong>Aborto</strong> é um evento que você registrou explicitamente na tela Gestão Reprodutiva.
           <strong> Perda não identificada</strong> é diferente: é uma vaca diagnosticada prenha cuja janela de
           gestação (300 dias desde a monta) já fechou, sem parto NEM aborto lançado — o sistema entende que
           algo deu errado e ninguém registrou. Enquanto ainda está dentro dos 300 dias, ela conta como
@@ -217,12 +239,18 @@ export default function SecaoMetas({ item }) {
           <li><strong>Comparativo Inseminação × Monta Natural</strong> — só aparece quando aquele contêiner específico está no modo Consolidado (some se você trocar para só um dos dois).</li>
           <li><strong>Nascimentos do ciclo</strong> (proporção de sexo, GMD por sexo, por touro) — sempre Consolidado, não tem seletor de modo.</li>
           <li>
-            <strong>Gráfico 3D de preço de venda</strong> — histórico completo de todas as vendas, por
-            categoria, com um seletor <strong>kg / @ (arroba)</strong>. A conversão é fixa:
+            <strong>Preço de venda por categoria</strong> — histórico completo de todas as vendas, uma linha
+            por categoria (Terneira, Boi, Vaca Prenha...), com <strong>data</strong> no eixo horizontal e
+            <strong> preço por kg</strong> no eixo vertical — o gráfico mostra a variação do PREÇO no tempo,
+            não os quilos vendidos. Categorias diferentes têm faixas de preço estruturalmente diferentes, por
+            isso cada uma tem sua própria linha em vez de uma média só — misturar tudo numa linha única faria
+            parecer que o preço caiu num dia em que só se vendeu a categoria mais barata, mesmo com cada
+            categoria estável. Clique numa categoria da legenda para isolar/ocultar a linha dela. Um seletor
+            <strong> kg / @ (arroba)</strong> troca só o número mostrado nos eixos e no tooltip:
             <div style={{ ...FORMULA, marginTop: 6, marginBottom: 6 }}>Preço por arroba = Preço por kg × 15</div>
             É só uma conversão de unidade (a arroba "informal" de 15 kg) aplicada em cima do preço/kg que
             você mesmo cadastrou — o sistema não sabe (nem pergunta) se esse preço foi pensado como peso vivo
-            ou de carcaça, e o toggle só muda o número mostrado, nunca a posição dos pontos no gráfico.
+            ou de carcaça.
           </li>
         </ul>
       </div>

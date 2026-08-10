@@ -6,6 +6,7 @@
 import SecaoPrimeirosPassos from './secoes/SecaoPrimeirosPassos'
 import SecaoUsuarios from './secoes/SecaoUsuarios'
 import SecaoAnimais from './secoes/SecaoAnimais'
+import SecaoFeiras from './secoes/SecaoFeiras'
 import SecaoPropriedade from './secoes/SecaoPropriedade'
 import SecaoReprodutivo from './secoes/SecaoReprodutivo'
 import SecaoPesagens from './secoes/SecaoPesagens'
@@ -27,6 +28,7 @@ export const CONTEUDOS = {
   'primeiros-passos': SecaoPrimeirosPassos,
   usuarios: SecaoUsuarios,
   animais: SecaoAnimais,
+  feiras: SecaoFeiras,
   propriedade: SecaoPropriedade,
   reprodutivo: SecaoReprodutivo,
   pesagens: SecaoPesagens,

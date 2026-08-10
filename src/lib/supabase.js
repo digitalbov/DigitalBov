@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
+import { normalizarNome } from './helpers'
 
 const supabaseUrl     = import.meta.env.VITE_SUPABASE_URL
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
@@ -65,21 +66,37 @@ export const auth = {
 // ── Database helpers ──────────────────────────────────────────────
 export const db = {
 
+  // Embed reaproveitado em toda query de animais que precisa resolver o
+  // campo "Pai" por nome (nomePai, helpers.js) — vínculo por id
+  // (pai_animal_id/pai_externo_id, migration_touro_vinculo_id.sql).
+  // `pai_animal` usa o hint !pai_animal_id (auto-relacionamento, animais já
+  // tem outro — mae_id — então precisa desambiguar, mesmo padrão já usado
+  // em mae:animais!mae_id nas queries de partos).
   animais: {
     list: (filters = {}) => {
-      let q = T('animais').select(`*, proprietario:proprietarios(id,nome), lote:lotes(id,nome)`).order('brinco')
+      let q = T('animais').select(`*, proprietario:proprietarios(id,nome), lote:lotes(id,nome), pai_animal:animais!pai_animal_id(id,brinco,nome), pai_externo:touros_externos(id,nome)`).order('brinco')
       if (filters.situacao)        q = q.eq('situacao',        filters.situacao)
       if (filters.proprietario_id) q = q.eq('proprietario_id', filters.proprietario_id)
       if (filters.sexo)            q = q.eq('sexo',            filters.sexo)
       return q
     },
-    get:      (id)    => escopo(T('animais').raw().select('*, proprietario:proprietarios(nome), lote:lotes(nome)').eq('id', id)).single(),
+    get:      (id)    => escopo(T('animais').raw().select('*, proprietario:proprietarios(nome), lote:lotes(nome), pai_animal:animais!pai_animal_id(id,brinco,nome), pai_externo:touros_externos(id,nome)').eq('id', id)).single(),
     insert:   (data)  => T('animais').insertOne(data).select().single(),
     update:   (id, d) => escopo(T('animais').raw().update({ ...d, atualizado_em: new Date().toISOString() }).eq('id', id)).select().single(),
     delete:   (id)    => escopo(T('animais').raw().delete().eq('id', id)),
     byBrinco: (b)     => T('animais').select('*, proprietario:proprietarios(id,nome), lote:lotes(id,nome)').eq('brinco', b).maybeSingle(),
     brincosComPrefixo: (prefixo) => T('animais').select('brinco').ilike('brinco', `${prefixo}%`),
     filhos:   (b)     => T('animais').select('*, proprietario:proprietarios(id,nome), lote:lotes(id,nome)').eq('mae_brinco', b).order('brinco'),
+    // Filhos de um TOURO cadastrado (ficha do touro, histórico reprodutivo) —
+    // vínculo por ID (pai_animal_id), migration_touro_vinculo_id.sql. Lote
+    // com vários touros nunca grava pai_animal_id (resolverPaiIdDerivado,
+    // helpers.js) — é assim que a exclusão de paternidade indefinida já
+    // acontece sozinha, sem filtro extra.
+    filhosPorPaiAnimalId: (touroId) => T('animais').select('id,brinco,sexo,situacao,data_nascimento').eq('pai_animal_id', touroId).order('brinco'),
+    // Legado: filho de ANTES da migração, só com o texto `pai` batendo com o
+    // brinco, sem nenhum dos dois ids — apartado, nunca somado ao grupo
+    // acima (calcHistoricoTouro, helpers.js, faz a exibição separada).
+    filhosPorPaiTextoLegado: (brinco) => T('animais').select('id,brinco,sexo,situacao,data_nascimento').eq('pai', brinco).is('pai_animal_id', null).is('pai_externo_id', null).order('brinco'),
   },
 
   proprietarios: {
@@ -116,17 +133,23 @@ export const db = {
     delete: (id)     => escopo(T('piquetes').raw().delete().eq('id', id)),
   },
 
+  // Embed do vínculo de touro por id, reaproveitado em toda query de
+  // lotes_inseminacao/lote_touros que precisa exibir o nome (nomeTouro,
+  // helpers.js) — migration_touro_vinculo_id.sql.
   lotesInseminacao: {
     // lote_touros: touros ADICIONAIS de um lote de monta natural com mais de um
     // touro (o 1º touro continua em lotes_inseminacao.touro, sem mudança — ver
     // resolverPaiDerivado em helpers.js). Vazio/ausente para IA e monta natural
-    // de 1 touro só, que continuam usando só o campo touro de sempre.
+    // de 1 touro só, que continuam usando só o campo touro de sempre. Cada
+    // lote_touros também tem seu próprio touro_animal/touro_externo — um touro
+    // ADICIONAL também pode estar vinculado por id, mesma regra do principal.
     list: (cicloId) => T('lotes_inseminacao').select(`
       *, inseminacoes(*, animal:animais(brinco,proprietario_id,sit_reprodutiva,proprietario:proprietarios(nome))),
       partos(id,bezerro_id,mae_id,data_parto,natimorto,mae:animais!mae_id(brinco,proprietario_id),bezerro:animais!bezerro_id(id,brinco,sexo,pai,situacao,data_desmame,pesagens(id,data,tipo,peso_kg))),
       abortos(id,animal_id,data,causa,observacoes,animal:animais(proprietario_id)),
       estacao:estacoes_monta(id,nome,inicio,fim),
-      lote_touros(id,nome)
+      touro_animal:animais!touro_animal_id(id,brinco,nome), touro_externo:touros_externos(id,nome),
+      lote_touros(id,nome,touro_animal_id,touro_externo_id,touro_animal:animais!touro_animal_id(id,brinco,nome),touro_externo:touros_externos(id,nome))
     `).eq('ciclo_id', cicloId).order('data', { ascending: false }),
     listAll: () => T('lotes_inseminacao').select(`
       *, ciclo:ciclos_financeiros(id,nome,inicio,fim),
@@ -134,7 +157,8 @@ export const db = {
       partos(id,bezerro_id,mae_id,data_parto,natimorto,mae:animais!mae_id(proprietario_id),bezerro:animais!bezerro_id(situacao,data_desmame,pesagens(data,tipo,peso_kg))),
       abortos(id,animal_id,data,causa,animal:animais(proprietario_id)),
       estacao:estacoes_monta(id,nome,inicio,fim),
-      lote_touros(id,nome)
+      touro_animal:animais!touro_animal_id(id,brinco,nome), touro_externo:touros_externos(id,nome),
+      lote_touros(id,nome,touro_animal_id,touro_externo_id,touro_animal:animais!touro_animal_id(id,brinco,nome),touro_externo:touros_externos(id,nome))
     `).order('data', { ascending: true }),
     insert: (data)  => T('lotes_inseminacao').insertOne(data).select().single(),
     update: (id, d) => escopo(T('lotes_inseminacao').raw().update(d).eq('id', id)).select().single(),
@@ -149,12 +173,25 @@ export const db = {
     listInseminacoesResumo: (cicloId) => {
       let q = T('lotes_inseminacao').select(`
         ciclo_id, numero, touro, data,
+        touro_animal:animais!touro_animal_id(id,brinco,nome), touro_externo:touros_externos(id,nome),
         inseminacoes(animal_id, diagnostico, animal:animais(brinco,proprietario_id)),
         partos(mae_id, bezerro_id), abortos(animal_id)
       `)
       if (cicloId) q = q.eq('ciclo_id', cicloId)
       return q.order('data', { ascending: false })
     },
+    // Item 6 — aviso de pendências no ciclo anterior (Reprodutivo.jsx, botão
+    // "Ver ciclo anterior"): igualmente leve (sem pesagens/estação/joins de
+    // proprietário), mas com o que listInseminacoesResumo não tem —
+    // data_diagnostico (desfechoReprodutivo precisa pra achar a prenhez mais
+    // recente) e bezerro.situacao/data_desmame/data_nascimento (cria ao pé +
+    // apto ao desmame, ver APTO_AO_DESMAME_DIAS em helpers.js).
+    listPendenciasCiclo: (cicloId) => T('lotes_inseminacao').select(`
+      id, data,
+      inseminacoes(animal_id, diagnostico, data_diagnostico),
+      partos(mae_id, bezerro_id, data_parto, natimorto, bezerro:animais!bezerro_id(situacao,data_desmame,data_nascimento)),
+      abortos(animal_id, data)
+    `).eq('ciclo_id', cicloId).order('data', { ascending: false }),
     // Item 5 (Financeiro.jsx — Situação reprodutiva na venda): só o
     // necessário pra atribuir cada diagnóstico/parto/aborto ao lote (e, por
     // ele, à estação) em que aconteceu, e pra classificar o desfecho
@@ -173,6 +210,21 @@ export const db = {
     listParaDescarte: () => T('lotes_inseminacao')
       .select('id, data, estacao_monta_id, inseminacoes(animal_id,diagnostico,data_diagnostico), partos(mae_id,data_parto), abortos(animal_id,data)')
       .not('estacao_monta_id', 'is', null),
+    // Lotes de um touro cadastrado (ficha do touro, histórico reprodutivo) —
+    // vínculo por ID (touro_animal_id), histórico completo (todos os
+    // ciclos, carregado só quando a ficha de um touro abre — nunca no load
+    // geral de Animais.jsx). lote_touros(id) só pra detectar lote com MAIS
+    // de um touro (paternidade indefinida) e excluí-lo da métrica
+    // individual; ciclo(nome) pra rotular o gráfico por safra.
+    porTouroAnimalId: (touroId) => T('lotes_inseminacao')
+      .select('id,data,ciclo_id,ciclo:ciclos_financeiros(nome),inseminacoes(animal_id,diagnostico),lote_touros(id)')
+      .eq('touro_animal_id', touroId),
+    // Legado: lote de ANTES da migração, só com o texto `touro` batendo com
+    // o brinco, sem nenhum dos dois ids — apartado, nunca somado ao grupo
+    // acima (calcHistoricoTouro, helpers.js, faz a exibição separada).
+    porTouroTextoLegado: (brinco) => T('lotes_inseminacao')
+      .select('id,data,ciclo_id,ciclo:ciclos_financeiros(nome),inseminacoes(animal_id,diagnostico),lote_touros(id)')
+      .eq('touro', brinco).is('touro_animal_id', null).is('touro_externo_id', null),
   },
 
   loteTouros: {
@@ -184,6 +236,110 @@ export const db = {
     delete:      (id)     => escopo(T('lote_touros').raw().delete().eq('id', id)),
   },
 
+  // Touro EXTERNO (emprestado ou sêmen de IA) — identidade LEVE (nunca um
+  // cadastro de animal, ver migration_touro_vinculo_id.sql), só id+nome por
+  // fazenda. `nome_normalizado` (normalizarNome, helpers.js) é a chave
+  // de dedup — é assim que o touro digitado de novo, mesmo com grafia
+  // diferente, vira o MESMO registro em vez de um novo.
+  tourosExternos: {
+    listPorFazenda: () => T('touros_externos').select('id,nome').order('nome'),
+    // UPSERT atômico na chave do UNIQUE (conta_id,fazenda_id,nome_normalizado)
+    // — mesmo padrão já usado em inseminacoes.upsert: sem race condition
+    // entre um SELECT e um INSERT separados. Achou → devolve o registro
+    // existente (com o `nome` atualizado pro texto agora digitado, cosmético
+    // — a identidade/id nunca muda); não achou → cria.
+    findOrCreate: (nome) => T('touros_externos').raw().upsert(
+      { conta_id: cid(), fazenda_id: fid(), nome, nome_normalizado: normalizarNome(nome) },
+      { onConflict: 'conta_id,fazenda_id,nome_normalizado', ignoreDuplicates: false }
+    ).select().single(),
+  },
+
+  // Feira — só a IDENTIDADE (nome), dedupada por nome_normalizado
+  // (normalizarNome, helpers.js). Local/data/ano ficam em feiraEdicoes
+  // (uma feira acontece todo ano, em datas/locais diferentes — modelo (a)
+  // aprovado, ver migration_feiras_edicoes.sql). find-then-insert, NUNCA
+  // upsert: registrar uma participação não pode alterar um cadastro de
+  // feira existente em nenhuma circunstância, nem o nome cosmético — só o
+  // botão Editar (explícito, fora deste caminho) muda um cadastro. Corrida
+  // (dois cliques/duas abas achando "não existe" ao mesmo tempo): o INSERT
+  // que perder bate no UNIQUE(conta_id,fazenda_id,nome_normalizado) — nesse
+  // caso refaz o SELECT e devolve quem ganhou, em vez de erro pro usuário.
+  feiras: {
+    listPorFazenda: () => T('feiras').select('id,nome').order('nome'),
+    findOrCreate: async (nome) => {
+      const nome_normalizado = normalizarNome(nome)
+      const { data: existente, error: errSel } = await T('feiras').select('*').eq('nome_normalizado', nome_normalizado).maybeSingle()
+      if (errSel) return { data: null, error: errSel }
+      if (existente) return { data: existente, error: null }
+      const { data, error } = await T('feiras').insertOne({ nome, nome_normalizado }).select().single()
+      if (error?.code === '23505') {
+        const { data: ganhou, error: errRetry } = await T('feiras').select('*').eq('nome_normalizado', nome_normalizado).maybeSingle()
+        if (!ganhou && !errRetry) return { data: null, error: { message: 'Corrida ao criar a feira — tente novamente.' } }
+        return { data: ganhou, error: errRetry }
+      }
+      return { data, error }
+    },
+    delete: (id) => escopo(T('feiras').raw().delete().eq('id', id)),
+  },
+
+  // Edição — uma ocorrência (ano/local/datas) de uma feira (feira_id).
+  // MESMO princípio de find-then-insert de feiras acima, chave (feira_id,
+  // ano): registrar participação nunca sobrescreve uma edição já
+  // cadastrada, só cria uma nova quando não existe pra aquele ano ainda.
+  // `ano` é coluna normal (não gerada) computada aqui a partir de
+  // data_inicio — único lugar que faz essa conta, mesmo princípio de
+  // nome_normalizado (derivado em JS, nunca duas implementações). O CHECK
+  // (ano = EXTRACT(YEAR FROM data_inicio)) no banco é a rede de segurança.
+  feiraEdicoes: {
+    listPorFazenda: () => T('feira_edicoes').select('id,feira_id,ano,local,data_inicio,data_fim').order('data_inicio', { ascending: false }),
+    findOrCreate: async ({ feiraId, dataInicio, dataFim, local }) => {
+      const ano = parseInt(String(dataInicio).slice(0, 4), 10)
+      const { data: existente, error: errSel } = await T('feira_edicoes').select('*').eq('feira_id', feiraId).eq('ano', ano).maybeSingle()
+      if (errSel) return { data: null, error: errSel }
+      if (existente) return { data: existente, error: null }
+      const { data, error } = await T('feira_edicoes').insertOne({ feira_id: feiraId, ano, data_inicio: dataInicio, data_fim: dataFim || null, local: local || null }).select().single()
+      if (error?.code === '23505') {
+        const { data: ganhou, error: errRetry } = await T('feira_edicoes').select('*').eq('feira_id', feiraId).eq('ano', ano).maybeSingle()
+        if (!ganhou && !errRetry) return { data: null, error: { message: 'Corrida ao criar a data desta feira — tente novamente.' } }
+        return { data: ganhou, error: errRetry }
+      }
+      return { data, error }
+    },
+    // Único caminho que MODIFICA uma edição já cadastrada — só atrás do
+    // botão Editar explícito na tela, nunca do salvar de uma participação.
+    // Recalcula `ano` sempre que data_inicio faz parte do update, pra nunca
+    // dessincronizar do CHECK constraint do banco.
+    update: (id, d) => {
+      const payload = { ...d }
+      if (payload.data_inicio) payload.ano = parseInt(String(payload.data_inicio).slice(0, 4), 10)
+      return escopo(T('feira_edicoes').raw().update(payload).eq('id', id)).select().single()
+    },
+    delete: (id) => escopo(T('feira_edicoes').raw().delete().eq('id', id)),
+  },
+
+  // Participação de um animal numa feira — agendamento e resultado são a
+  // MESMA linha em estados diferentes (ver migration_feiras_premiacoes.sql):
+  // colocacao/titulo/julgador/raca_associacao nascem NULL e são preenchidos
+  // depois via update, nunca um 2º insert. Nenhuma coluna de status: o
+  // estado é sempre derivado de colocacao IS NULL + as datas da edição (ver
+  // resumoFeirasAnimal, helpers.js, e a tela Calendario/Feiras). Aponta pra
+  // uma EDIÇÃO (edicao_id), não mais direto pra feira — feira.nome vem pelo
+  // embed aninhado feira_edicoes → feiras.
+  feiraParticipacoes: {
+    listPorFazenda: () => T('feira_participacoes').select(`*,
+      edicao:feira_edicoes(id,ano,local,data_inicio,data_fim,feira:feiras(id,nome)),
+      animal:animais(id,brinco,nome,proprietario_id,lote_id,data_nascimento,sexo,sit_reprodutiva,is_touro,proprietario:proprietarios(nome),lote:lotes(nome))`)
+      .order('criado_em', { ascending: false }),
+    listPorAnimal: (animalId) => T('feira_participacoes').select('*, edicao:feira_edicoes(id,ano,local,data_inicio,data_fim,feira:feiras(id,nome))').eq('animal_id', animalId).order('criado_em', { ascending: false }),
+    // Sem resultado (colocacao IS NULL) — usado pelo Calendario pra derivar
+    // tanto "participação agendada" (feira futura) quanto "resultado
+    // pendente" (feira já ocorrida), ver Calendario.jsx.
+    listPendentes: () => T('feira_participacoes').select('*, edicao:feira_edicoes(ano,data_inicio,data_fim,feira:feiras(nome)), animal:animais(id,brinco)').is('colocacao', null),
+    insert: (data)   => T('feira_participacoes').insertOne(data).select().single(),
+    update: (id, d)  => escopo(T('feira_participacoes').raw().update(d).eq('id', id)).select().single(),
+    delete: (id)     => escopo(T('feira_participacoes').raw().delete().eq('id', id)),
+  },
+
   estacoesMonta: {
     list:    (cicloId) => T('estacoes_monta').select('*').eq('ciclo_id', cicloId).order('inicio', { ascending: false }),
     listAll: ()         => T('estacoes_monta').select('*, ciclo:ciclos_financeiros(id,nome)').order('inicio', { ascending: false }),
@@ -193,11 +349,11 @@ export const db = {
   },
 
   abortos: {
-    list:     (cicloId)   => T('abortos').select('*, animal:animais(brinco), lote:lotes_inseminacao(numero,touro)').eq('ciclo_id', cicloId).order('data', { ascending: false }),
+    list:     (cicloId)   => T('abortos').select('*, animal:animais(brinco), lote:lotes_inseminacao(numero,touro,touro_animal:animais!touro_animal_id(id,brinco,nome),touro_externo:touros_externos(id,nome))').eq('ciclo_id', cicloId).order('data', { ascending: false }),
     // lote.estacao_monta_id: usado por Animais.jsx (ficha) pra saber a que
     // ESTAÇÃO este aborto pertence — a "Falhada"/desfecho consolidado (ver
     // desfechoReprodutivo, helpers.js) é por estação, não por lote.
-    byAnimal: (animalId)  => T('abortos').select('*, lote:lotes_inseminacao(numero,touro,estacao_monta_id)').eq('animal_id', animalId).order('data', { ascending: false }),
+    byAnimal: (animalId)  => T('abortos').select('*, lote:lotes_inseminacao(numero,touro,estacao_monta_id,touro_animal:animais!touro_animal_id(id,brinco,nome),touro_externo:touros_externos(id,nome))').eq('animal_id', animalId).order('data', { ascending: false }),
     insert:   (data)      => T('abortos').insertOne(data).select().single(),
     update:   (id, d)     => escopo(T('abortos').raw().update(d).eq('id', id)).select().single(),
     delete:   (id)        => escopo(T('abortos').raw().delete().eq('id', id)),
@@ -213,7 +369,7 @@ export const db = {
     delete:       (id)        => escopo(T('inseminacoes').raw().delete().eq('id', id)),
     deleteVarios: (ids)       => escopo(T('inseminacoes').raw().delete().in('id', ids)),
     // lote.estacao_monta_id: mesmo motivo do abortos.byAnimal acima.
-    byAnimal:     (animalId)  => T('inseminacoes').select('*, lote:lotes_inseminacao(numero,touro,data,estacao_monta_id)').eq('animal_id', animalId).order('criado_em', { ascending: true }),
+    byAnimal:     (animalId)  => T('inseminacoes').select('*, lote:lotes_inseminacao(numero,touro,data,estacao_monta_id,touro_animal:animais!touro_animal_id(id,brinco,nome),touro_externo:touros_externos(id,nome))').eq('animal_id', animalId).order('criado_em', { ascending: true }),
   },
 
   partos: {
@@ -242,6 +398,17 @@ export const db = {
     byBezerro: (bezerroId)  => T('partos').select('*, mae:animais!mae_id(brinco), lote:lotes_inseminacao(id,ciclo_id,numero,tipo)').eq('bezerro_id', bezerroId).maybeSingle(),
     update:    (id, d)      => escopo(T('partos').raw().update(d).eq('id', id)).select().single(),
     delete:    (id)         => escopo(T('partos').raw().delete().eq('id', id)),
+    // Partos de um conjunto de CICLOS específico — usado pelo histórico do
+    // touro (Animais.jsx) pra montar o grupo de "contemporâneos" (GMD
+    // farm-wide nas MESMAS safras em que o touro teve lote atribuível, nunca
+    // a fazenda inteira/todo o histórico) pra a comparação nunca ser
+    // enganosa (touro antigo x bezerro de hoje). bezerro.data_nascimento:
+    // mesmo campo que calcCategoria usa pra Terneiro/Terneira em Metas.jsx —
+    // não usa data_parto como proxy.
+    porCiclos: (cicloIds) => {
+      if (!cicloIds?.length) return Promise.resolve({ data: [], error: null })
+      return T('partos').select('bezerro_id,ciclo_id,bezerro:animais!bezerro_id(sexo,situacao,data_nascimento,pesagens(data,peso_kg))').in('ciclo_id', cicloIds)
+    },
   },
 
   pesagens: {

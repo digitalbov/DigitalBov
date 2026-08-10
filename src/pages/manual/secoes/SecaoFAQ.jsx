@@ -37,7 +37,7 @@ const FAQ = [
   },
   {
     q: 'Qual a diferença entre "lote" de manejo e "lote" de monta?',
-    a: 'O lote em Propriedade é só um agrupamento de animais para organizar o dia a dia (sem relação com reprodução). O lote de inseminação/monta, em Reprodutivo, é o registro de uma monta (IA ou touro solto) que alimenta os índices de safra. Um mesmo animal pode estar nos dois ao mesmo tempo, sem nenhuma ligação entre eles.',
+    a: 'O lote em Propriedade é só um agrupamento de animais para organizar o dia a dia (sem relação com reprodução). O lote de inseminação/monta, em Gestão Reprodutiva, é o registro de uma monta (IA ou touro solto) que alimenta os índices de safra. Um mesmo animal pode estar nos dois ao mesmo tempo, sem nenhuma ligação entre eles.',
   },
   {
     q: 'Por que o valor do rebanho no Painel não bate com a produção em Metas?',

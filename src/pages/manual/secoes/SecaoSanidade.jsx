@@ -6,10 +6,9 @@ import { labelTipoSanidade } from '../../../lib/helpers'
 // <select> vem de labelTipoSanidade (helpers.js), igual à tela real.
 const TIPOS_DEMO = ['Vacina', 'Vermifugação', 'Ectoparasita', 'Medicação', 'Exame']
 
-// ── Recriação do seletor "Por lote" / "Individual" (Sanidade.jsx) — mesmas
-// classes .pill/.pill-group da tela real, estado local, não grava nada.
+// ── Recriação da seleção de animais (Sanidade.jsx) — mesma estrutura de
+// filtros da tela real, estado local, não grava nada.
 function DemoSelecaoProcedimento() {
-  const [modo, setModo] = useState('lote')
   const [tipo, setTipo] = useState('Vacina')
 
   return (
@@ -35,14 +34,15 @@ function DemoSelecaoProcedimento() {
         </Field>
       </div>
       <label style={{ display: 'block', fontSize: '.82rem', fontWeight: 600, marginBottom: 6 }}>Seleção de animais</label>
-      <div className="pill-group" style={{ marginBottom: 10 }}>
-        <button type="button" className={`pill ${modo === 'lote' ? 'active' : ''}`} onClick={() => setModo('lote')}>Por lote</button>
-        <button type="button" className={`pill ${modo === 'individual' ? 'active' : ''}`} onClick={() => setModo('individual')}>Individual</button>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+        <select className="input" style={{ flex: 1, minWidth: 120 }} disabled><option>Todas as categorias</option></select>
+        <select className="input" style={{ flex: 1, minWidth: 120 }} disabled><option>Todos os proprietários</option></select>
+        <select className="input" style={{ flex: 1, minWidth: 120 }} disabled><option>Todos os lotes</option></select>
       </div>
       <div style={{ fontSize: '.8rem', color: '#6B7280' }}>
-        {modo === 'lote'
-          ? 'Marque um ou mais lotes — a quantidade de animais é preenchida sozinha, contando só quem já tinha nascido na data do procedimento.'
-          : 'Filtre por categoria e proprietário e marque os animais um a um.'}
+        Categoria, proprietário e lote se combinam entre si pra estreitar a lista abaixo (sempre marcada
+        animal a animal) — "Selecionar todos do filtro" marca de uma vez todo mundo que passou pelos filtros
+        atuais, ex.: um lote inteiro.
       </div>
     </div>
   )
@@ -70,7 +70,7 @@ export default function SecaoSanidade({ item }) {
       <ol style={{ color: '#374151', fontSize: '.85rem', lineHeight: 1.8, marginBottom: 8, paddingLeft: 20 }}>
         <li>Clique em <strong>"Novo procedimento"</strong> (em Registros) ou <strong>"Novo agendamento"</strong> (em Calendário de vacinação — é o mesmo formulário).</li>
         <li>Escolha o <strong>tipo</strong> (Vacinação, Vermífugos, Ectoparasitas, Medicação ou Exames), a <strong>data</strong> e descreva o <strong>procedimento</strong> (ex: "Ivermectina 1%"). <strong>Data futura vira agendamento automaticamente</strong> — vai para a aba Calendário de vacinação, não para Registros, mesmo que você tenha aberto o formulário por Registros.</li>
-        <li>Escolha <strong>Por lote</strong> (marca lotes inteiros) ou <strong>Individual</strong> (marca animais um a um, com filtro por categoria/proprietário).</li>
+        <li>Filtre por <strong>categoria</strong>, <strong>proprietário</strong> e/ou <strong>lote</strong> (os três se combinam entre si) e marque os animais — um a um, ou de uma vez com <strong>"Selecionar todos do filtro"</strong>.</li>
         <li>A <strong>quantidade de animais</strong> é preenchida sozinha a partir da seleção — só conta quem já tinha nascido na data do procedimento.</li>
         <li>Se a data for hoje ou passada, você pode dar baixa em itens do estoque agora (veja abaixo) — num agendamento essa opção não aparece nem aqui nem ao editá-lo depois, porque a baixa só acontece no momento da conclusão (ver seção abaixo). Em ambos os casos dá pra definir a <strong>próxima aplicação</strong> (data do retorno).</li>
         <li>Clique em <strong>Salvar</strong> (ou <strong>Agendar</strong>, se a data for futura).</li>

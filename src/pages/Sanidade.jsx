@@ -42,7 +42,6 @@ export default function Sanidade() {
   const [lotes,    setLotes]   = useState([])
   const [animais,  setAnimais] = useState([])
   const [props,    setProps]   = useState([])
-  const [selLotes, setSelLotes]= useState([])
   const [loading,  setLoading] = useState(true)
   const [modal,      setModal]      = useState(false)
   const [form,       setForm]       = useState({})
@@ -57,10 +56,10 @@ export default function Sanidade() {
   const [concluindoId,   setConcluindoId]   = useState(null)
   const [ofertaNovoProc, setOfertaNovoProc] = useState(null)
 
-  const [modoSelecao,    setModoSelecao]    = useState('lote') // 'lote' | 'individual'
   const [selAnimais,     setSelAnimais]     = useState([])
   const [filtroCategSan, setFiltroCategSan] = useState('')
   const [filtroPropSan,  setFiltroPropSan]  = useState('')
+  const [filtroLoteSan,  setFiltroLoteSan]  = useState('')
 
   // Bloco D6 — baixa automática no estoque, opcional, por procedimento (não por
   // animal — ver diagnóstico: quantidade em procedimentos_sanitarios é nº de
@@ -120,17 +119,13 @@ export default function Sanidade() {
     prev.map((l, i) => i === idx ? { ...l, ...patch } : l)
   )
 
-  const togLote = (nome) => setSelLotes(prev =>
-    prev.includes(nome) ? prev.filter(n => n !== nome) : [...prev, nome]
-  )
-
   const togAnimal = (id) => setSelAnimais(prev =>
     prev.includes(id) ? prev.filter(a => a !== id) : [...prev, id]
   )
 
   const resetFormSelecao = () => {
-    setSelLotes([]); setSelAnimais([]); setModoSelecao('lote')
-    setFiltroCategSan(''); setFiltroPropSan('')
+    setSelAnimais([])
+    setFiltroCategSan(''); setFiltroPropSan(''); setFiltroLoteSan('')
     setItensEstoqueUsados([])
   }
 
@@ -184,7 +179,6 @@ export default function Sanidade() {
       proximo:      d.proximo || '',
       obs:          d.observacoes || '',
     })
-    setModoSelecao('individual')
     setItensEstoqueUsados((d.itens_previstos || []).map(it => ({ item_id: it.item_id, quantidade: String(it.quantidade) })))
     setModal(true)
     const { data: vincs, error } = await db.sanidadeAnimais.listPorProcedimento(d.id)
@@ -247,55 +241,38 @@ export default function Sanidade() {
   // Quantidade automática: soma de animais ativos dos lotes selecionados, ou seleção individual.
   // Mesmo filtro de data_nascimento usado em `salvar` (abaixo), pra não mostrar uma
   // contagem maior do que o que de fato vai ser vinculado em sanidade_animais.
-  const autoQtd = modoSelecao === 'individual'
-    ? (selAnimais.length > 0 ? selAnimais.length : null)
-    : (selLotes.length === 0 ? null : (() => {
-        const ids = lotes.filter(l => selLotes.includes(l.nome)).map(l => l.id)
-        return animais.filter(a =>
-          ids.includes(a.lote_id) && (!a.data_nascimento || !form.data || a.data_nascimento <= form.data)
-        ).length
-      })())
+  const autoQtd = selAnimais.length > 0 ? selAnimais.length : null
 
   const categoriasDisponiveis = [...new Set(animais.map(a =>
     calcCategoriaRebanho(a.data_nascimento, a.sexo, a.sit_reprodutiva, a.is_touro)
   ))].sort()
 
-  // Mesmo filtro de data_nascimento que o modo "Por lote" já aplicava (ver
-  // animaisParaVincular/autoQtd acima) — modo Individual estava sem essa
-  // checagem, deixando vincular um procedimento a um animal que ainda nem
-  // tinha nascido na data escolhida. Uniformiza os dois modos.
+  // Item 7 — um único modo de seleção (não mais "Por lote" x "Individual"):
+  // categoria/proprietário/lote são três filtros que compõem entre si pra
+  // estreitar a lista de baixo, sempre marcada animal a animal. "Selecionar
+  // todos do filtro" (abaixo) reproduz exatamente o que "Por lote" fazia
+  // (marcar todo mundo de um lote de uma vez), sem perder a opção de marcar
+  // só alguns — o modo antigo "Por lote" não permitia isso.
   const animaisFiltradosSan = animais.filter(a => {
     const cat = calcCategoriaRebanho(a.data_nascimento, a.sexo, a.sit_reprodutiva, a.is_touro)
     if (filtroCategSan && cat !== filtroCategSan) return false
     if (filtroPropSan && a.proprietario_id !== filtroPropSan) return false
+    if (filtroLoteSan && a.lote_id !== filtroLoteSan) return false
     if (form.data && a.data_nascimento && a.data_nascimento > form.data) return false
     return true
   })
 
-  // Fase 7 — mesmo filtro de data_nascimento usado hoje (individual e por
-  // lote), fatorado pra ser reusado em 3 lugares: criação, editar-agendamento
-  // e concluir. Uma função só, sem caminho paralelo.
-  const animaisParaVincularAtual = () => {
-    if (modoSelecao === 'individual') {
-      return selAnimais.filter(id => {
-        const a = animais.find(x => x.id === id)
-        return !a?.data_nascimento || a.data_nascimento <= form.data
-      })
-    }
-    if (modoSelecao === 'lote' && selLotes.length > 0) {
-      const idsLotes = lotes.filter(l => selLotes.includes(l.nome)).map(l => l.id)
-      return animais.filter(a =>
-        idsLotes.includes(a.lote_id) && (!a.data_nascimento || a.data_nascimento <= form.data)
-      ).map(a => a.id)
-    }
-    return []
-  }
+  // Fase 7 — mesmo filtro de data_nascimento, fatorado pra ser reusado em 3
+  // lugares: criação, editar-agendamento e concluir. Uma função só, sem
+  // caminho paralelo.
+  const animaisParaVincularAtual = () => selAnimais.filter(id => {
+    const a = animais.find(x => x.id === id)
+    return !a?.data_nascimento || a.data_nascimento <= form.data
+  })
 
-  const descricaoSelecaoAtual = () => modoSelecao === 'individual'
-    ? (selAnimais.length > 0
-        ? `Individual: ${animais.filter(a => selAnimais.includes(a.id)).map(a => a.brinco).join(', ')}`
-        : 'Individual')
-    : (selLotes.length > 0 ? selLotes.join(', ') : 'Geral')
+  const descricaoSelecaoAtual = () => selAnimais.length > 0
+    ? animais.filter(a => selAnimais.includes(a.id)).map(a => a.brinco).join(', ')
+    : 'Geral'
 
   // Fase 7 — itens de estoque PREVISTOS de um agendamento, no formato salvo
   // em itens_previstos (jsonb [{item_id, quantidade}]) — usa o mesmo estado
@@ -904,11 +881,10 @@ export default function Sanidade() {
           <Field label="Data" required>
             <input type="date" value={form.data||''} onChange={e => {
               const novaData = e.target.value
-              // Trocar a data DEPOIS de já ter selecionado animais (modo
-              // individual) pode deixar a seleção inválida — revalida e
-              // desmarca, mesmo padrão usado na venda (Financeiro.jsx) e nas
-              // pesagens.
-              if (modoSelecao === 'individual' && novaData) {
+              // Trocar a data DEPOIS de já ter selecionado animais pode
+              // deixar a seleção inválida — revalida e desmarca, mesmo
+              // padrão usado na venda (Financeiro.jsx) e nas pesagens.
+              if (novaData) {
                 const invalidos = animais.filter(a => selAnimais.includes(a.id) && a.data_nascimento && a.data_nascimento > novaData)
                 if (invalidos.length > 0) {
                   setForm(p => ({ ...p, data: novaData }))
@@ -937,76 +913,61 @@ export default function Sanidade() {
           {mostrarSelecaoAnimais && (
           <div style={{ gridColumn:'1 / -1' }}>
             <label style={{ fontSize:'.78rem', fontWeight:500, color:'#374151', display:'block', marginBottom:6 }}>Seleção de animais</label>
-            <div className="pill-group" style={{ marginBottom:8 }}>
-              <button type="button" className={`pill ${modoSelecao==='lote'?'active':''}`} onClick={() => setModoSelecao('lote')}>Por lote</button>
-              <button type="button" className={`pill ${modoSelecao==='individual'?'active':''}`} onClick={() => setModoSelecao('individual')}>Individual</button>
+            {/* Item 7 — categoria/proprietário/lote como três filtros que
+                compõem entre si (sem "modo" pra escolher antes), estreitando
+                a lista marcável abaixo. "Selecionar todos do filtro" cobre o
+                caso que antes era "Por lote": filtra por um lote e marca
+                todos de uma vez, sem perder a opção de desmarcar alguns
+                depois. */}
+            <div style={{ display:'flex', gap:8, marginBottom:8, flexWrap:'wrap' }}>
+              <select value={filtroCategSan} onChange={e => setFiltroCategSan(e.target.value)}
+                className="input" style={{ flex:1, minWidth:140 }}>
+                <option value="">Todas as categorias</option>
+                {categoriasDisponiveis.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+              <select value={filtroPropSan} onChange={e => setFiltroPropSan(e.target.value)}
+                className="input" style={{ flex:1, minWidth:140 }}>
+                <option value="">Todos os proprietários</option>
+                {props.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}
+              </select>
+              <select value={filtroLoteSan} onChange={e => setFiltroLoteSan(e.target.value)}
+                className="input" style={{ flex:1, minWidth:140 }}>
+                <option value="">Todos os lotes</option>
+                {lotes.map(l => <option key={l.id} value={l.id}>{l.nome}</option>)}
+              </select>
             </div>
-
-            {modoSelecao === 'lote' ? (
-              <>
-                <div style={{ border:'.5px solid #E5E7EB', borderRadius:8, background:'#F9FAFB', padding:'6px 10px', maxHeight:140, overflowY:'auto' }}>
-                  {lotes.length === 0
-                    ? <div style={{ fontSize:'.8rem', color:'#9CA3AF', textAlign:'center', padding:'8px 0' }}>Nenhum lote cadastrado</div>
-                    : lotes.map(l => (
-                        <label key={l.id} style={{ display:'flex', alignItems:'center', gap:8, padding:'5px 4px', cursor:'pointer', fontSize:'.83rem', borderBottom:'.5px solid #F3F4F6' }}>
-                          <input type="checkbox" checked={selLotes.includes(l.nome)} onChange={() => togLote(l.nome)} />
-                          {l.nome}
-                        </label>
-                      ))
+            {animaisFiltradosSan.length > 0 && (
+              <button type="button" className="btn btn-secondary btn-xs" style={{ marginBottom:8 }}
+                onClick={() => {
+                  const idsFiltrados = animaisFiltradosSan.map(a => a.id)
+                  const todosMarcados = idsFiltrados.every(id => selAnimais.includes(id))
+                  if (todosMarcados) {
+                    setSelAnimais(prev => prev.filter(id => !idsFiltrados.includes(id)))
+                  } else {
+                    setSelAnimais(prev => [...new Set([...prev, ...idsFiltrados])])
                   }
-                </div>
-                {selLotes.length > 0 && (
-                  <div style={{ fontSize:'.72rem', color:'#6B7280', marginTop:4 }}>Selecionados: {selLotes.join(', ')}</div>
-                )}
-              </>
-            ) : (
-              <>
-                <div style={{ display:'flex', gap:8, marginBottom:8, flexWrap:'wrap' }}>
-                  <select value={filtroCategSan} onChange={e => setFiltroCategSan(e.target.value)}
-                    className="input" style={{ flex:1, minWidth:140 }}>
-                    <option value="">Todas as categorias</option>
-                    {categoriasDisponiveis.map(c => <option key={c} value={c}>{c}</option>)}
-                  </select>
-                  <select value={filtroPropSan} onChange={e => setFiltroPropSan(e.target.value)}
-                    className="input" style={{ flex:1, minWidth:140 }}>
-                    <option value="">Todos os proprietários</option>
-                    {props.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}
-                  </select>
-                </div>
-                {animaisFiltradosSan.length > 0 && (
-                  <button type="button" className="btn btn-secondary btn-xs" style={{ marginBottom:8 }}
-                    onClick={() => {
-                      const idsFiltrados = animaisFiltradosSan.map(a => a.id)
-                      const todosMarcados = idsFiltrados.every(id => selAnimais.includes(id))
-                      if (todosMarcados) {
-                        setSelAnimais(prev => prev.filter(id => !idsFiltrados.includes(id)))
-                      } else {
-                        setSelAnimais(prev => [...new Set([...prev, ...idsFiltrados])])
-                      }
-                    }}>
-                    {animaisFiltradosSan.every(a => selAnimais.includes(a.id)) ? 'Desmarcar todos do filtro' : 'Selecionar todos do filtro'}
-                  </button>
-                )}
-                <div style={{ border:'.5px solid #E5E7EB', borderRadius:8, background:'#F9FAFB', padding:'6px 10px', maxHeight:180, overflowY:'auto' }}>
-                  {animaisFiltradosSan.length === 0
-                    ? <div style={{ fontSize:'.8rem', color:'#9CA3AF', textAlign:'center', padding:'8px 0' }}>Nenhum animal encontrado</div>
-                    : animaisFiltradosSan.map(a => {
-                        const cat = calcCategoriaRebanho(a.data_nascimento, a.sexo, a.sit_reprodutiva, a.is_touro)
-                        return (
-                          <label key={a.id} style={{ display:'flex', alignItems:'center', gap:8, padding:'5px 4px', cursor:'pointer', fontSize:'.83rem', borderBottom:'.5px solid #F3F4F6' }}>
-                            <input type="checkbox" checked={selAnimais.includes(a.id)} onChange={() => togAnimal(a.id)} />
-                            <strong>{a.brinco}</strong>
-                            <span style={{ fontSize:'.75rem', color:'#7B2FBE', fontWeight:500 }}>{cat}</span>
-                            <span style={{ fontSize:'.75rem', color:'#9CA3AF' }}>{a.proprietario?.nome?.split(' ')[0] || ''}</span>
-                          </label>
-                        )
-                      })
-                  }
-                </div>
-                {selAnimais.length > 0 && (
-                  <div style={{ fontSize:'.72rem', color:'#6B7280', marginTop:4 }}>{selAnimais.length} animal(is) selecionado(s)</div>
-                )}
-              </>
+                }}>
+                {animaisFiltradosSan.every(a => selAnimais.includes(a.id)) ? 'Desmarcar todos do filtro' : 'Selecionar todos do filtro'}
+              </button>
+            )}
+            <div style={{ border:'.5px solid #E5E7EB', borderRadius:8, background:'#F9FAFB', padding:'6px 10px', maxHeight:180, overflowY:'auto' }}>
+              {animaisFiltradosSan.length === 0
+                ? <div style={{ fontSize:'.8rem', color:'#9CA3AF', textAlign:'center', padding:'8px 0' }}>Nenhum animal encontrado</div>
+                : animaisFiltradosSan.map(a => {
+                    const cat = calcCategoriaRebanho(a.data_nascimento, a.sexo, a.sit_reprodutiva, a.is_touro)
+                    return (
+                      <label key={a.id} style={{ display:'flex', alignItems:'center', gap:8, padding:'5px 4px', cursor:'pointer', fontSize:'.83rem', borderBottom:'.5px solid #F3F4F6' }}>
+                        <input type="checkbox" checked={selAnimais.includes(a.id)} onChange={() => togAnimal(a.id)} />
+                        <strong>{a.brinco}</strong>
+                        <span style={{ fontSize:'.75rem', color:'#7B2FBE', fontWeight:500 }}>{cat}</span>
+                        <span style={{ fontSize:'.75rem', color:'#9CA3AF' }}>{a.proprietario?.nome?.split(' ')[0] || ''}</span>
+                      </label>
+                    )
+                  })
+              }
+            </div>
+            {selAnimais.length > 0 && (
+              <div style={{ fontSize:'.72rem', color:'#6B7280', marginTop:4 }}>{selAnimais.length} animal(is) selecionado(s)</div>
             )}
           </div>
           )}

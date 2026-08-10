@@ -10,8 +10,8 @@ import { getDataSimulada, setDataSimulada, limparDataSimulada, hojeISO } from '.
 const FUNCTIONS_URL = import.meta.env.VITE_SUPABASE_URL + '/functions/v1/dynamic-responder'
 
 const MODULOS = [
-  ['propriedade','Propriedade'], ['animais','Animais'],
-  ['reprodutivo','Reprodutivo'], ['rebanho','Rebanho'], ['sanidade','Sanidade'],
+  ['propriedade','Propriedade'], ['animais','Animais'], ['feiras','Feiras e Premiações'],
+  ['reprodutivo','Gestão Reprodutiva'], ['rebanho','Rebanho'], ['sanidade','Sanidade'],
   ['pesagens','Pesagens'], ['estoque','Estoque'], ['financeiro','Financeiro'],
   ['relatorios','Relatórios'], ['metas','Metas'], ['veterinario','Veterinário'],
 ]

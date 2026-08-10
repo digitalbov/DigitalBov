@@ -93,12 +93,24 @@ export default function SecaoReprodutivo({ item }) {
           tipo do lote, não uma escolha dentro do formulário. Um repasse não é um tipo à parte: é só um novo
           lote do mesmo tipo, criado mais tarde, que pode (ou não) apontar para a mesma estação de monta.
         </p>
+        <p style={P}>
+          Os botões <strong>"Ver ciclo anterior"</strong> e <strong>"Ver próximo ciclo"</strong> ajudam a
+          navegar sem precisar trocar manualmente no seletor de ciclo do topo. Enquanto o ciclo selecionado
+          ainda não tem nenhum lote (com ou sem estação cadastrada), eles aparecem no meio da tela, abaixo dos
+          botões de criar lote; assim que o ciclo já tem lotes, passam a ficar ao lado do
+          <strong> "Gerar PDF"</strong>, no topo da tela. Cada um leva para o ciclo imediatamente anterior ou
+          posterior por data, e só aparece quando esse ciclo existe: "Ver ciclo anterior" some no primeiro ciclo
+          cadastrado na fazenda, e "Ver próximo ciclo" some quando o ciclo selecionado já é o mais recente.
+        </p>
+        <AlertBox type="purple" icon="ti-message-2"
+          title='Aviso de pendências no "Ver ciclo anterior"'
+          body='Se o ciclo anterior tiver vaca prenha ainda sem desfecho, e/ou vaca com cria ao pé, um balão aparece no botão avisando (some sozinho em ~15s, ou feche no X) — sem abrir esse ciclo pra você, é só um aviso. Se a cria ao pé já tiver 6 meses ou mais de idade, o aviso destaca que ela está apta ao desmame. Cada situação avisada uma vez só: fechar o balão (ou deixar ele sumir sozinho) não mostra a MESMA pendência de novo, mesmo saindo e voltando à tela — só volta a avisar se algo realmente novo aparecer por lá (uma vaca a mais pendente, por exemplo). Não aparece se você acabou de vir do ciclo anterior (você provavelmente já viu o que tinha por lá).' />
         <ol style={OL}>
           <li>Informe a <strong>data</strong> da monta.</li>
-          <li>Na inseminação: informe o <strong>touro/sêmen</strong> (texto livre) e, se usar, o <strong>protocolo</strong> (ex: "IATF P4").</li>
-          <li>Na monta natural: adicione um ou mais <strong>touros</strong> (veja a demonstração abaixo).</li>
+          <li>Na inseminação: informe o <strong>touro</strong> (texto livre, digitando ou escolhendo do seletor) e, se usar, o <strong>protocolo</strong> (ex: "IATF P4"). Não existe cadastro obrigatório: a maioria das inseminações usa sêmen de fora da fazenda, e digitar o nome é o caminho normal, não uma exceção. O seletor <strong>"Selecionar…"</strong> ao lado do campo é só um atalho de preenchimento, com duas seções: <strong>🐮 Touros da fazenda</strong> (cadastrados em Animais → checkbox "É touro", mostrando brinco — nome) e <strong>🔗 Touros externos já usados</strong> (emprestado ou sêmen, sem cadastro de animal — reoferece um nome já digitado antes nesta fazenda, sem depender de bater a grafia exata). Assim que você digita alguma coisa, um aviso logo abaixo mostra exatamente qual touro vai ser usado ao salvar — cadastrado, externo já existente (mesmo com grafia um pouco diferente do que você digitou) ou um touro externo novo — nunca fica escondido.</li>
+          <li>Na monta natural: adicione um ou mais <strong>touros</strong> (veja a demonstração abaixo) — mesmo campo de texto + seletor + o mesmo aviso de "qual touro vai ser usado", um de cada vez; clique <strong>"+ Adicionar"</strong> (ou Enter) pra confirmar cada um antes de passar pro próximo.</li>
           <li>Escolha a <strong>estação de monta</strong>, se for o caso.</li>
-          <li>Selecione as <strong>fêmeas</strong> — use os filtros de lote de origem, proprietário e categoria para achar mais rápido, ou "Selecionar todos do filtro". O botão <strong>"Limpar seleção"</strong>, ao lado do contador, desmarca todas de uma vez sem fechar o formulário nem apagar touro/data/protocolo já preenchidos — vale também no "Adicionar animais ao lote".</li>
+          <li>Selecione as <strong>fêmeas</strong> — use os filtros de lote de origem, proprietário e categoria para achar mais rápido, ou "Selecionar todos do filtro". O botão <strong>"Limpar seleção"</strong>, ao lado do contador, desmarca todas de uma vez sem fechar o formulário nem apagar touro/data/protocolo já preenchidos — vale também no "Adicionar animais ao lote". A lista só traz vacas <strong>vazias</strong> — e, entre essas, esconde quem já está com a tentativa mais recente pendente de diagnóstico em OUTRO lote do sistema (ela ainda não tem um resultado pra saber se está livre pra uma nova monta); um aviso abaixo do campo mostra quantas foram escondidas por esse motivo, pra nunca parecer que a vaca simplesmente sumiu do cadastro. Uma vaca diagnosticada Vazia continua disponível normalmente, mesmo repetidas vezes — é o fluxo de repasse.</li>
           <li>Clique em <strong>Salvar</strong>.</li>
         </ol>
         <p style={{ color: '#9CA3AF', fontSize: '.78rem', marginBottom: 4 }}>
@@ -107,11 +119,12 @@ export default function SecaoReprodutivo({ item }) {
         <DemoTouros />
         <p style={P}>
           Depois de criado, um lote também aceita <strong>"Adicionar animais ao lote"</strong> a qualquer
-          momento, com a mesma lista de filtros — não precisa recriar o lote para incluir mais fêmeas depois.
+          momento, com a mesma lista de filtros (inclusive o aviso de vacas escondidas por pendência) — não
+          precisa recriar o lote para incluir mais fêmeas depois.
         </p>
         <AlertBox type="amber" icon="ti-swords"
           title='"Lote" de novo tem dois sentidos diferentes'
-          body='Este é o lote de inseminação/monta (aqui em Reprodutivo) — reúne animais expostos numa mesma monta e alimenta os índices de safra. É diferente do lote de manejo (tela Propriedade), que é só um agrupamento livre de animais para organizar o dia a dia. Um mesmo animal pode estar num lote de manejo e, ao mesmo tempo, num lote de monta — não têm relação um com o outro.' />
+          body='Este é o lote de inseminação/monta (aqui em Gestão Reprodutiva) — reúne animais expostos numa mesma monta e alimenta os índices de safra. É diferente do lote de manejo (tela Propriedade), que é só um agrupamento livre de animais para organizar o dia a dia. Um mesmo animal pode estar num lote de manejo e, ao mesmo tempo, num lote de monta — não têm relação um com o outro.' />
         <p style={P}>
           Ao abrir um lote, o card <strong>"Resumo do lote"</strong> mostra Matrizes expostas, Prenhas, Vazias
           e Pendentes, e logo abaixo <strong>Machos nascidos</strong> e <strong>Fêmeas nascidas</strong>,
@@ -129,12 +142,16 @@ export default function SecaoReprodutivo({ item }) {
           nenhum lote com diagnóstico Prenha — normalmente compradas, mas serve para qualquer prenhez órfã.
           Use <strong>"Selecionar tudo"</strong>/<strong>"Limpar seleção"</strong>, no topo da lista, para marcar
           ou desmarcar todas de uma vez (o contador ao lado mostra quantas estão selecionadas), ou selecione uma
-          a uma. Informe a <strong>data prevista de parto</strong> ou a <strong>data da
-          monta</strong> (o sistema calcula a outra, gestação de 283 dias), escolha ou crie uma <strong>estação
-          de monta</strong>, e confirme. O sistema cria um lote rotulado <strong>"Prenhez adquirida na
-          compra"</strong> (nunca se confunde com uma monta de verdade) já com diagnóstico Prenha confirmado
+          a uma. Informe se veio de <strong>inseminação</strong> ou <strong>monta natural</strong>, a
+          <strong> data prevista de parto</strong> ou a <strong>data da monta</strong> (o sistema calcula a
+          outra, gestação de 283 dias), escolha ou crie uma <strong>estação de monta</strong> — a lista traz
+          estações de qualquer ciclo, com o ciclo de cada uma entre parênteses, já que a monta de origem pode
+          ter sido num ciclo anterior — e confirme. O sistema cria um lote rotulado <strong>"Prenhez adquirida
+          na compra"</strong> (nunca se confunde com uma monta de verdade) já com diagnóstico Prenha confirmado
           para as vacas selecionadas — a partir daí elas aparecem normalmente em "Registrar nascimento" e os
-          terneiros delas entram nos índices da safra.
+          terneiros delas entram nos índices da safra. O lote fica no ciclo da MONTA, não necessariamente o
+          ciclo em foco na tela — o aviso ao confirmar diz em qual ciclo ele ficou quando for diferente, sem
+          trocar sozinho o que está sendo exibido.
         </p>
         <p style={P}>
           O mesmo fluxo também aparece <strong>dentro do formulário de Compra</strong> (Financeiro → Compra &
@@ -307,7 +324,7 @@ export default function SecaoReprodutivo({ item }) {
         </p>
         <ul style={{ ...OL, listStyle: 'disc' }}>
           <li><strong>Estágio 1 — sinal fraco, só agregado</strong> (300 dias da monta, ~17 dias após o parto
-            previsto): entra na % de "Perda Gestacional" mostrada em Reprodutivo/Metas. Não identifica nenhuma
+            previsto): entra na % de "Perda Gestacional" mostrada em Gestão Reprodutiva/Metas. Não identifica nenhuma
             vaca específica, não muda nenhum cadastro — um atraso de 2-3 semanas é comum (erro de diagnóstico,
             gestação um pouco mais longa) e não justifica mexer em nada.</li>
           <li><strong>Estágio 2 — sinal forte, individual</strong> (180 dias APÓS o parto previsto = 463 dias

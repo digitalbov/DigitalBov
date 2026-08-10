@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { AlertBox, Badge, Field, toast, Confirm } from './UI'
 import { useConta } from '../lib/ContaContext'
 import { useFazenda } from '../lib/FazendaContext'
@@ -19,7 +19,7 @@ const LABEL_TABELA = {
   proprietarios: 'Proprietários', piquetes: 'Piquetes', lotes: 'Lotes', ciclos_financeiros: 'Ciclos financeiros',
   categorias_preco: 'Categorias de preço', estacoes_monta: 'Estações de monta',
   animais: 'Animais', lotes_inseminacao: 'Lotes de inseminação/monta',
-  lote_touros: 'Touros da monta natural', inseminacoes: 'Inseminações',
+  lote_touros: 'Touros da monta natural', touros_externos: 'Touros externos (emprestado/sêmen)', inseminacoes: 'Inseminações',
   partos: 'Partos', abortos: 'Abortos',
   lancamentos_financeiros: 'Lançamentos financeiros', lancamento_rateios: 'Rateios por proprietário',
   transacoes_animais: 'Transações de animais', transacao_animais_itens: 'Itens de compra/venda',
@@ -28,6 +28,7 @@ const LABEL_TABELA = {
   estoque_movimentacoes: 'Movimentações de estoque', metas: 'Metas',
   planejamentos: 'Planejamentos', planejamento_acoes: 'Ações de planejamento',
   simulacoes_transacoes: 'Simulações',
+  feiras: 'Feiras', feira_edicoes: 'Feiras (datas/locais por ano)', feira_participacoes: 'Participações em feiras',
 }
 
 // Formato aceito — qualquer outro valor (ou ausente) é rejeitado antes de
@@ -41,20 +42,66 @@ const TABELAS_ESPERADAS = [
   'estoque_itens', 'estoque_movimentacoes', 'lancamentos_financeiros',
   'transacoes_animais', 'ciclos_financeiros', 'categorias_preco', 'metas',
   'lancamento_rateios', 'transacao_animais_itens', 'sanidade_animais',
-  'lote_touros', 'estacoes_monta', 'planejamentos', 'planejamento_acoes',
-  'simulacoes_transacoes',
+  'lote_touros', 'touros_externos', 'estacoes_monta', 'planejamentos', 'planejamento_acoes',
+  'simulacoes_transacoes', 'feiras', 'feira_edicoes', 'feira_participacoes',
 ]
 
 // [tabela de origem, campo FK, tabela alvo, é opcional/nullable]. Cobre toda
 // referência interna que conhecemos do schema (ver Bloco D11 do manual /
 // diagnóstico de restauração) — usada só para achar ÓRFÃOS dentro do próprio
 // arquivo, nunca consulta o banco.
+//
+// DE PROPÓSITO NÃO ENTRAM AQUI: conta_id e fazenda_id, embora sejam FK de
+// verdade em quase toda tabela. Não é esquecimento — são estruturalmente
+// diferentes de uma FK relacional (ex: transacao_id, animal_id): não
+// apontam para "outro registro relacionado a este", são o ESCOPO de
+// tenant, e esse escopo nunca é lido do arquivo. Na exportação, toda
+// tabela já sai filtrada por uma única conta/fazenda (gerarBackupPayload,
+// exportarBackup.js); na importação, remapearLinha (importarBackup.js)
+// SOBRESCREVE conta_id/fazenda_id de toda linha com o id da fazenda DESTINO,
+// nunca com o que veio no arquivo. Um conta_id/fazenda_id "órfão" no arquivo
+// é inofensivo por construção — o valor nunca chega a ser usado. Validar
+// isso aqui testaria um dado que é sempre descartado.
+//
+// Esta lista continua estática e é o que de fato valida cada arquivo (Fase
+// 0 continua 100% offline). A auditoria contra o banco real fica só no
+// useEffect mais abaixo (RPC fks_tabelas_publicas): roda em best-effort ao
+// abrir a tela, não bloqueia nada, e só aparece na UI se achar divergência
+// de verdade — serve pra pegar o schema mudando sem essa lista acompanhar,
+// não pra validar arquivo nenhum.
+const COLUNAS_ESCOPO_TENANT = ['conta_id', 'fazenda_id'] // ver comentário acima — fora do escopo de REFERENCIAS por design, não é lacuna
+
 const REFERENCIAS = [
   ['animais', 'proprietario_id', 'proprietarios', true],
   ['animais', 'lote_id', 'lotes', true],
+  // mae_id no próprio animais (genealogia direta no cadastro do animal —
+  // diferente de partos.mae_id, que é do evento de nascimento) — confirmada
+  // via information_schema em 2026-08-09, faltava aqui. Nullable: nem todo
+  // animal tem a mãe cadastrada no sistema (compra externa, herdado de
+  // versão anterior etc), mesmo raciocínio de pai_animal_id abaixo.
+  ['animais', 'mae_id', 'animais', true],
+  // animais.piquete_id: NÃO existe no banco real, apesar de constar em
+  // migration_multi_fazenda.sql (animais_piquete_id_fkey) — a migração
+  // nunca foi aplicada (ou a coluna foi removida depois, sem migração
+  // registrada). Confirmado ao vivo via information_schema em 2026-08-07 e
+  // removido daqui — chegou a entrar numa rodada anterior desta varredura
+  // por ter sido tirado só do arquivo de migração, não do banco. É
+  // exatamente o risco que motivou reescrever esta lista a partir do live:
+  // validar contra uma FK que não existe cria confiança falsa, é pior que
+  // não validar. Se a coluna existir de novo no futuro (migração de fato
+  // rodada), reintroduza aqui.
+  // pai_animal_id/pai_externo_id: vínculo por id do pai (migration_touro_
+  // vinculo_id.sql) — mesmo par que já tínhamos as duas pontas do lado do
+  // TOURO (lotes_inseminacao/lote_touros abaixo), faltava do lado do BEZERRO.
+  ['animais', 'pai_animal_id', 'animais', true],
+  ['animais', 'pai_externo_id', 'touros_externos', true],
   ['lotes_inseminacao', 'ciclo_id', 'ciclos_financeiros', true],
   ['lotes_inseminacao', 'estacao_monta_id', 'estacoes_monta', true],
+  ['lotes_inseminacao', 'touro_animal_id', 'animais', true],
+  ['lotes_inseminacao', 'touro_externo_id', 'touros_externos', true],
   ['lote_touros', 'lote_id', 'lotes_inseminacao', false],
+  ['lote_touros', 'touro_animal_id', 'animais', true],
+  ['lote_touros', 'touro_externo_id', 'touros_externos', true],
   ['inseminacoes', 'lote_inseminacao_id', 'lotes_inseminacao', true],
   ['inseminacoes', 'animal_id', 'animais', true],
   ['partos', 'lote_inseminacao_id', 'lotes_inseminacao', true],
@@ -63,6 +110,10 @@ const REFERENCIAS = [
   ['partos', 'ciclo_id', 'ciclos_financeiros', true],
   ['abortos', 'animal_id', 'animais', true],
   ['abortos', 'ciclo_id', 'ciclos_financeiros', true],
+  // lote_inseminacao_id: mesmo padrão de partos.lote_inseminacao_id acima
+  // (nem todo aborto está amarrado a um lote de monta) — confirmada via
+  // information_schema em 2026-08-09, faltava aqui.
+  ['abortos', 'lote_inseminacao_id', 'lotes_inseminacao', true],
   ['estacoes_monta', 'ciclo_id', 'ciclos_financeiros', true],
   ['pesagens', 'animal_id', 'animais', true],
   ['pesagens', 'transacao_id', 'transacoes_animais', true],
@@ -70,15 +121,36 @@ const REFERENCIAS = [
   ['sanidade_animais', 'animal_id', 'animais', false],
   ['estoque_movimentacoes', 'item_id', 'estoque_itens', true],
   ['estoque_movimentacoes', 'procedimento_id', 'procedimentos_sanitarios', true],
+  // lancamento_id: baixa/estorno automático de estoque a partir de um
+  // lançamento financeiro (migration_estoque_lancamento_id_d10_1.sql).
+  ['estoque_movimentacoes', 'lancamento_id', 'lancamentos_financeiros', true],
   ['lancamentos_financeiros', 'ciclo_id', 'ciclos_financeiros', true],
   ['lancamentos_financeiros', 'lancamento_origem_id', 'lancamentos_financeiros', true],
+  // proprietario_id: lançamento atribuído direto a um proprietário sem
+  // passar por rateio (lancamento_rateios, abaixo) — confirmada via
+  // information_schema em 2026-08-09, faltava aqui. Nullable: a maioria dos
+  // lançamentos é da fazenda como um todo, sem proprietário específico.
+  ['lancamentos_financeiros', 'proprietario_id', 'proprietarios', true],
   ['lancamento_rateios', 'lancamento_id', 'lancamentos_financeiros', false],
   ['lancamento_rateios', 'proprietario_id', 'proprietarios', true],
   ['transacoes_animais', 'lancamento_id', 'lancamentos_financeiros', true],
   ['transacoes_animais', 'ciclo_id', 'ciclos_financeiros', true],
   ['transacao_animais_itens', 'transacao_id', 'transacoes_animais', false],
   ['transacao_animais_itens', 'animal_id', 'animais', true],
+  // proprietario_id: snapshot do dono do animal NO MOMENTO da venda
+  // (migration_transacao_animais_itens_d2_3.sql) — nullable de propósito.
+  ['transacao_animais_itens', 'proprietario_id', 'proprietarios', true],
   ['planejamento_acoes', 'planejamento_id', 'planejamentos', false],
+  // ciclo_id: simulação de venda/compra pode ou não estar amarrada a um
+  // ciclo (migration_simulacoes_transacoes.sql).
+  ['simulacoes_transacoes', 'ciclo_id', 'ciclos_financeiros', true],
+  // feira_edicoes/feira_participacoes.edicao_id: modelo (a) — feiras guarda
+  // só o nome, feira_edicoes é uma ocorrência (ano/local/datas) dela, e a
+  // participação aponta pra uma edição, não mais direto pra feira (ver
+  // migration_feiras_edicoes.sql).
+  ['feira_edicoes', 'feira_id', 'feiras', false],
+  ['feira_participacoes', 'edicao_id', 'feira_edicoes', false],
+  ['feira_participacoes', 'animal_id', 'animais', false],
 ]
 
 function validarArquivo(payload) {
@@ -191,6 +263,44 @@ export default function RestaurarBackup() {
   // (padronização — ação de maior risco desta tela, texto diz exatamente o
   // que vai ser criado/gravado antes do clique final).
   const [confirmImportar, setConfirmImportar] = useState(null) // { nAnimais, nLancs }
+
+  // ── Auditoria best-effort de REFERENCIAS vs FKs reais do banco ──────
+  // Ver comentário acima de REFERENCIAS. Roda 1x ao abrir a tela; se a RPC
+  // falhar por qualquer motivo (função ainda não criada, rede, permissão),
+  // falha em silêncio — a tela continua funcionando normalmente, só não
+  // mostra o aviso. Nunca impede escolher/validar/restaurar um arquivo.
+  const [avisoAuditoriaFK, setAvisoAuditoriaFK] = useState(null) // { faltando, obsoletas } | null
+
+  useEffect(() => {
+    if (!ehAdmin) return
+    let cancelado = false
+    supabase.rpc('fks_tabelas_publicas').then(({ data, error }) => {
+      if (cancelado || error || !Array.isArray(data)) return
+      // Só entram na comparação FKs cuja tabela de ORIGEM está em
+      // TABELAS_ESPERADAS (as mesmas 28 tabelas do export/backup de
+      // fazenda). O banco tem várias tabelas conta-scoped que nunca
+      // aparecem num arquivo de backup — o módulo Veterinário inteiro
+      // (veterinario_*), usuarios, contas, conta_membros, usuario_fazendas
+      // etc. — porque o backup é POR FAZENDA, não por conta, e essas
+      // tabelas não pertencem a uma fazenda específica (decisão de
+      // arquitetura, não esquecimento). Comparar contra o schema inteiro
+      // gera divergência permanente e inevitável contra essas tabelas,
+      // treinando quem olha a tela a ignorar o aviso — exatamente o efeito
+      // que essa auditoria existe para evitar.
+      const live = new Set(
+        data
+          .filter(r => TABELAS_ESPERADAS.includes(r.tabela) && !COLUNAS_ESCOPO_TENANT.includes(r.coluna))
+          .map(r => `${r.tabela}.${r.coluna}->${r.tabela_alvo}`)
+      )
+      const conhecidas = new Set(REFERENCIAS.map(([t, c, a]) => `${t}.${c}->${a}`))
+      const faltando  = [...live].filter(k => !conhecidas.has(k))
+      const obsoletas = [...conhecidas].filter(k => !live.has(k))
+      if (faltando.length > 0 || obsoletas.length > 0) {
+        setAvisoAuditoriaFK({ faltando, obsoletas })
+      }
+    }).catch(() => {})
+    return () => { cancelado = true }
+  }, [ehAdmin])
 
   // ── Restauração TOTAL sobre a fazenda ATUAL (segundo modo — mesmo
   // validarArquivo/payload da importação acima, nada de parser paralelo) ──
@@ -324,6 +434,12 @@ export default function RestaurarBackup() {
       <AlertBox type="green" icon="ti-shield-check"
         title="Nada é gravado nesta etapa"
         body="Esta tela só lê e analisa o arquivo dentro do seu navegador — nenhuma informação é enviada ao banco de dados ou alterada no sistema aqui. É só um raio-x do arquivo antes de qualquer restauração de verdade." />
+
+      {avisoAuditoriaFK && (
+        <AlertBox type="amber" icon="ti-alert-triangle"
+          title="A lista de referências pode estar desatualizada"
+          body={`A checagem de integridade referencial (REFERENCIAS) foi comparada com as foreign keys reais do banco e achou divergência — o código precisa ser revisado.${avisoAuditoriaFK.faltando.length > 0 ? ` Faltando na lista: ${avisoAuditoriaFK.faltando.join(', ')}.` : ''}${avisoAuditoriaFK.obsoletas.length > 0 ? ` Na lista mas não existem mais no banco: ${avisoAuditoriaFK.obsoletas.join(', ')}.` : ''}`} />
+      )}
 
       <div style={{ marginTop: 14, marginBottom: 14 }}>
         <button className="btn btn-secondary btn-sm" onClick={() => inputRef.current?.click()} disabled={analisando || importando}>

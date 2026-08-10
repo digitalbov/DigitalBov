@@ -117,6 +117,12 @@ export default function SecaoFinanceiro({ item }) {
           lista de grupos é sempre a lista pronta somada aos grupos já usados em qualquer lançamento da
           fazenda, dos dois módulos.
         </p>
+        <p style={P}>
+          Na lista de lançamentos, os filtros <strong>Tipo</strong>, <strong>Grupo</strong> e
+          <strong> Proprietário</strong> se combinam entre si (E lógico) e são aplicados antes de qualquer
+          paginação. O filtro de Grupo mostra os grupos do Tipo escolhido (ou a união dos dois, com Tipo em
+          "Todos") — é o mesmo campo <strong>Grupo</strong> do lançamento, não um critério novo.
+        </p>
         <h4 style={{ ...H4, fontSize: '.85rem' }}>Vínculo opcional com o Estoque</h4>
         <p style={P}>
           Se você também tem permissão em Estoque, em uma <strong>despesa</strong> aparece o checkbox
@@ -196,21 +202,27 @@ export default function SecaoFinanceiro({ item }) {
           Vaca Prenha, Vaca Madura Prenha), aparece um bloco opcional: <strong>"Registrar a prenhez já
           confirmada"</strong>. Sem isso, uma vaca comprada já prenha nunca tem nenhuma monta registrada neste
           sistema — e sem uma monta com diagnóstico Prenha, ela não aparece como opção de mãe no registro de
-          nascimento, e o parto do terneiro dela fica bloqueado (toda safra é obrigatória, ver seção Reprodutivo).
+          nascimento, e o parto do terneiro dela fica bloqueado (toda safra é obrigatória, ver seção Gestão Reprodutiva).
         </p>
         <p style={P}>
-          Marcando o bloco, informe <strong>uma</strong> das duas datas — a <strong>prevista de parto</strong>
-          (o dado mais confiável na prática, normalmente passado por quem vendeu) ou a <strong>da monta</strong> —
-          o sistema calcula a outra sozinho (gestação padrão de 283 dias), e escolha uma <strong>estação de
-          monta</strong> existente ou crie uma nova. Ao registrar a compra, o sistema cria um lote rotulado
+          Marcando o bloco, informe se a prenhez veio de <strong>inseminação</strong> ou <strong>monta
+          natural</strong> (o sistema não assume mais um dos dois sozinho) e <strong>uma</strong> das duas
+          datas — a <strong>prevista de parto</strong> (o dado mais confiável na prática, normalmente passado
+          por quem vendeu) ou a <strong>da monta</strong> — o sistema calcula a outra sozinho (gestação padrão
+          de 283 dias), e escolha uma <strong>estação de monta</strong> existente ou crie uma nova. A lista de
+          estações traz de <strong>qualquer ciclo</strong>, não só o atual — a monta de origem quase sempre
+          aconteceu antes da compra, às vezes num ciclo anterior — e cada uma mostra o ciclo dela entre
+          parênteses. Ao registrar a compra, o sistema cria um lote rotulado
           <strong> "Prenhez adquirida na compra"</strong> (nunca se confunde com uma monta de verdade feita na
-          fazenda, ao navegar pela aba Lotes/Montas de Reprodutivo) e já vincula as matrizes dessa categoria com
+          fazenda, ao navegar pela aba Lotes/Montas de Gestão Reprodutiva) e já vincula as matrizes dessa categoria com
           diagnóstico Prenha confirmado — os terneiros delas passam a contar normalmente nos índices da safra
-          (parição, mortalidade, GMD Terneiros, kg desmamado).
+          (parição, mortalidade, GMD Terneiros, kg desmamado). O lote fica registrado no ciclo da MONTA (que pode
+          ser diferente do ciclo em foco na tela) — nesse caso, o aviso ao salvar diz em qual ciclo ele ficou e
+          como vê-lo, sem trocar sozinho o que está na tela.
         </p>
         <AlertBox type="amber" icon="ti-info-circle"
           title='Esse passo é opcional na hora da compra'
-          body='Se você não marcar o bloco agora, pode vincular depois — a qualquer momento — pelo botão "+ Vincular prenhez adquirida" na aba Lotes/Montas de Reprodutivo, que lista justamente as fêmeas prenhas (no cadastro) sem nenhum lote com diagnóstico Prenha, comprada ou não.' />
+          body='Se você não marcar o bloco agora, pode vincular depois — a qualquer momento — pelo botão "+ Vincular prenhez adquirida" na aba Lotes/Montas de Gestão Reprodutiva, que lista justamente as fêmeas prenhas (no cadastro) sem nenhum lote com diagnóstico Prenha, comprada ou não.' />
       </div>
 
       <div id="financeiro-resultados" style={{ scrollMarginTop: 90 }}>

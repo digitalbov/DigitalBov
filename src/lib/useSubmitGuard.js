@@ -1,4 +1,5 @@
 import { useRef, useCallback } from 'react'
+import { toast } from '../components/UI'
 
 const CHAVE_PADRAO = '__unica__'
 
@@ -22,6 +23,22 @@ export function useSubmitGuard() {
     emAndamento.current.add(chave)
     try {
       return await fn()
+    } catch (e) {
+      // Rede de segurança: uma exceção NÃO tratada dentro de fn() (bug de
+      // código — não um erro de negócio, que já vem com seu próprio toast
+      // específico e um `return` antes disso) antes só escapava daqui como
+      // "Uncaught (in promise)" no console — nada avisava a tela. E como a
+      // exceção interrompe fn() antes de chegar no setSaving(false) de quem
+      // chamou, o botão fica "Salvando..." pra sempre — travado EM SILÊNCIO
+      // (bug ao vivo, 2026-08-09: exatamente esse caso, ver Reprodutivo.jsx
+      // salvarLote). Mostra um toast aqui, no ÚNICO ponto que toda gravação
+      // já passa, em vez de confiar que cada uma das ~13 chamadas trate
+      // todo erro imprevisto sozinha — não resolve o botão continuar
+      // desabilitado (isso depende do `saving` de cada tela, fora do
+      // alcance deste hook), mas garante que o usuário vê que algo quebrou,
+      // em vez de achar que ainda está processando.
+      console.error('[useSubmitGuard] erro não tratado:', e)
+      toast('Erro inesperado ao salvar: ' + (e?.message || String(e)), 'error')
     } finally {
       emAndamento.current.delete(chave)
     }

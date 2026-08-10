@@ -37,18 +37,22 @@ export function derivarDatasGestacao({ dataMonta, dataPartoPrevisto }) {
 // Cria (ou usa) uma estação de monta + um lote representando a monta de
 // origem + uma inseminação por animal, já com diagnóstico 'P' confirmado
 // (a gestação é um FATO conhecido na compra — não faz sentido reabrir uma
-// etapa de "aguardando diagnóstico" pra algo que já se sabe). O lote é do
-// tipo 'natural' (o touro real é desconhecido) e o campo touro é o rótulo
-// fixo PRENHEZ_ADQUIRIDA_LABEL, pra nunca se confundir com uma monta de
-// verdade feita na fazenda ao navegar pela aba Lotes/Montas.
+// etapa de "aguardando diagnóstico" pra algo que já se sabe). O campo touro
+// é o rótulo fixo PRENHEZ_ADQUIRIDA_LABEL, pra nunca se confundir com uma
+// monta de verdade feita na fazenda ao navegar pela aba Lotes/Montas.
+//
+// `tipo` ('ia'|'natural') é OBRIGATÓRIO e vem de quem chama — nunca
+// assumido aqui. Antes esta função fixava 'natural' sempre (o touro real
+// é desconhecido na maioria dos casos), mas a origem pode ter sido IA —
+// quem está registrando a compra/vínculo sabe, e é quem deve dizer.
 //
 // numeroLote não é passado por quem chama — é recalculado aqui (lotes do
 // mesmo ciclo + 1) igual ao padrão já usado em salvarLote (Reprodutivo.jsx),
 // evitando que cada tela precise carregar a lista de lotes só pra isso.
 export async function criarPrenhezAdquirida({
-  cicloId, dataMonta, dataDiagnostico, estacaoMontaId, novaEstacao, animalIds,
+  cicloId, dataMonta, dataDiagnostico, estacaoMontaId, novaEstacao, animalIds, tipo,
 }) {
-  if (!cicloId || !dataMonta || !animalIds?.length) {
+  if (!cicloId || !dataMonta || !animalIds?.length || !tipo) {
     return { error: 'Dados incompletos para criar o lote de prenhez adquirida.' }
   }
 
@@ -69,7 +73,7 @@ export async function criarPrenhezAdquirida({
 
   const { data: lote, error: errLote } = await db.lotesInseminacao.insert({
     ciclo_id: cicloId, numero: (lotesDoCiclo?.length || 0) + 1, data: dataMonta,
-    touro: PRENHEZ_ADQUIRIDA_LABEL, protocolo: '', estacao_monta_id: estacaoId, tipo: 'natural',
+    touro: PRENHEZ_ADQUIRIDA_LABEL, protocolo: '', estacao_monta_id: estacaoId, tipo,
   })
   if (errLote || !lote) return { error: errLote?.message || 'Erro ao criar o lote.' }
 

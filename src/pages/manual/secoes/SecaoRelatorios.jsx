@@ -44,7 +44,7 @@ export default function SecaoRelatorios({ item }) {
           Gestacional, Abortos registrados, Perda gestacional, Mortalidade de terneiros, Taxa de desmama,
           Intervalo de partos, Peso médio ao nascer, GMD médio da safra e % de matrizes pendentes de
           diagnóstico — as mesmas fórmulas e a mesma âncora na <strong>safra da monta</strong> (nunca no ciclo
-          do evento) já usadas em Metas e Indicadores e no painel Reprodutivo, para nunca haver dois números
+          do evento) já usadas em Metas e Indicadores e em Gestão Reprodutiva, para nunca haver dois números
           diferentes para o mesmo indicador em telas diferentes. Veja a seção <strong>Metas e
           Indicadores</strong> para o detalhe de cada fórmula, inclusive a diferença entre Taxa de Parição
           (÷ expostas) e Eficiência Gestacional (÷ prenhas).

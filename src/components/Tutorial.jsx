@@ -54,7 +54,7 @@ const TOPICOS = [
     ]
   },
   {
-    icon: '🧬', titulo: 'Painel Reprodutivo',
+    icon: '🧬', titulo: 'Gestão Reprodutiva',
     itens: [
       ['💉', 'Lotes de inseminação', 'Monte lotes de inseminação selecionando fêmeas vazias, com filtro por lote.'],
       ['🔬', 'Diagnóstico', 'Registre o diagnóstico (prenha/vazia) de cada fêmea — a situação do animal é atualizada automaticamente.'],

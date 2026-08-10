@@ -57,6 +57,10 @@ export const MANUAL_INDICE = [
     resumo: 'Ficha individual do animal: dados básicos, genealogia e linha do tempo completa de eventos.',
   },
   {
+    id: 'feiras', titulo: 'Feiras e Premiações', icone: 'ti-trophy',
+    resumo: 'Registro de participação de animais em feiras e seus resultados, agendamento de participações futuras e painel de premiações na ficha do animal.',
+  },
+  {
     id: 'reprodutivo', titulo: 'Gestão Reprodutiva', icone: 'ti-activity',
     resumo: 'Estação de monta, lotes de inseminação (IATF) e monta natural com múltiplos touros, diagnóstico de gestação, partos, abortos e o funil de índices da safra.',
     subsecoes: [

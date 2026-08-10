@@ -62,6 +62,7 @@ export default function Financeiro() {
   const [form,     setForm]    = useState({})
   const [filtTp,      setFiltTp]      = useState('')
   const [filtProp,    setFiltProp]    = useState('')
+  const [filtGrupo,   setFiltGrupo]   = useState('')
   const [filtTransacTipo,        setFiltTransacTipo]        = useState('')
   const [filtTransacCategoria,   setFiltTransacCategoria]   = useState('')
   const [filtTransacContraparte, setFiltTransacContraparte] = useState('')
@@ -153,17 +154,21 @@ export default function Financeiro() {
     })
   }, [modal, form.tipo, reprodutivoVenda, carregandoReprodVenda])
 
-  // Item 8 — estações de monta do ciclo da data de compra, pro seletor do
-  // bloco opcional "Prenhez adquirida" (compra de vaca já prenha). Recarrega
-  // quando o ciclo muda (troca de data) — lista pequena, sem custo relevante.
+  // Item 8 (revisto) — estações de monta de TODOS os ciclos, pro seletor do
+  // bloco opcional "Prenhez adquirida" (compra de vaca já prenha). Antes
+  // filtrava pelo ciclo da DATA DE COMPRA (cicloDaData(form.data)) — bug: a
+  // monta de origem quase sempre aconteceu ANTES da compra, muitas vezes
+  // num ciclo anterior, então a estação certa nunca aparecia na lista.
+  // listAll (mesma função já usada pra classificar venda por estação, ver
+  // reprodutivoVenda acima) traz TODAS as estações com o ciclo embutido
+  // (es.ciclo.nome) — o rótulo na opção deixa claro de qual ciclo é cada
+  // uma, sem precisar adivinhar/filtrar por data nenhuma aqui.
   useEffect(() => {
-    if (modal !== 'transac' || !(form.tipo === 'C' || form.tipo === 'compra_sim') || !form.data) return
-    const ciclo = cicloDaData(form.data)
-    if (!ciclo) { setEstacoesCompra([]); return }
+    if (modal !== 'transac' || !(form.tipo === 'C' || form.tipo === 'compra_sim')) return
     let cancelado = false
-    db.estacoesMonta.list(ciclo.id).then(({ data }) => { if (!cancelado) setEstacoesCompra(data || []) })
+    db.estacoesMonta.listAll().then(({ data }) => { if (!cancelado) setEstacoesCompra(data || []) })
     return () => { cancelado = true }
-  }, [modal, form.tipo, form.data])
+  }, [modal, form.tipo])
 
   // Bloco D11 — saldo anterior do ciclo exibido no Resumo (faixa do ciclo +
   // card "Caixa disponível"). Sempre recalculado no banco a cada troca de
@@ -615,9 +620,18 @@ export default function Financeiro() {
   })
   const totalCompra = resumoCompra.reduce((s, r) => s + r.subtotal, 0)
 
+  // Grupos disponíveis pro filtro — mesma fonte que o formulário
+  // (gruposDisponiveis, reaproveitada, nunca uma segunda lista): com Tipo
+  // "Todos" mostra a união de Receita+Despesa (dedupada, mantendo a ordem —
+  // Receita primeiro); com um Tipo escolhido, só os grupos daquele tipo.
+  const gruposFiltro = filtTp
+    ? gruposDisponiveis(filtTp)
+    : [...new Set([...gruposDisponiveis('R'), ...gruposDisponiveis('D')])]
+
   const lancsFiltrados = lancs
     .filter(l => !filtTp || l.tipo === filtTp)
     .filter(l => !filtProp || l.rateios?.some(r => r.proprietario_id === filtProp))
+    .filter(l => !filtGrupo || l.grupo === filtGrupo)
 
   const totalLancs = lancsFiltrados.reduce((s, l) => {
     const v = filtProp
@@ -771,6 +785,9 @@ export default function Financeiro() {
       }
       // Item 8 — categoria com "Prenhez adquirida" marcada
       if (r.prenhezAtiva) {
+        if (!r.prenhezTipo) {
+          toast(`"${r.categoria}": informe se a prenhez veio de inseminação ou monta natural.`, 'error'); return
+        }
         const dataInformada = r.prenhezModo === 'monta' ? r.prenhezDataMonta : r.prenhezDataPartoPrevisto
         if (!dataInformada) {
           toast(`"${r.categoria}": informe a data da monta ou a data prevista de parto para a prenhez adquirida.`, 'error'); return
@@ -842,13 +859,22 @@ export default function Financeiro() {
           continue
         }
         const { error: errPrenhez } = await criarPrenhezAdquirida({
-          cicloId: cicloDaMonta.id, dataMonta, dataDiagnostico: form.data,
+          cicloId: cicloDaMonta.id, dataMonta, dataDiagnostico: form.data, tipo: r.prenhezTipo,
           estacaoMontaId: r.prenhezCriandoEstacao ? null : (r.prenhezEstacaoId || null),
           novaEstacao: r.prenhezCriandoEstacao ? { nome: r.prenhezNovaEstacaoNome, inicio: r.prenhezNovaEstacaoInicio } : null,
           animalIds: candidatos.map(a => a.id),
         })
-        if (errPrenhez) toast(`"${r.categoria}": ${errPrenhez}`, 'error')
-        else toast(`"${r.categoria}": lote de prenhez adquirida criado — ${candidatos.length} animal(is) já com diagnóstico Prenha.`)
+        if (errPrenhez) { toast(`"${r.categoria}": ${errPrenhez}`, 'error'); continue }
+        // NUNCA troca cicloLocal aqui (mesmo raciocínio do "bug do 3º
+        // nascimento" no Reprodutivo — ver comentário lá): o lote fica no
+        // ciclo da MONTA, que pode ser diferente do ciclo em foco nesta
+        // tela. Só avisa que ele não vai aparecer sem trocar de ciclo —
+        // nunca arrasta a visualização do usuário à força.
+        if (cicloDaMonta.id !== cicloLocal?.id) {
+          toast(`"${r.categoria}": lote de prenhez adquirida criado — ${candidatos.length} animal(is) já com diagnóstico Prenha. Esse lote é do ciclo ${cicloDaMonta.nome}; para vê-lo em Gestão Reprodutiva, selecione o ciclo ${cicloDaMonta.nome} no seletor do topo.`)
+        } else {
+          toast(`"${r.categoria}": lote de prenhez adquirida criado — ${candidatos.length} animal(is) já com diagnóstico Prenha.`)
+        }
       }
     }
   }
@@ -1187,10 +1213,22 @@ export default function Financeiro() {
           <div style={{display:'flex',justifyContent:'space-between',marginBottom:12,flexWrap:'wrap',gap:8}}>
             <div style={{display:'flex', gap:8, flexWrap:'wrap'}}>
               <div className="pill-group">
-                <button className={`pill ${filtTp===''?'active':''}`} onClick={()=>setFiltTp('')}>Todos</button>
-                <button className={`pill ${filtTp==='R'?'active':''}`} onClick={()=>setFiltTp('R')}>Receitas</button>
-                <button className={`pill ${filtTp==='D'?'active':''}`} onClick={()=>setFiltTp('D')}>Despesas</button>
+                <button className={`pill ${filtTp===''?'active':''}`} onClick={()=>{setFiltTp('');setFiltGrupo('')}}>Todos</button>
+                <button className={`pill ${filtTp==='R'?'active':''}`} onClick={()=>{setFiltTp('R');setFiltGrupo('')}}>Receitas</button>
+                <button className={`pill ${filtTp==='D'?'active':''}`} onClick={()=>{setFiltTp('D');setFiltGrupo('')}}>Despesas</button>
               </div>
+              {/* Filtro por grupo — mesmo campo `grupo` de lancamentos_financeiros
+                  usado no formulário (GrupoSelect) e nos cards "Despesas/Receitas
+                  por grupo" acima; não existe uma noção separada de categoria/
+                  plano de contas pra lançamento, então não há ambiguidade a
+                  resolver aqui. Select (não pill) de propósito: a lista de
+                  grupos é grande (6 a 14 fixos por tipo + extras
+                  personalizados por fazenda) — pills virariam uma parede de
+                  botões, ao contrário dos poucos proprietários ao lado. */}
+              <select className="input" style={{ maxWidth: 200 }} value={filtGrupo} onChange={e => setFiltGrupo(e.target.value)}>
+                <option value="">Todos os grupos</option>
+                {gruposFiltro.map(g => <option key={g} value={g}>{g}</option>)}
+              </select>
               <div className="pill-group">
                 <button className={`pill ${filtProp===''?'active':''}`} onClick={() => setFiltProp('')}>Todos os proprietários</button>
                 {props.map(p => (
@@ -1958,6 +1996,13 @@ export default function Financeiro() {
                         {c.prenhezAtiva && (
                           <div style={{marginTop:10}}>
                             <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'flex-end',marginBottom:8}}>
+                              <Field label="A prenhez veio de..." required>
+                                <select value={c.prenhezTipo||''} onChange={e=>atualizarCategoriaCompra(idx,{prenhezTipo:e.target.value})}>
+                                  <option value="">— selecione —</option>
+                                  <option value="ia">Inseminação</option>
+                                  <option value="natural">Monta natural</option>
+                                </select>
+                              </Field>
                               <Field label="Você sabe...">
                                 <select value={modo} onChange={e=>atualizarCategoriaCompra(idx,{prenhezModo:e.target.value, prenhezDataMonta:'', prenhezDataPartoPrevisto:''})}>
                                   <option value="parto">A data prevista de parto</option>
@@ -1980,7 +2025,7 @@ export default function Financeiro() {
                                 </div>
                               )}
                             </div>
-                            <Field label="Estação de monta" hint="Agrupa este lote com as demais montas desta estação">
+                            <Field label="Estação de monta" hint="Estações de qualquer ciclo — a monta de origem costuma ter sido antes da compra, às vezes num ciclo anterior; o ciclo de cada uma aparece entre parênteses.">
                               <select value={c.prenhezCriandoEstacao ? '__nova__' : (c.prenhezEstacaoId||'')}
                                 onChange={e=>{
                                   const v = e.target.value
@@ -1988,7 +2033,7 @@ export default function Financeiro() {
                                   else atualizarCategoriaCompra(idx,{prenhezEstacaoId:v||null, prenhezCriandoEstacao:false})
                                 }}>
                                 <option value="">— nenhuma —</option>
-                                {estacoesCompra.map(es=><option key={es.id} value={es.id}>{es.nome} ({fmtData(es.inicio)}{es.fim?` – ${fmtData(es.fim)}`:''})</option>)}
+                                {estacoesCompra.map(es=><option key={es.id} value={es.id}>{es.nome} ({es.ciclo?.nome || '—'} · {fmtData(es.inicio)}{es.fim?` – ${fmtData(es.fim)}`:''})</option>)}
                                 <option value="__nova__">+ Criar nova estação de monta…</option>
                               </select>
                             </Field>

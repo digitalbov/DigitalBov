@@ -1,6 +1,6 @@
 ﻿import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
-import { calcCategoria } from '../lib/helpers'
+import { calcCategoria, nomePai } from '../lib/helpers'
 import { toast } from '../components/UI'
 import { useConta } from '../lib/ContaContext'
 import { useFazenda } from '../lib/FazendaContext'
@@ -100,7 +100,12 @@ export default function Backup() {
   // venda por animal, vínculo sanidade↔animal, touros extras da monta
   // natural, estações de monta, planejamento e simulações). De propósito NÃO
   // inclui: benchmarks_rentabilidade (referência global, não é dado desta
-  // fazenda) nem contas/conta_membros/usuario_permissoes/usuario_fazendas
+  // fazenda — tabela está VAZIA hoje, conferido ao vivo em 2026-08-09, então
+  // não há nada a perder numa restauração NESTE MOMENTO; mas `excluir_fazenda`
+  // já apaga essa tabela com WHERE fazenda_id = p_fazenda_id, o que sugere
+  // escopo por fazenda — se um dia passar a ser populada por fazenda, essa
+  // exclusão do backup precisa ser revisada, não só assumida como ainda
+  // correta) nem contas/conta_membros/usuario_permissoes/usuario_fazendas
   // (dado de CONTA/usuário, não de fazenda — vazaria gente de fora do escopo
   // de um backup de fazenda). Todas filtradas por conta_id + fazenda_id como
   // as demais — as 4 mais novas (lancamento_rateios, lote_touros,
@@ -141,7 +146,7 @@ export default function Backup() {
       const XLSX = await import('xlsx')
       const { data: animais } = await supabase
         .from('animais')
-        .select('*, proprietario:proprietarios(nome), lote:lotes(nome)')
+        .select('*, proprietario:proprietarios(nome), lote:lotes(nome), pai_animal:animais!pai_animal_id(id,brinco,nome), pai_externo:touros_externos(id,nome)')
         .eq('conta_id', contaId)
         .eq('fazenda_id', fazendaId)
         .order('brinco')
@@ -156,7 +161,10 @@ export default function Backup() {
         'Classificação':    a.classificacao || '',
         'Raça':             a.raca || '',
         'Pelagem':          a.pelagem || '',
-        'Pai':              a.pai || '',
+        // "Nome (Brinco)" quando o pai é um touro cadastrado — um dos 4
+        // pontos genealógicos/documentais aprovados (Tarefa B.4): nome
+        // sozinho pode ser ambíguo (animais.nome não tem UNIQUE).
+        'Pai':              a.pai ? nomePai(a, { comBrinco: true }) : '',
         'Mãe (brinco)':    a.mae_brinco || '',
         'Proprietário':     a.proprietario?.nome || '',
         'Lote':             a.lote?.nome || '',

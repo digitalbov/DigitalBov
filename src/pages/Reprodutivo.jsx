@@ -7,9 +7,10 @@ import { useConta } from '../lib/ContaContext'
 import { useCiclo, statusCiclo } from '../lib/CicloContext'
 import {
   fmtData, pct, contarMatrizes, contarExpostas, contarPrenhas, calcTaxaPrenhez, calcCategoriaRebanho, algumErro,
-  GESTACAO_MAX_DIAS, GESTACAO_ANGUS_DIAS, PERDA_PRESUMIDA_DIAS_APOS_PREVISTO, calcGestacaoLote, calcTaxaParicao, calcDesmameMetrics,
-  calcIntervaloPartos, statusReprodutivoExibicao, statusReprodutivoDetalhado, desfechoReprodutivo, FALHA_MOTIVO_LABEL,
-  dataNaoFutura, resolverPaiDerivado, mesesDeVida, capitalizarPrimeira, capitalizarNome, numeroPositivo, loteEncerrado,
+  GESTACAO_MAX_DIAS, GESTACAO_ANGUS_DIAS, PERDA_PRESUMIDA_DIAS_APOS_PREVISTO, APTO_AO_DESMAME_DIAS, calcGestacaoLote, calcTaxaParicao, calcDesmameMetrics,
+  calcIntervaloPartos, statusReprodutivoExibicao, statusReprodutivoDetalhado, desfechoReprodutivo, tentativaMaisRecentePendente, FALHA_MOTIVO_LABEL,
+  dataNaoFutura, resolverPaiDerivado, resolverPaiIdDerivado, mesesDeVida, capitalizarPrimeira, capitalizarNome, numeroPositivo, loteEncerrado,
+  nomeTouro, resolverTouroDigitado,
 } from '../lib/helpers'
 import { hoje as hojeAgora, hojeISO } from '../lib/hoje'
 import { registrarDesmame, desfazerDesmame } from '../lib/reprodutivoDesmame'
@@ -119,6 +120,97 @@ function PainelFiltroAnimais({ lotesSistema, proprietarios, categorias, filtroLo
   )
 }
 
+// Seletor de atalho pra touro (Tarefa B) — usado tanto no campo "Touro" da
+// IA quanto no "novo touro" da monta natural, nunca duas implementações. Dois
+// optgroups visualmente distintos (ícone + rótulo, sem precisar de texto
+// explicativo): "🐮 Touros da fazenda" (cadastrados, brinco — nome no
+// rótulo) e "🔗 Touros externos já usados" (touros_externos — emprestado ou
+// sêmen, reoferecido pra reuso sem depender de grafia). Só PREENCHE o campo
+// de texto ao lado (onSelect(nome)) — nunca substitui a digitação livre, e
+// nunca guarda nenhum id: escolher aqui é EXATAMENTE a mesma coisa que
+// digitar aquele texto à mão. A resolução (pra qual touro esse texto aponta)
+// é sempre recalculada depois, ao vivo, por resolverTouroDigitado — nunca
+// capturada no momento da escolha (ver ResolucaoTouro, abaixo).
+function SeletorTouro({ tourosCadastrados, tourosExternos, onSelect }) {
+  if (tourosCadastrados.length === 0 && tourosExternos.length === 0) return null
+  return (
+    <select value="" onChange={e => {
+      if (!e.target.value) return
+      const [tipo, id] = e.target.value.split(':')
+      if (tipo === 'animal') {
+        const t = tourosCadastrados.find(x => x.id === id)
+        if (t) onSelect(t.brinco)
+      } else {
+        const t = tourosExternos.find(x => x.id === id)
+        if (t) onSelect(t.nome)
+      }
+    }} style={{ maxWidth:170 }}>
+      <option value="">Selecionar…</option>
+      {tourosCadastrados.length > 0 && (
+        <optgroup label="🐮 Touros da fazenda">
+          {tourosCadastrados.map(t => <option key={t.id} value={`animal:${t.id}`}>{t.brinco}{t.nome ? ` — ${t.nome}` : ''}</option>)}
+        </optgroup>
+      )}
+      {tourosExternos.length > 0 && (
+        <optgroup label="🔗 Touros externos já usados">
+          {tourosExternos.map(t => <option key={t.id} value={`externo:${t.id}`}>{t.nome}</option>)}
+        </optgroup>
+      )}
+    </select>
+  )
+}
+
+// Bloco de confirmação AO VIVO — "qual touro vai ser usado" — sempre visível
+// (nunca some), sempre recalculado do texto atual (resolverTouroDigitado,
+// helpers.js), nunca de um estado de vínculo guardado à parte. Informativo,
+// não alerta: os 3 casos normais (cadastrado, externo já usado, externo
+// novo) usam tom neutro/confirmação — só a ambiguidade rara (brinco de
+// cadastrado igual ao nome de um externo) usa âmbar, porque essa sim precisa
+// chamar atenção (nunca fica silenciosa).
+function ResolucaoTouro({ texto, tourosCadastrados, tourosExternos, onEscolherAproximado }) {
+  const r = resolverTouroDigitado(texto, tourosCadastrados, tourosExternos)
+  if (!r) return null
+  const base = { fontSize:'.75rem', marginTop:5, padding:'5px 9px', borderRadius:7, display:'flex', flexDirection:'column', gap:3 }
+  if (r.tipo === 'cadastro') {
+    return (
+      <div style={{ ...base, background:'#E8F0FC', color:'#1E55B0' }}>
+        <span><i className="ti ti-home" style={{ fontSize:11 }} /> Touro cadastrado: <strong>{nomeTouro({ touro_animal: r.touro })}</strong></span>
+        {r.ambiguoExterno && (
+          <span style={{ color:'#92620A' }}>
+            <i className="ti ti-alert-triangle" style={{ fontSize:11 }} /> Também existe um touro EXTERNO chamado "{r.ambiguoExterno.nome}" — o cadastrado tem prioridade e é esse que vai ser usado.
+          </span>
+        )}
+      </div>
+    )
+  }
+  if (r.tipo === 'externo_exato') {
+    return (
+      <div style={{ ...base, background:'#F3E8FF', color:'#5B2A9E' }}>
+        <i className="ti ti-link" style={{ fontSize:11 }} /> Touro externo já cadastrado: <strong>{r.touro.nome}</strong>
+      </div>
+    )
+  }
+  // tipo 'novo' — caminho normal, nunca vermelho/alerta.
+  return (
+    <div style={{ ...base, background:'#F9FAFB', color:'#6B7280' }}>
+      <span><i className="ti ti-circle-plus" style={{ fontSize:11 }} /> Será criado um touro externo novo: <strong>{(texto||'').trim()}</strong></span>
+      {r.aproximados.length > 0 && (
+        <span>
+          Parecido com: {r.aproximados.map((a, i) => (
+            <span key={a.id}>
+              {i > 0 && ', '}
+              <button type="button" onClick={() => onEscolherAproximado(a.nome)}
+                style={{ background:'none', border:'none', padding:0, color:'#2B6CD9', textDecoration:'underline', cursor:'pointer', fontSize:'.75rem' }}>
+                {a.nome}
+              </button>
+            </span>
+          ))}
+        </span>
+      )}
+    </div>
+  )
+}
+
 // Próximo brinco automático "SN-NN" REALMENTE livre (Fase 10 — etapa B).
 // brinco é único por FAZENDA (verificado ao vivo: duas fazendas da mesma
 // conta têm hoje, cada uma, seu próprio "SN-21" coexistindo sem erro — não é
@@ -141,6 +233,27 @@ async function proximoBrincoSNLivre() {
   return numero
 }
 
+// Item 6 — balão de pendências no ciclo anterior, ancorado no botão "Ver
+// ciclo anterior" (o `<div>` pai precisa de position:relative — ver os dois
+// pontos que usam isto). Some sozinho em ~15s (ver balaoTimeoutRef) ou no X.
+function BalaoPendenciaCicloAnterior({ texto, onFechar }) {
+  return (
+    <div style={{
+      position: 'absolute', top: '100%', left: 0, marginTop: 6, zIndex: 20,
+      background: '#3C3489', color: 'white', borderRadius: 8, padding: '9px 12px',
+      fontSize: '.78rem', maxWidth: 300, boxShadow: '0 6px 20px rgba(0,0,0,.2)',
+      display: 'flex', alignItems: 'flex-start', gap: 8,
+    }}>
+      <i className="ti ti-alert-triangle" style={{ fontSize: 14, marginTop: 1, flexShrink: 0 }} />
+      <span style={{ flex: 1, lineHeight: 1.4 }}>{texto}</span>
+      <button type="button" onClick={onFechar}
+        style={{ background: 'none', border: 'none', color: 'white', cursor: 'pointer', padding: 0, opacity: .85, flexShrink: 0 }}>
+        <i className="ti ti-x" style={{ fontSize: 13 }} />
+      </button>
+    </div>
+  )
+}
+
 export default function Reprodutivo() {
   const { podeEditar } = usePermissoes()
   const podeEditarReprod = podeEditar('reprodutivo')
@@ -161,6 +274,125 @@ export default function Reprodutivo() {
   const cicloFocoRef = useRef(cicloLocal?.id ?? null)
   cicloFocoRef.current = cicloLocal?.id ?? null
   const podeEditarReprodCiclo = podeEditarReprod && (statusCicloLocal === 'atual' || statusCicloLocal === 'carencia')
+  // "Ver ciclo anterior" / "Ver próximo ciclo" — `ciclos` vem de CicloContext
+  // ordenado por `inicio` DESC (ver db.ciclos.listByFazenda em supabase.js),
+  // então o item seguinte ao selecionado na lista é sempre o imediatamente
+  // anterior por data, e o item precedente é sempre o imediatamente próximo
+  // (mais recente) — nunca pula nem inventa um ciclo. Troca é a mesma chamada
+  // de contexto (setCicloSelecionado) que o seletor do topo já usa para
+  // qualquer troca manual — não é uma troca disparada por gravação, e o
+  // efeito `useEffect(() => { if (cicloLocal) loadCicloScoped(...) }, [cicloLocal?.id])`
+  // (linha ~361) já trata essa troca com as mesmas guardas de corrida do bug
+  // do 3º nascimento.
+  const idxCicloLocal = ciclos.findIndex(c => c.id === cicloLocal?.id)
+  const cicloAnterior = idxCicloLocal >= 0 ? (ciclos[idxCicloLocal + 1] || null) : null
+  const cicloProximo  = idxCicloLocal > 0 ? ciclos[idxCicloLocal - 1] : null
+  const irParaCicloAnterior = () => { if (cicloAnterior) setCicloSelecionado(cicloAnterior) }
+  const irParaCicloProximo  = () => { if (cicloProximo) setCicloSelecionado(cicloProximo) }
+
+  // ── Item 6 — aviso de pendências no ciclo anterior ──────────────────
+  // Balão no botão "Ver ciclo anterior": avisa quando há vaca prenha sem
+  // desfecho, ou com cria ao pé (apta ao desmame ou não), no ciclo anterior
+  // — sem abrir esse ciclo, sem virar a tela pra lá. `pendenciasSeqRef` é a
+  // MESMA guarda de corrida de loadCicloScoped (bug do 3º nascimento):
+  // descarta a resposta se cicloAnterior mudou de novo no meio da busca.
+  const pendenciasSeqRef = useRef(0)
+  // Ciclo que estava em foco na renderização ANTERIOR à troca atual — se for
+  // igual ao cicloAnterior de agora, o usuário acabou de vir de lá (veio de
+  // X, X virou "anterior" de Y) e já viu o que tinha pra ver; não busca nem
+  // avisa. Atualizado no fim do próprio efeito, sem precisar de um 2º efeito
+  // (evita depender de ordem de execução entre efeitos).
+  const ultimoCicloLocalIdRef = useRef(cicloLocal?.id ?? null)
+  const [pendenciasCicloAnterior, setPendenciasCicloAnterior] = useState(null) // { fingerprint, prenhaPendente, criaAoPe, criaAoPeApta } | null
+  const [balaoCicloAnteriorAberto, setBalaoCicloAnteriorAberto] = useState(false)
+  const balaoTimeoutRef = useRef(null)
+
+  useEffect(() => {
+    const vindoDoAnterior = cicloAnterior && ultimoCicloLocalIdRef.current === cicloAnterior.id
+    ultimoCicloLocalIdRef.current = cicloLocal?.id ?? null
+    if (!cicloAnterior || vindoDoAnterior) {
+      setPendenciasCicloAnterior(null)
+      setBalaoCicloAnteriorAberto(false)
+      return
+    }
+    let cancelado = false
+    const mySeq = ++pendenciasSeqRef.current
+    db.lotesInseminacao.listPendenciasCiclo(cicloAnterior.id).then(({ data, error }) => {
+      if (cancelado || mySeq !== pendenciasSeqRef.current) return
+      if (error) { console.error('[Reprodutivo] erro ao checar pendências do ciclo anterior:', error); return }
+      const lotes = data || []
+      const todasIns    = lotes.flatMap(l => (l.inseminacoes || []).map(i => ({ ...i, lote: { data: l.data } })))
+      const todosPartosLote = lotes.flatMap(l => l.partos   || [])
+      const todosAbortosLote = lotes.flatMap(l => l.abortos || [])
+      const animalIds = [...new Set(todasIns.map(i => i.animal_id).filter(Boolean))]
+      const hoje = hojeISO()
+      const prenhaPendente = [], criaAoPe = [], criaAoPeApta = []
+      animalIds.forEach(animalId => {
+        const desf = desfechoReprodutivo(animalId,
+          { inseminacoes: todasIns, partos: todosPartosLote, abortos: todosAbortosLote }, hoje, todosPartosLote)
+        if (desf.resultado === 'em_aberto') prenhaPendente.push(animalId)
+        if (desf.comCriaAoPe) {
+          criaAoPe.push(animalId)
+          const parto = todosPartosLote.find(p => p.mae_id === animalId && p.bezerro_id === desf.bezerroAtualId)
+          const nascimento = parto?.bezerro?.data_nascimento
+          if (nascimento) {
+            const dias = Math.floor((new Date(hoje + 'T12:00:00') - new Date(nascimento + 'T12:00:00')) / 86400000)
+            if (dias >= APTO_AO_DESMAME_DIAS) criaAoPeApta.push(animalId)
+          }
+        }
+      })
+      if (prenhaPendente.length === 0 && criaAoPe.length === 0) {
+        setPendenciasCicloAnterior(null)
+        setBalaoCicloAnteriorAberto(false)
+        return
+      }
+      // Fingerprint = QUEM está pendente e por quê — muda só quando a
+      // pendência de verdade muda (alguém novo, ou alguém resolvido), nunca
+      // por causa de reabrir a tela sem nada ter mudado.
+      const fingerprint = [
+        ...prenhaPendente.map(id => `P:${id}`),
+        ...criaAoPe.map(id => `C:${id}${criaAoPeApta.includes(id) ? '+apta' : ''}`),
+      ].sort().join('|')
+      setPendenciasCicloAnterior({ fingerprint, prenhaPendente, criaAoPe, criaAoPeApta })
+      const chave = `pendenciasCicloAnterior:${fazendaAtual?.id}:${cicloAnterior.id}`
+      let jaVisto = null
+      try { jaVisto = localStorage.getItem(chave) } catch { /* localStorage indisponível — segue sem persistir */ }
+      if (jaVisto !== fingerprint) {
+        setBalaoCicloAnteriorAberto(true)
+        // ~15s e some sozinho (sem fechar manualmente) — mas já marca como
+        // visto: reabrir a tela depois não repete o mesmo aviso.
+        balaoTimeoutRef.current = setTimeout(() => setBalaoCicloAnteriorAberto(false), 15000)
+        try { localStorage.setItem(chave, fingerprint) } catch { /* segue sem persistir */ }
+      }
+    })
+    return () => {
+      cancelado = true
+      if (balaoTimeoutRef.current) clearTimeout(balaoTimeoutRef.current)
+    }
+  }, [cicloAnterior?.id])
+
+  // Fecha manualmente — já marcado como visto no momento em que apareceu
+  // (acima), então só precisa esconder.
+  const fecharBalaoCicloAnterior = () => {
+    if (balaoTimeoutRef.current) clearTimeout(balaoTimeoutRef.current)
+    setBalaoCicloAnteriorAberto(false)
+  }
+
+  // Texto do balão — nunca fala em "edição"/"safra anterior", só o que tem
+  // pendente de verdade, na ordem prenha → cria ao pé → apta ao desmame.
+  const textoBalaoCicloAnterior = (() => {
+    if (!pendenciasCicloAnterior) return ''
+    const partes = []
+    if (pendenciasCicloAnterior.prenhaPendente.length > 0) {
+      partes.push(`Existem ${pendenciasCicloAnterior.prenhaPendente.length} vaca(s) prenha(s) no ciclo ${cicloAnterior?.nome}`)
+    }
+    if (pendenciasCicloAnterior.criaAoPeApta.length > 0) {
+      partes.push(`${pendenciasCicloAnterior.criaAoPeApta.length} vaca(s) com cria ao pé aptas ao desmame no ciclo ${cicloAnterior?.nome}`)
+    } else if (pendenciasCicloAnterior.criaAoPe.length > 0) {
+      partes.push(`${pendenciasCicloAnterior.criaAoPe.length} vaca(s) com cria ao pé no ciclo ${cicloAnterior?.nome}`)
+    }
+    return partes.join('. ') + '.'
+  })()
 
   // Guardas de reentrância (useSubmitGuard, ver lib) — cada instância trava
   // seu próprio conjunto de ações; agrupadas do mesmo jeito que já
@@ -196,6 +428,11 @@ export default function Reprodutivo() {
   // aqui — ver comentário em ehMatriz, helpers.js).
   const [todosAnimaisHistorico, setTodosAnimaisHistorico] = useState([])
   const [lotes,   setLotes]  = useState([])
+  // Touros externos (emprestado/sêmen) já usados nesta fazenda — pra
+  // reoferecer no seletor sem depender de grafia (touros_externos, ver
+  // migration_touro_vinculo_id.sql). Carregado junto com o resto em
+  // loadAll — lista pequena, sem custo de manter sempre em memória.
+  const [tourosExternos, setTourosExternos] = useState([])
   const [loading,   setLoading]  = useState(true)
   const [loadError, setLoadError]= useState(false)
   const [modal,   setModal]  = useState(null)
@@ -413,9 +650,10 @@ export default function Reprodutivo() {
         db.proprietarios.list(),
         db.lotes.list(),
         db.transacaoAnimaisItens.listDataEntradaCompras(),
+        db.tourosExternos.listPorFazenda(),
       ])
       if (algumErro('[Reprodutivo]', base)) { if (showLoading) setLoadError(true); return }
-      const [ra, raTodos, rprops, ls, rEntradas] = base
+      const [ra, raTodos, rprops, ls, rEntradas, rTourosExternos] = base
       // data_entrada (só animais comprados) mesclada uma vez aqui — usada por
       // ehMatriz (helpers.js) pra excluir a comprada dos cohorts de matriz em
       // ciclos ANTERIORES à compra (calcLoteMetrics/kpiMatrizesAptas abaixo).
@@ -427,6 +665,7 @@ export default function Reprodutivo() {
       setTodosAnimaisHistorico(comEntrada(raTodos.data))
       setProprietarios(rprops.data || [])
       setLotesSistema(ls.data || [])
+      setTourosExternos(rTourosExternos.data || [])
       // Qualquer carregamento/mutação pode ter afetado o histórico completo —
       // marca para recarregar na próxima vez que a aba Nascimentos/Índices abrir.
       setTodosStale(true)
@@ -503,12 +742,53 @@ export default function Reprodutivo() {
     setLoadingIdx(false)
   }
 
+  // Abre o modal de criação de lote (inseminação ou monta natural) — usada
+  // pelos 4 botões que criam um lote novo (faixa do topo + EmptyState).
+  // Dispara loadTodos() se preciso, mesmo padrão já usado por "Vincular
+  // prenhez adquirida" (acima) e pelo select de mãe no registro direto de
+  // nascimento (ver comentário "todosStale" mais abaixo): a lista de fêmeas
+  // disponíveis (femsVaziasDisponiveis) depende de todosLotes pra saber quem
+  // já está com diagnóstico pendente noutro lote, e sem isso o clique abriria
+  // o modal com esse valor ainda desatualizado (zero pendências detectadas).
+  const abrirModalNovoLote = (tipo) => {
+    if (todosStale) loadTodos()
+    setLoteEdit(null)
+    setForm({ tipo, ...(tipo === 'natural' ? { touros: [] } : {}), data: hojeISO() })
+    setModal('lote')
+    setSelBrs([])
+  }
+
   const femsAtivas = animais.filter(a => a.sexo === 'F')
   const femsVazias = femsAtivas.filter(a => a.sit_reprodutiva === 'vazia')
+  // Touros cadastrados (Animais.jsx → checkbox "É touro", só visível pra
+  // sexo=M) — mesma lista `animais` já carregada (só ativos), sem query
+  // nova. Selecionar um no seletor grava touro_animal_id (vínculo por id,
+  // migration_touro_vinculo_id.sql) — nunca substitui a digitação livre de
+  // um touro externo, os dois convivem no mesmo campo (optgroup separado).
+  const tourosCadastrados = animais
+    .filter(a => a.sexo === 'M' && a.is_touro)
+    .sort((a, b) => a.brinco.localeCompare(b.brinco, undefined, { numeric: true }))
+  // Some da lista de "Novo lote"/"Adicionar animais" quem já está com a
+  // tentativa mais recente pendente de diagnóstico em ALGUM lote do sistema
+  // (todosLotes, não só o ciclo atual — sit_reprodutiva é global e essa
+  // pendência pode atravessar a virada de ciclo, mesmo raciocínio já usado em
+  // maesElegiveis/encontrarLoteSafra abaixo). Reaproveita
+  // tentativaMaisRecentePendente (helpers.js), o mesmo critério que
+  // desfechoReprodutivo usa pra decidir 'em_repasse' — não um segundo
+  // critério. Uma vaca JÁ DIAGNOSTICADA Vazia (mesmo repetidas vezes) nunca
+  // entra aqui: sit_reprodutiva só é 'vazia' depois de um diagnóstico V ou de
+  // um aborto, e ela precisa continuar disponível pra um lote novo (repasse).
+  const femsVaziasDisponiveis = femsVazias.filter(a => {
+    const insAnimal = todosLotes.flatMap(l => (l.inseminacoes || [])
+      .filter(i => i.animal_id === a.id)
+      .map(i => ({ ...i, lote: { data: l.data } })))
+    return !tentativaMaisRecentePendente(insAnimal)
+  })
+  const qtdVaziasOcultasPendentes = femsVazias.length - femsVaziasDisponiveis.length
   // Filtro unificado: lote + proprietário + categoria, aplicados juntos na
   // seleção de animais (modais "Novo lote" e "Adicionar animais"). A categoria é
   // calculada com o mesmo helper usado no resto do sistema (calcCategoriaRebanho).
-  const femsVaziasPreCateg = femsVazias
+  const femsVaziasPreCateg = femsVaziasDisponiveis
     .filter(a => !filtroLoteInsem || a.lote_id === filtroLoteInsem)
     .filter(a => !filtroPropInsem || a.proprietario_id === filtroPropInsem)
   const categoriasInsemDisponiveis = [...new Set(
@@ -647,22 +927,23 @@ export default function Reprodutivo() {
     dataPartoPrevisto: form.prenhez_modo !== 'monta' ? form.data_parto_previsto : '',
   })
 
-  // Recarrega as estações do ciclo da monta calculada (pode ser diferente do
-  // cicloLocal atual — a monta de origem pode ter ficado num ciclo anterior).
+  // Item 8 (revisto) — estações de TODOS os ciclos, não só o da monta
+  // calculada: a monta de origem pode ter ficado num ciclo anterior, e
+  // mostrar tudo (cada uma já com o ciclo dela no rótulo, ver JSX) deixa o
+  // usuário escolher sem depender de a data já estar certinha primeiro.
   useEffect(() => {
-    if (modal !== 'prenhezAdquirida' || !datasPrenhezForm.dataMonta) { setEstacoesRetro([]); return }
-    const ciclo = cicloDaData(datasPrenhezForm.dataMonta)
-    if (!ciclo) { setEstacoesRetro([]); return }
+    if (modal !== 'prenhezAdquirida') { setEstacoesRetro([]); return }
     let cancelado = false
-    db.estacoesMonta.list(ciclo.id).then(({ data }) => { if (!cancelado) setEstacoesRetro(data || []) })
+    db.estacoesMonta.listAll().then(({ data }) => { if (!cancelado) setEstacoesRetro(data || []) })
     return () => { cancelado = true }
-  }, [modal, datasPrenhezForm.dataMonta])
+  }, [modal])
 
   // guardPrenhez: reentrância travada antes de qualquer validação/await (ver useSubmitGuard).
   const salvarPrenhezAdquirida = () => guardPrenhez(async () => {
     if (!podeEditarReprodCiclo) return
     const animalIds = form.prenhezAnimais || []
     if (animalIds.length === 0) { toast('Selecione ao menos uma vaca.', 'error'); return }
+    if (!form.prenhez_tipo) { toast('Informe se a prenhez veio de inseminação ou monta natural.', 'error'); return }
     if (!datasPrenhezForm.dataMonta) {
       toast('Informe a data da monta ou a data prevista de parto.', 'error'); return
     }
@@ -676,14 +957,21 @@ export default function Reprodutivo() {
     if (!ciclo) { toast('Não há ciclo cadastrado cobrindo a data da monta calculada.', 'error'); return }
     setSavingPrenhez(true)
     const { error } = await criarPrenhezAdquirida({
-      cicloId: ciclo.id, dataMonta: datasPrenhezForm.dataMonta, dataDiagnostico: hojeISO(),
+      cicloId: ciclo.id, dataMonta: datasPrenhezForm.dataMonta, dataDiagnostico: hojeISO(), tipo: form.prenhez_tipo,
       estacaoMontaId: form.criandoEstacao ? null : (form.estacao_monta_id || null),
       novaEstacao: form.criandoEstacao ? { nome: capitalizarNome(form.nova_estacao_nome), inicio: form.nova_estacao_inicio, fim: form.nova_estacao_fim } : null,
       animalIds,
     })
     setSavingPrenhez(false)
     if (error) { toast('Erro: ' + error, 'error'); return }
-    toast(`Prenhez adquirida vinculada — ${animalIds.length} vaca(s) já com diagnóstico Prenha neste novo lote.`)
+    // NUNCA troca cicloLocal aqui (bug do 3º nascimento, ver salvarParto) —
+    // o lote fica no ciclo da MONTA, que pode ser diferente do ciclo em
+    // foco. Só avisa, nunca arrasta a visualização do usuário.
+    if (ciclo.id !== cicloLocal?.id) {
+      toast(`Prenhez adquirida vinculada — ${animalIds.length} vaca(s) já com diagnóstico Prenha neste novo lote. Esse lote é do ciclo ${ciclo.nome}; selecione-o no seletor do topo para vê-lo.`)
+    } else {
+      toast(`Prenhez adquirida vinculada — ${animalIds.length} vaca(s) já com diagnóstico Prenha neste novo lote.`)
+    }
     setModal(null); setForm({})
     await loadAll()
     if (cicloLocal) loadCicloScoped(cicloLocal.id)
@@ -755,17 +1043,64 @@ export default function Reprodutivo() {
     if (cicloLocal) loadCicloScoped(cicloLocal.id)
   }
 
+  // Resolve o vínculo por id de um touro a partir só do NOME digitado —
+  // chama resolverTouroDigitado (helpers.js), a MESMA função que já rodou
+  // ao vivo pra desenhar o bloco "qual touro vai ser usado" na tela (Item 5,
+  // aprovado): tipo 'cadastro'/'externo_exato' usam o id que já estava
+  // sendo exibido, direto, sem round-trip nenhum — impossível divergir do
+  // que a tela mostrou, por construção, não por coincidência. Só tipo
+  // 'novo' precisa de rede (find-or-create, normalizarNome) — cria
+  // exatamente o que a tela já tinha prometido ("Será criado um touro
+  // externo novo: ..."). Um único ponto de resolução, reaproveitado por
+  // lote principal e touros adicionais, criação e edição.
+  const resolverVinculoTouro = async (nome) => {
+    if (!nome) return { touro_animal_id: null, touro_externo_id: null }
+    const r = resolverTouroDigitado(nome, tourosCadastrados, tourosExternos)
+    if (r?.tipo === 'cadastro') return { touro_animal_id: r.touro.id, touro_externo_id: null }
+    if (r?.tipo === 'externo_exato') return { touro_animal_id: null, touro_externo_id: r.touro.id }
+    const { data, error } = await db.tourosExternos.findOrCreate(nome)
+    if (error) return { touro_animal_id: null, touro_externo_id: null, erro: error }
+    return { touro_animal_id: null, touro_externo_id: data?.id || null }
+  }
+
+  // Resolve TODOS os touros do lote (principal + adicionais) DE UMA VEZ,
+  // ANTES de qualquer escrita — falha em QUALQUER um (inclusive um
+  // adicional, 2º em diante) aborta a gravação inteira, mesma regra pro
+  // principal e pros adicionais, nunca dois comportamentos diferentes pra
+  // mesma falha. Resolver tudo ANTES de escrever qualquer coisa (lote,
+  // update, delete de lote_touros antigos) é o que torna esse "abortar
+  // tudo" seguro sem precisar desfazer nada — se algum vínculo falha, o
+  // banco ainda não foi tocado, então não sobra gravação pela metade.
+  const resolverTodosVinculos = async (nomes) => {
+    const vinculos = await Promise.all(nomes.map(resolverVinculoTouro))
+    const idxErro = vinculos.findIndex(v => v.erro)
+    if (idxErro !== -1) return { erro: vinculos[idxErro].erro, nomeComErro: nomes[idxErro] }
+    return { vinculos }
+  }
+
   // Salvar lote (cria novo ou edita data/touro/protocolo/estação de um existente)
   // guardLote: reentrância travada ANTES de qualquer validação/await (ver
   // useSubmitGuard) — duplo clique/Enter não roda a função duas vezes.
   const salvarLote = () => guardLote(async () => {
     if (!podeEditarReprodCiclo) return
     const ehNaturalSalvar = form.tipo === 'natural'
-    // Lista única "Touros" (só monta natural) — o 1º item vai pra
+    // Lista única "Touros" (só monta natural, nomes puros — nenhum id
+    // guardado por chip, ver Item 4 aprovado) — o 1º item vai pra
     // lotes_inseminacao.touro (preserva as ~29 leituras que assumem uma
     // string única), o resto vai pra lote_touros. IA continua com form.touro.
-    const listaTouros    = ehNaturalSalvar ? (form.touros || []).filter(Boolean).map(capitalizarNome) : []
-    const touroPrincipal = ehNaturalSalvar ? listaTouros[0] : capitalizarNome(form.touro)
+    const listaTourosNatural = (form.touros || []).filter(Boolean).map(capitalizarNome)
+    const touroPrincipal = ehNaturalSalvar ? (listaTourosNatural[0] || '') : capitalizarNome(form.touro || '')
+    // listaTouros alimenta resolverTodosVinculos logo abaixo — SEMPRE com o
+    // principal na posição 0, também na IA. Bug encontrado ao vivo
+    // (2026-08-09): antes, listaTouros só era preenchida quando natural
+    // (ficava [] na IA); resolverTodosVinculos([]) devolve vinculos:[], e o
+    // destructuring `[vinculoPrincipal] = []` mais abaixo deixava
+    // vinculoPrincipal undefined — TypeError ao ler .touro_animal_id dele,
+    // travando o modal (a exceção também nunca liberava o useSubmitGuard,
+    // ver correção em useSubmitGuard.js). Só a monta natural tem
+    // "adicionais" (posição 1+, vira lote_touros) — IA é sempre um único
+    // elemento aqui.
+    const listaTouros = ehNaturalSalvar ? listaTourosNatural : (touroPrincipal ? [touroPrincipal] : [])
     if (loteEdit) {
       if (!touroPrincipal) { toast(ehNaturalSalvar ? 'Adicione pelo menos um touro.' : 'Preencha o touro.', 'error'); return }
       if (!dataEhEditavel(form.data)) {
@@ -776,25 +1111,39 @@ export default function Reprodutivo() {
         return
       }
       setSaving(true)
+      // Resolve TODOS os touros (principal + adicionais) antes de tocar no
+      // banco — falha em qualquer um aborta aqui, nada foi escrito ainda.
+      const resolucaoTouros = await resolverTodosVinculos(listaTouros)
+      if (resolucaoTouros.erro) {
+        toast(`Erro ao vincular o touro "${resolucaoTouros.nomeComErro}": ${resolucaoTouros.erro.message}`, 'error')
+        setSaving(false); return
+      }
+      const [vinculoPrincipal, ...vinculosExtras] = resolucaoTouros.vinculos
       let estacaoId = form.estacao_monta_id || null
       if (form.criandoEstacao) {
         const r = await criarEstacaoInline(loteEdit.ciclo_id)
         if (r.error) { setSaving(false); return }
         estacaoId = r.id
       }
-      const payload = { data: form.data, touro: touroPrincipal, protocolo: form.protocolo || '', estacao_monta_id: estacaoId, tipo: form.tipo || 'ia' }
+      const payload = {
+        data: form.data, touro: touroPrincipal,
+        touro_animal_id: vinculoPrincipal.touro_animal_id, touro_externo_id: vinculoPrincipal.touro_externo_id,
+        protocolo: form.protocolo || '', estacao_monta_id: estacaoId, tipo: form.tipo || 'ia',
+      }
       const { error } = await db.lotesInseminacao.update(loteEdit.id, payload)
       if (error) { toast('Erro ao atualizar lote: ' + error.message, 'error'); setSaving(false); return }
       // Touros adicionais (monta natural com vários touros) — apaga tudo e
       // recria a partir da lista atual do form; a lista é sempre pequena,
       // substituir é mais simples e seguro que fazer diff linha a linha.
+      // Vínculos já resolvidos acima (vinculosExtras) — só grava.
       if (loteEdit.lote_touros?.length > 0) {
         await Promise.all(loteEdit.lote_touros.map(t => db.loteTouros.delete(t.id)))
       }
       const extrasEdit = listaTouros.slice(1)
       if (extrasEdit.length > 0) {
-        const rows = extrasEdit.map(nome => ({
+        const rows = extrasEdit.map((nome, i) => ({
           lote_id: loteEdit.id, nome,
+          touro_animal_id: vinculosExtras[i].touro_animal_id, touro_externo_id: vinculosExtras[i].touro_externo_id,
           conta_id: loteEdit.conta_id ?? contaAtual?.id,
           fazenda_id: loteEdit.fazenda_id ?? fazendaAtual?.id,
         }))
@@ -831,6 +1180,15 @@ export default function Reprodutivo() {
     }
     setSaving(true)
     const cicloDoLote = cicloDaData(form.data)
+    // Resolve TODOS os touros (principal + adicionais) antes de tocar no
+    // banco — falha em qualquer um aborta aqui, antes até de criar a
+    // estação nova (se houver): nada fica escrito pela metade.
+    const resolucaoTouros = await resolverTodosVinculos(listaTouros)
+    if (resolucaoTouros.erro) {
+      toast(`Erro ao vincular o touro "${resolucaoTouros.nomeComErro}": ${resolucaoTouros.erro.message}`, 'error')
+      setSaving(false); return
+    }
+    const [vinculoPrincipal, ...vinculosExtras] = resolucaoTouros.vinculos
     let estacaoId = form.estacao_monta_id || null
     if (form.criandoEstacao) {
       const r = await criarEstacaoInline(cicloDoLote.id)
@@ -842,6 +1200,7 @@ export default function Reprodutivo() {
       numero: lotes.length + 1,
       data: form.data,
       touro: touroPrincipal,
+      touro_animal_id: vinculoPrincipal.touro_animal_id, touro_externo_id: vinculoPrincipal.touro_externo_id,
       protocolo: form.protocolo || '',
       estacao_monta_id: estacaoId,
       tipo: form.tipo || 'ia'
@@ -850,10 +1209,12 @@ export default function Reprodutivo() {
 
     // Touros adicionais (monta natural com vários touros) — o 1º touro já foi
     // gravado acima em lotes_inseminacao.touro; aqui só o 2º em diante.
+    // Vínculos já resolvidos acima (vinculosExtras) — só grava.
     const extrasNovo = listaTouros.slice(1)
     if (extrasNovo.length > 0) {
-      const rowsTouros = extrasNovo.map(nome => ({
+      const rowsTouros = extrasNovo.map((nome, i) => ({
         lote_id: loteData.id, nome,
+        touro_animal_id: vinculosExtras[i].touro_animal_id, touro_externo_id: vinculosExtras[i].touro_externo_id,
         conta_id: loteData.conta_id ?? contaAtual?.id,
         fazenda_id: loteData.fazenda_id ?? fazendaAtual?.id,
       }))
@@ -1422,11 +1783,19 @@ export default function Reprodutivo() {
       const situacaoBezerro = f.natimorto ? 'morto' : 'ativo'
       const dataBaixaBezerro = f.natimorto ? f.data_parto : null
       const sitReprodutivaBezerro = f.natimorto ? 'nao_se_aplica' : (f.sexo_bezerro === 'F' ? 'vazia' : 'nao_se_aplica')
+      // pai_animal_id/pai_externo_id — vínculo por id (migration_touro_
+      // vinculo_id.sql), derivado de loteVinculado (o mesmo lote já
+      // resolvido acima pra validar a janela de gestação — autoritativo,
+      // não o form). resolverPaiIdDerivado (helpers.js) já aplica a MESMA
+      // regra de paternidade indefinida de resolverPaiDerivado (`pai`
+      // texto, acima): lote com vários touros nunca grava nenhum dos dois.
+      const paiId = resolverPaiIdDerivado(loteVinculado)
       const dadosBezerroBase = {
         sexo: f.sexo_bezerro,
         data_nascimento: f.data_parto,
         raca: 'Angus', pelagem: 'Preto',
         pai: f.touro_pai || '',
+        pai_animal_id: paiId.pai_animal_id, pai_externo_id: paiId.pai_externo_id,
         mae_brinco: mae.brinco,
         mae_id: mae.id,
         proprietario_id: mae.proprietario_id,
@@ -2064,7 +2433,7 @@ export default function Reprodutivo() {
 
     const barData = todosLotes
       .filter(l => l.ciclo_id === cicloLocal?.id)
-      .map(l => { const m = calcLoteMetrics(l); return { name: `L${l.numero}·${l.touro}`, prenhez: m.txPrenhez ?? 0, paricao: m.txParicao } })
+      .map(l => { const m = calcLoteMetrics(l); return { name: `L${l.numero}·${nomeTouro(l)}`, prenhez: m.txPrenhez ?? 0, paricao: m.txParicao } })
 
     const lineData = ciclosUnicos.map(c => {
       const lc = todosLotes.filter(l => l.ciclo_id === c.id)
@@ -2090,7 +2459,7 @@ export default function Reprodutivo() {
           switch (sortCol) {
             case 'ciclo':       return r.ciclo?.nome || ''
             case 'numero':      return r.numero
-            case 'touro':       return r.touro || ''
+            case 'touro':       return nomeTouro(r)
             case 'data':        return r.data || ''
             case 'total':       return r._m.total
             case 'prenhas':     return r._m.prenhas
@@ -2106,16 +2475,37 @@ export default function Reprodutivo() {
         return sortAsc ? va - vb : vb - va
       })
 
-    // Ranking por touro — lote de monta natural com VÁRIOS touros (lote_touros)
-    // não tem como saber qual touro cobriu qual vaca, então não entra fundido
-    // com nenhum touro nomeado: cada lote assim vira sua própria linha
-    // "paternidade indefinida" no ranking (nunca soma dentro de um touro real).
+    // Ranking por touro — chave por ID (touro_animal_id/touro_externo_id,
+    // migration_touro_vinculo_id.sql), não mais por texto: dois lotes com o
+    // mesmo touro digitado de forma diferente ("Insano69"/"INSANO 69")
+    // agora somam no MESMO touro em vez de virar duas linhas fantasmas — a
+    // mesma fragilidade que o histórico do touro (Animais.jsx) já tinha
+    // antes da migração, só que aqui era pior: agregação errada virava
+    // número errado no ranking, não só rótulo estranho.
+    // Lote de monta natural com VÁRIOS touros (lote_touros) não tem como
+    // saber qual touro cobriu qual vaca, então não entra fundido com
+    // nenhum touro: cada lote assim vira sua própria linha "paternidade
+    // indefinida" no ranking (nunca soma dentro de um touro real).
+    // Lote SEM nenhum dos dois ids (legado, de antes da migração) fica
+    // FORA do ranking nomeado — apartado numa contagem à parte, nunca
+    // somado a um touro específico (mesmo tratamento do card de histórico
+    // do touro).
     const touroDados = {}
+    let legadoTotalIns = 0, legadoQtdLotes = 0
     todosLotes.forEach(l => {
       if (!l.touro) return
-      const chave = l.lote_touros?.length > 0 ? `Monta natural (vários touros) — Lote Nº ${l.numero}` : l.touro
       const m = calcLoteMetrics(l)
-      if (!touroDados[chave]) touroDados[chave] = { touro: chave, totalIns: 0, totalPrn: 0 }
+      if (l.lote_touros?.length > 0) {
+        const chave = `indefinida:${l.id}`
+        touroDados[chave] = { chave, touro: `Monta natural (vários touros) — Lote Nº ${l.numero}`, totalIns: m.total, totalPrn: m.prenhas }
+        return
+      }
+      if (!l.touro_animal_id && !l.touro_externo_id) {
+        legadoTotalIns += m.total; legadoQtdLotes += 1
+        return
+      }
+      const chave = l.touro_animal_id ? `animal:${l.touro_animal_id}` : `externo:${l.touro_externo_id}`
+      if (!touroDados[chave]) touroDados[chave] = { chave, touro: nomeTouro(l), totalIns: 0, totalPrn: 0 }
       touroDados[chave].totalIns += m.total
       touroDados[chave].totalPrn += m.prenhas
     })
@@ -2127,7 +2517,7 @@ export default function Reprodutivo() {
       lotesCicloAtual, kpiInsTotal, kpiIns, kpiPrn, kpiPartos, kpiMortalidade, kpiAbortos, kpiGestando,
       kpiPerdasNaoIdentificadas, kpiPerdaGestacional, kpiMatrizesAptas, kpiTxAproveitamento, kpiPesoMedioNascimento,
       kpiDesmame, previsaoSafraCiclo, kpiIntervalo,
-      barData, lineData, pieData, tabelaLotes, tourosRanking,
+      barData, lineData, pieData, tabelaLotes, tourosRanking, legadoTotalIns, legadoQtdLotes,
     }
   }, [todosLotes, todosPartos, cicloLocal, animais, todosAnimaisHistorico, sortCol, sortAsc, filtroPropIdx])
 
@@ -2138,7 +2528,7 @@ export default function Reprodutivo() {
     lotesCicloAtual, kpiInsTotal, kpiIns, kpiPrn, kpiPartos, kpiMortalidade, kpiAbortos, kpiGestando,
     kpiPerdasNaoIdentificadas, kpiPerdaGestacional, kpiMatrizesAptas, kpiTxAproveitamento, kpiPesoMedioNascimento,
     kpiDesmame, previsaoSafraCiclo, kpiIntervalo,
-    barData, lineData, pieData, tabelaLotes, tourosRanking,
+    barData, lineData, pieData, tabelaLotes, tourosRanking, legadoTotalIns, legadoQtdLotes,
   } = idx
 
   // Previsão de parto do lote selecionado (data da inseminação + gestação padrão)
@@ -2172,7 +2562,28 @@ export default function Reprodutivo() {
             <button key={t} className={`tab-btn ${tab===i?'active':''}`} onClick={() => { setTab(i); setSelLote(null) }}>{t}</button>
           ))}
         </div>
-        <BotaoPDF contentRef={pdfAtual.ref} filename={pdfAtual.filename} titulo={pdfAtual.titulo} />
+        <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+          {/* Só na lista de lotes (não no detalhe de um lote aberto nem nas
+              outras abas) — ciclo já tem lotes, então os botões ficam ao lado
+              do Gerar PDF em vez de no meio da tela (esse é o caso do
+              EmptyState abaixo, quando o ciclo ainda não tem nenhum lote). */}
+          {tab === 0 && !selLote && lotes.length > 0 && cicloAnterior && (
+            <div style={{ position: 'relative' }}>
+              <button className="btn btn-secondary btn-sm" onClick={irParaCicloAnterior}>
+                <i className="ti ti-history" /> Ver ciclo anterior
+              </button>
+              {balaoCicloAnteriorAberto && (
+                <BalaoPendenciaCicloAnterior texto={textoBalaoCicloAnterior} onFechar={fecharBalaoCicloAnterior} />
+              )}
+            </div>
+          )}
+          {tab === 0 && !selLote && lotes.length > 0 && cicloProximo && (
+            <button className="btn btn-secondary btn-sm" onClick={irParaCicloProximo}>
+              <i className="ti ti-history" /> Ver próximo ciclo
+            </button>
+          )}
+          <BotaoPDF contentRef={pdfAtual.ref} filename={pdfAtual.filename} titulo={pdfAtual.titulo} />
+        </div>
       </div>
 
       {/* ── Lotes ── */}
@@ -2238,7 +2649,7 @@ export default function Reprodutivo() {
                   <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:8 }}>
                     <div>
                       <div style={{ fontWeight:500, display:'flex', alignItems:'center', gap:6 }}>
-                        Lote {l.numero} — {l.touro}
+                        Lote {l.numero} — {nomeTouro(l)}
                         {l.lote_touros?.length > 0 && <Badge color="purple">+{l.lote_touros.length} touro{l.lote_touros.length!==1?'s':''}</Badge>}
                       </div>
                       <div style={{ fontSize:'.78rem', color:'#9CA3AF' }}>{fmtData(l.data)} · Parto prev: {l.data ? new Date(new Date(l.data).setMonth(new Date(l.data).getMonth()+9)).toLocaleDateString('pt-BR') : '—'}</div>
@@ -2269,12 +2680,12 @@ export default function Reprodutivo() {
                 <span style={{ fontSize:'.85rem', color:'#6B7280' }}>{lotes.length} lote{lotes.length!==1?'s':''} · Ciclo {cicloLocal?.nome}</span>
                 <div style={{ display:'flex', flexWrap:'wrap', gap:8 }}>
                   {podeEditarReprodCiclo && (
-                    <button className="btn btn-primary btn-sm" onClick={() => { setLoteEdit(null); setForm({ tipo: 'ia', data: hojeISO() }); setModal('lote'); setSelBrs([]) }}>
+                    <button className="btn btn-primary btn-sm" onClick={() => abrirModalNovoLote('ia')}>
                       <i className="ti ti-plus" /> Novo lote de inseminação
                     </button>
                   )}
                   {podeEditarReprodCiclo && (
-                    <button className="btn btn-primary btn-sm" onClick={() => { setLoteEdit(null); setForm({ tipo: 'natural', touros: [], data: hojeISO() }); setModal('lote'); setSelBrs([]) }}>
+                    <button className="btn btn-primary btn-sm" onClick={() => abrirModalNovoLote('natural')}>
                       <i className="ti ti-plus" /> Nova monta natural
                     </button>
                   )}
@@ -2297,10 +2708,38 @@ export default function Reprodutivo() {
               <div ref={refLotes}>
               {lotes.length === 0
                 ? <EmptyState icon="💉" title="Nenhum lote registrado" sub="Registre o primeiro lote de inseminação ou monta natural do ciclo."
-                    action={podeEditarReprodCiclo ? (
-                      <div style={{ display:'flex', gap:8, flexWrap:'wrap', justifyContent:'center' }}>
-                        <button className="btn btn-primary btn-sm" onClick={()=>{setLoteEdit(null);setForm({ tipo: 'ia', data: hojeISO() });setModal('lote');setSelBrs([])}}><i className="ti ti-plus"/>Inseminação</button>
-                        <button className="btn btn-primary btn-sm" onClick={()=>{setLoteEdit(null);setForm({ tipo: 'natural', touros: [], data: hojeISO() });setModal('lote');setSelBrs([])}}><i className="ti ti-plus"/>Monta natural</button>
+                    action={(podeEditarReprodCiclo || cicloAnterior || cicloProximo) ? (
+                      <div style={{ display:'flex', flexDirection:'column', gap:12, alignItems:'center' }}>
+                        {podeEditarReprodCiclo && (
+                          <div style={{ display:'flex', gap:8, flexWrap:'wrap', justifyContent:'center' }}>
+                            <button className="btn btn-primary btn-sm" onClick={() => abrirModalNovoLote('ia')}><i className="ti ti-plus"/>Inseminação</button>
+                            <button className="btn btn-primary btn-sm" onClick={() => abrirModalNovoLote('natural')}><i className="ti ti-plus"/>Monta natural</button>
+                          </div>
+                        )}
+                        {/* Botões extras (não são os mesmos da faixa do Gerar PDF,
+                            que só aparece quando o ciclo já TEM lotes) — condição
+                            única (ciclo selecionado sem nenhum lote, com ou sem
+                            estação) pra não divergir da faixa do Gerar PDF, que usa
+                            exatamente o espelho dessa condição (lotes.length > 0). */}
+                        {(cicloAnterior || cicloProximo) && (
+                          <div style={{ display:'flex', gap:8, flexWrap:'wrap', justifyContent:'center' }}>
+                            {cicloAnterior && (
+                              <div style={{ position: 'relative' }}>
+                                <button className="btn btn-secondary btn-sm" onClick={irParaCicloAnterior}>
+                                  <i className="ti ti-history" /> Ver ciclo anterior
+                                </button>
+                                {balaoCicloAnteriorAberto && (
+                                  <BalaoPendenciaCicloAnterior texto={textoBalaoCicloAnterior} onFechar={fecharBalaoCicloAnterior} />
+                                )}
+                              </div>
+                            )}
+                            {cicloProximo && (
+                              <button className="btn btn-secondary btn-sm" onClick={irParaCicloProximo}>
+                                <i className="ti ti-history" /> Ver próximo ciclo
+                              </button>
+                            )}
+                          </div>
+                        )}
                       </div>
                     ) : undefined} />
                 : (
@@ -2340,7 +2779,7 @@ export default function Reprodutivo() {
             onClose={() => setConfirmExcluirLote(null)}
             onConfirm={executarExcluirLote}
             title="Excluir lote"
-            message={confirmExcluirLote && `Excluir o Lote ${confirmExcluirLote.numero} (${confirmExcluirLote.touro})? As inseminações sem diagnóstico serão removidas.`}
+            message={confirmExcluirLote && `Excluir o Lote ${confirmExcluirLote.numero} (${nomeTouro(confirmExcluirLote)})? As inseminações sem diagnóstico serão removidas.`}
             danger
           />
         </div>
@@ -2354,16 +2793,19 @@ export default function Reprodutivo() {
               <i className="ti ti-arrow-left" /> Lotes
             </button>
             <span style={{ fontWeight:500, display:'flex', alignItems:'center', gap:6 }}>
-              Lote {selLote.numero} — {selLote.touro} · {fmtData(selLote.data)}
+              Lote {selLote.numero} — {nomeTouro(selLote)} · {fmtData(selLote.data)}
               <Badge color={selLote.tipo === 'natural' ? 'purple' : 'blue'}>{selLote.tipo === 'natural' ? 'Natural' : 'IA'}</Badge>
             </span>
             {podeEditarReprodCiclo && (
               <button className="btn btn-secondary btn-sm" onClick={() => {
                 setLoteEdit(selLote)
                 setForm({
-                  data: selLote.data, touro: selLote.touro, protocolo: selLote.protocolo || '',
+                  data: selLote.data, touro: selLote.touro,
+                  protocolo: selLote.protocolo || '',
                   estacao_monta_id: selLote.estacao_monta_id || '', tipo: selLote.tipo || 'ia',
-                  touros: selLote.tipo === 'natural' ? [selLote.touro, ...(selLote.lote_touros || []).map(t => t.nome)].filter(Boolean) : [],
+                  touros: selLote.tipo === 'natural'
+                    ? [selLote.touro, ...(selLote.lote_touros || []).map(t => t.nome)].filter(Boolean)
+                    : [],
                 })
                 setModal('lote')
               }}>
@@ -2371,7 +2813,7 @@ export default function Reprodutivo() {
               </button>
             )}
             {podeEditarReprodCiclo && (
-              <button className="btn btn-secondary btn-sm" onClick={() => { setSelBrsAdd([]); setFiltroLoteInsem(''); setFiltroPropInsem(''); setFiltroCategInsem(''); setModal('addAnimaisLote') }}>
+              <button className="btn btn-secondary btn-sm" onClick={() => { if (todosStale) loadTodos(); setSelBrsAdd([]); setFiltroLoteInsem(''); setFiltroPropInsem(''); setFiltroCategInsem(''); setModal('addAnimaisLote') }}>
                 <i className="ti ti-plus" /> Adicionar animais
               </button>
             )}
@@ -2379,8 +2821,8 @@ export default function Reprodutivo() {
           {selLote.lote_touros?.length > 0 && (
             <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap', marginBottom:14 }}>
               <span style={{ fontSize:'.78rem', color:'#6B7280' }}>Touros deste lote:</span>
-              <Badge color="purple">{selLote.touro}</Badge>
-              {selLote.lote_touros.map(t => <Badge key={t.id} color="purple">{t.nome}</Badge>)}
+              <Badge color="purple">{nomeTouro(selLote)}</Badge>
+              {selLote.lote_touros.map(t => <Badge key={t.id} color="purple">{nomeTouro(t)}</Badge>)}
               <span style={{ fontSize:'.72rem', color:'#92620A' }}>
                 <i className="ti ti-alert-triangle" style={{ fontSize:11 }} /> Vários touros — paternidade indefinida nos bezerros deste lote.
               </span>
@@ -3051,7 +3493,7 @@ export default function Reprodutivo() {
         // Opções dos filtros de touro/lote/estação (Fase 10 — etapa D) vêm de
         // TODOS os partosNasc, não de pFilt já filtrado — senão a opção some
         // da lista assim que outro filtro a exclui dos resultados visíveis.
-        const touroOpcoes = [...new Set((partosNasc || []).map(p => loteDoParto(p)?.touro).filter(Boolean))].sort()
+        const touroOpcoes = [...new Set((partosNasc || []).map(p => { const l = loteDoParto(p); return l ? nomeTouro(l) : null }).filter(Boolean))].sort()
         const loteOpcoes = [...new Map((partosNasc || []).map(p => {
           const l = loteDoParto(p)
           return l ? [l.id, l] : null
@@ -3065,7 +3507,7 @@ export default function Reprodutivo() {
           if (filtroSexoNasc && p.bezerro?.sexo !== filtroSexoNasc) return false
           if (filtroLoteNasc && p.lote_inseminacao_id !== filtroLoteNasc) return false
           const loteP = loteDoParto(p)
-          if (filtroTouroNasc && loteP?.touro !== filtroTouroNasc) return false
+          if (filtroTouroNasc && (loteP ? nomeTouro(loteP) : null) !== filtroTouroNasc) return false
           if (filtroEstacaoNasc && loteP?.estacao?.id !== filtroEstacaoNasc) return false
           return true
         })
@@ -3126,7 +3568,7 @@ export default function Reprodutivo() {
                 <select value={filtroLoteNasc} onChange={e => setFiltroLoteNasc(e.target.value)}
                   className="input" style={{ maxWidth:260 }}>
                   <option value="">Todos os lotes</option>
-                  {loteOpcoes.map(l => <option key={l.id} value={l.id}>Lote {l.numero} — {l.touro} ({fmtData(l.data)})</option>)}
+                  {loteOpcoes.map(l => <option key={l.id} value={l.id}>Lote {l.numero} — {nomeTouro(l)} ({fmtData(l.data)})</option>)}
                 </select>
                 <select value={filtroEstacaoNasc} onChange={e => setFiltroEstacaoNasc(e.target.value)}
                   className="input" style={{ maxWidth:200 }}>
@@ -3213,7 +3655,7 @@ export default function Reprodutivo() {
                             </td>
                             <td style={{ fontSize:'.82rem', color:'#6B7280' }}>
                               {loteDoP
-                                ? loteDoP.touro
+                                ? nomeTouro(loteDoP)
                                 : (
                                   <span title="Sem lote vinculado — fora dos índices da safra (parição, mortalidade, GMD Terneiros etc.)"
                                     style={{ fontSize:'.72rem', fontWeight:600, color:'#92620A', background:'#FEF3C7', border:'.5px solid #F3D5A3', borderRadius:12, padding:'2px 8px', whiteSpace:'nowrap', cursor:'help' }}>
@@ -3353,7 +3795,7 @@ export default function Reprodutivo() {
                           {lotesDaEstacao.length === 0
                             ? <span style={{ fontSize:'.82rem', color:'#9CA3AF' }}>Nenhum lote vinculado a esta estação ainda.</span>
                             : lotesDaEstacao.map(l => (
-                                <Badge key={l.id} color="gray">Lote {l.numero} — {l.touro} ({l.inseminacoes?.length||0} insem.)</Badge>
+                                <Badge key={l.id} color="gray">Lote {l.numero} — {nomeTouro(l)} ({l.inseminacoes?.length||0} insem.)</Badge>
                               ))
                           }
                         </div>
@@ -3490,7 +3932,7 @@ export default function Reprodutivo() {
                           )}
                         </td>
                         <td>{row.numero}</td>
-                        <td>{row.touro}</td>
+                        <td>{nomeTouro(row)}</td>
                         <td style={{ fontSize:'.78rem', whiteSpace:'nowrap' }}>{fmtData(row.data)}</td>
                         <td>{row._m.total}</td>
                         <td style={{ color:'#1E55B0' }}>{row._m.prenhas}</td>
@@ -3516,7 +3958,7 @@ export default function Reprodutivo() {
               {tourosRanking.length === 0
                 ? <p style={{ color:'#9CA3AF', fontSize:'.85rem', textAlign:'center' }}>Sem dados de touros.</p>
                 : tourosRanking.map((t, i) => (
-                    <div key={t.touro} style={{ marginBottom:14 }}>
+                    <div key={t.chave} style={{ marginBottom:14 }}>
                       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:5 }}>
                         <div style={{ display:'flex', alignItems:'center', gap:8 }}>
                           <span style={{ fontSize:'.85rem', fontWeight:700, minWidth:22, color: i===0?'#D97706':i===1?'#6B7280':i===2?'#A0522D':'#9CA3AF' }}>
@@ -3535,6 +3977,15 @@ export default function Reprodutivo() {
                     </div>
                   ))
               }
+              {/* Legado (sem vínculo por id, só texto de antes da migração) —
+                  apartado, nunca somado a um touro específico no ranking
+                  acima (mesmo tratamento do card de histórico do touro,
+                  Animais.jsx). */}
+              {legadoQtdLotes > 0 && (
+                <div style={{ fontSize:'.75rem', color:'#9CA3AF', marginTop:8, paddingTop:8, borderTop:'.5px solid #F3F4F6' }}>
+                  <i className="ti ti-info-circle" style={{ fontSize:12 }} /> +{legadoTotalIns} inseminação(ões) em {legadoQtdLotes} lote(s) sem vínculo de cadastro (texto legado, de antes da vinculação por id) — fora do ranking acima.
+                </div>
+              )}
             </div>
 
           </div>{/* end refIndices */}
@@ -3583,16 +4034,6 @@ export default function Reprodutivo() {
                 setForm(p => ({ ...p, data: novaData }))
               }} />
           </Field>
-          {!ehNatural && (
-            <Field label="Touro" required>
-              <input value={form.touro||''} onChange={e=>setForm(p=>({...p,touro:e.target.value}))} placeholder="Nome do touro" />
-            </Field>
-          )}
-          {!ehNatural && (
-            <Field label="Protocolo">
-              <input value={form.protocolo||''} onChange={e=>setForm(p=>({...p,protocolo:e.target.value}))} placeholder="ex: IATF P4" />
-            </Field>
-          )}
           <Field label="Estação de monta" hint="Agrupa este lote com os demais desta estação (IATF, repasses, montas naturais)">
             <select
               value={form.criandoEstacao ? '__nova__' : (form.estacao_monta_id || '')}
@@ -3609,23 +4050,61 @@ export default function Reprodutivo() {
             </select>
           </Field>
         </div>
+        {/* Touro (IA) — fora do grid de 2 colunas, de propósito: dividir
+            espaço com Data deixava o campo de texto livre espremido ao lado
+            do seletor, difícil de notar/usar (relatado ao vivo). Full-width
+            logo abaixo de Data, mesmo tratamento espacial que a monta
+            natural já tinha pros touros dela. */}
+        {!ehNatural && (
+          <div style={{ marginBottom:14 }}>
+            {/* hint só aparece com o campo VAZIO — assim que existe texto, o
+                bloco de resolução (ResolucaoTouro) assume a comunicação;
+                nunca os dois juntos dizendo coisas parecidas. */}
+            <Field label="Touro" required hint={!form.touro ? 'Digite o nome do touro ou selecione um touro cadastrado.' : undefined}>
+              <div style={{ display:'flex', gap:6 }}>
+                <input value={form.touro||''}
+                  onChange={e => setForm(p => ({ ...p, touro: e.target.value }))}
+                  placeholder="Nome do touro" style={{ flex:1 }} />
+                <SeletorTouro tourosCadastrados={tourosCadastrados} tourosExternos={tourosExternos}
+                  onSelect={nome => setForm(p => ({ ...p, touro: nome }))} />
+              </div>
+              <ResolucaoTouro texto={form.touro} tourosCadastrados={tourosCadastrados} tourosExternos={tourosExternos}
+                onEscolherAproximado={nome => setForm(p => ({ ...p, touro: nome }))} />
+            </Field>
+          </div>
+        )}
+        {!ehNatural && (
+          <div style={{ marginBottom:14, maxWidth:220 }}>
+            <Field label="Protocolo">
+              <input value={form.protocolo||''} onChange={e=>setForm(p=>({...p,protocolo:e.target.value}))} placeholder="ex: IATF P4" />
+            </Field>
+          </div>
+        )}
         {ehNatural && (
           <div style={{ marginBottom:14 }}>
             <label style={{ marginBottom:6, display:'block' }}>
-              Touros <span style={{ fontWeight:400, fontSize:'.75rem', color:'#9CA3AF' }}>(pelo menos 1 — o 1º da lista é o principal)</span>
+              Touros <span style={{ fontWeight:400, fontSize:'.75rem', color:'#9CA3AF' }}>(pelo menos 1 — o 1º da lista é o principal; digite um nome ou selecione um touro cadastrado, um de cada vez)</span>
             </label>
             {(form.touros || []).length > 0 && (
               <div style={{ display:'flex', flexWrap:'wrap', gap:5, marginBottom:8 }}>
-                {form.touros.map((nome, i) => (
-                  <span key={i} style={{
-                    background:'#F3E8FF', color:'#5B2A9E', border:'.5px solid #C4B5FD',
-                    borderRadius:10, padding:'2px 8px', fontSize:'.8rem', display:'inline-flex', alignItems:'center', gap:4
-                  }}>
-                    {nome}
-                    <button type="button" onClick={() => setForm(p => ({ ...p, touros: p.touros.filter((_, j) => j !== i) }))}
-                      style={{ background:'none',border:'none',color:'#7B2FBE',cursor:'pointer',fontSize:14,padding:0 }}>×</button>
-                  </span>
-                ))}
+                {form.touros.map((nome, i) => {
+                  // Ícone recalculado ao vivo (mesma resolução do bloco
+                  // abaixo) — nunca guardado no momento em que o chip foi
+                  // criado, pra nunca poder divergir do que vai ser gravado.
+                  const rChip = resolverTouroDigitado(nome, tourosCadastrados, tourosExternos)
+                  return (
+                    <span key={i} style={{
+                      background:'#F3E8FF', color:'#5B2A9E', border:'.5px solid #C4B5FD',
+                      borderRadius:10, padding:'2px 8px', fontSize:'.8rem', display:'inline-flex', alignItems:'center', gap:4
+                    }}>
+                      {rChip?.tipo === 'cadastro' && <i className="ti ti-home" style={{ fontSize:11 }} title="Touro cadastrado" />}
+                      {rChip?.tipo === 'externo_exato' && <i className="ti ti-link" style={{ fontSize:11 }} title="Touro externo já usado" />}
+                      {nome}
+                      <button type="button" onClick={() => setForm(p => ({ ...p, touros: p.touros.filter((_, j) => j !== i) }))}
+                        style={{ background:'none',border:'none',color:'#7B2FBE',cursor:'pointer',fontSize:14,padding:0 }}>×</button>
+                    </span>
+                  )
+                })}
               </div>
             )}
             <div style={{ display:'flex', gap:8 }}>
@@ -3645,7 +4124,11 @@ export default function Reprodutivo() {
               }}>
                 <i className="ti ti-plus" /> Adicionar
               </button>
+              <SeletorTouro tourosCadastrados={tourosCadastrados} tourosExternos={tourosExternos}
+                onSelect={nome => setForm(p => ({ ...p, touros: [...(p.touros || []), nome] }))} />
             </div>
+            <ResolucaoTouro texto={form.novoTouro} tourosCadastrados={tourosCadastrados} tourosExternos={tourosExternos}
+              onEscolherAproximado={nome => setForm(p => ({ ...p, novoTouro: nome }))} />
             {(form.touros || []).length > 1 && (
               <div style={{ fontSize:'.72rem', color:'#92620A', marginTop:6 }}>
                 <i className="ti ti-alert-triangle" style={{ fontSize:11 }} /> Com mais de um touro, a paternidade dos bezerros deste lote fica indefinida — o pai é registrado como "Monta natural — Lote", não um touro específico.
@@ -3701,9 +4184,12 @@ export default function Reprodutivo() {
           )}
           <div style={{ fontSize:'.75rem', color:'#6B7280', marginBottom:6 }}>
             Apenas vacas vazias estão disponíveis para {ehNatural ? 'monta natural' : 'inseminação'}.
+            {qtdVaziasOcultasPendentes > 0 && (
+              <> {qtdVaziasOcultasPendentes} vaca{qtdVaziasOcultasPendentes !== 1 ? 's' : ''} vazia{qtdVaziasOcultasPendentes !== 1 ? 's' : ''} não aparece{qtdVaziasOcultasPendentes !== 1 ? 'm' : ''} aqui por já estar{qtdVaziasOcultasPendentes !== 1 ? 'em' : ''} com diagnóstico pendente em outro lote.</>
+            )}
           </div>
           {/* Busca/adiciona direto por brinco, além dos filtros e da lista abaixo —
-              mesma lógica do MicButton (achar em femsVazias e togSel), só via texto. */}
+              mesma lógica do MicButton (achar em femsVaziasDisponiveis e togSel), só via texto. */}
           <div style={{ display:'flex', gap:8, marginBottom:8 }}>
             <input
               value={buscaBrincoLote}
@@ -3712,7 +4198,7 @@ export default function Reprodutivo() {
                 if (e.key !== 'Enter') return
                 e.preventDefault()
                 const br = buscaBrincoLote.trim()
-                const a = femsVazias.find(x => x.brinco === br) || femsVazias.find(x => x.brinco === br.padStart(2,'0'))
+                const a = femsVaziasDisponiveis.find(x => x.brinco === br) || femsVaziasDisponiveis.find(x => x.brinco === br.padStart(2,'0'))
                 if (!a) { toast('Brinco não encontrado entre as vacas vazias disponíveis.', 'error'); return }
                 if (!selBrs.includes(a.brinco)) togSel(a.brinco)
                 setBuscaBrincoLote('')
@@ -3720,7 +4206,7 @@ export default function Reprodutivo() {
               placeholder="Buscar/adicionar por brinco…" style={{ flex:1 }} />
             <button type="button" className="btn btn-secondary btn-xs" onClick={() => {
               const br = buscaBrincoLote.trim()
-              const a = femsVazias.find(x => x.brinco === br) || femsVazias.find(x => x.brinco === br.padStart(2,'0'))
+              const a = femsVaziasDisponiveis.find(x => x.brinco === br) || femsVaziasDisponiveis.find(x => x.brinco === br.padStart(2,'0'))
               if (!a) { toast('Brinco não encontrado entre as vacas vazias disponíveis.', 'error'); return }
               if (!selBrs.includes(a.brinco)) togSel(a.brinco)
               setBuscaBrincoLote('')
@@ -3803,6 +4289,9 @@ export default function Reprodutivo() {
           )}
           <div style={{ fontSize:'.75rem', color:'#6B7280', marginBottom:6 }}>
             Apenas vacas vazias que ainda não estão neste lote estão disponíveis.
+            {qtdVaziasOcultasPendentes > 0 && (
+              <> {qtdVaziasOcultasPendentes} vaca{qtdVaziasOcultasPendentes !== 1 ? 's' : ''} vazia{qtdVaziasOcultasPendentes !== 1 ? 's' : ''} não aparece{qtdVaziasOcultasPendentes !== 1 ? 'm' : ''} aqui por já estar{qtdVaziasOcultasPendentes !== 1 ? 'em' : ''} com diagnóstico pendente em outro lote.</>
+            )}
           </div>
           <PainelFiltroAnimais
             lotesSistema={lotesSistema} proprietarios={proprietarios} categorias={categoriasInsemDisponiveis}
@@ -3967,6 +4456,13 @@ export default function Reprodutivo() {
           )}
         </Field>
         <div className="grid-form">
+          <Field label="A prenhez veio de..." required>
+            <select value={form.prenhez_tipo || ''} onChange={e=>setForm(p=>({...p, prenhez_tipo:e.target.value}))}>
+              <option value="">— selecione —</option>
+              <option value="ia">Inseminação</option>
+              <option value="natural">Monta natural</option>
+            </select>
+          </Field>
           <Field label="Você sabe...">
             <select value={form.prenhez_modo || 'parto'} onChange={e=>setForm(p=>({...p, prenhez_modo:e.target.value, data_monta:'', data_parto_previsto:''}))}>
               <option value="parto">A data prevista de parto</option>
@@ -3989,7 +4485,7 @@ export default function Reprodutivo() {
             {' '}(gestação de {GESTACAO_ANGUS_DIAS} dias)
           </div>
         )}
-        <Field label="Estação de monta" hint="Agrupa este lote com as demais montas desta estação">
+        <Field label="Estação de monta" hint="Estações de qualquer ciclo — a monta de origem pode ter sido num ciclo anterior; o ciclo de cada uma aparece entre parênteses.">
           <select
             value={form.criandoEstacao ? '__nova__' : (form.estacao_monta_id || '')}
             onChange={e => {
@@ -3999,7 +4495,7 @@ export default function Reprodutivo() {
             }}>
             <option value="">— nenhuma —</option>
             {estacoesRetro.map(es => (
-              <option key={es.id} value={es.id}>{es.nome} ({fmtData(es.inicio)}{es.fim ? ` – ${fmtData(es.fim)}` : ''})</option>
+              <option key={es.id} value={es.id}>{es.nome} ({es.ciclo?.nome || '—'} · {fmtData(es.inicio)}{es.fim ? ` – ${fmtData(es.fim)}` : ''})</option>
             ))}
             <option value="__nova__">+ Criar nova estação de monta…</option>
           </select>
@@ -4188,8 +4684,8 @@ export default function Reprodutivo() {
                 <div style={{ fontSize:'.92rem', fontWeight:700, color:'#1E55B0', marginBottom: 8 }}>
                   Vinculado: Lote {loteVinculado.numero} — {loteVinculado.ciclo?.nome || ''} — {
                     (loteVinculado.lote_touros?.length > 0)
-                      ? `vários touros (paternidade indefinida): ${[loteVinculado.touro, ...loteVinculado.lote_touros.map(t => t.nome)].join(', ')}`
-                      : loteVinculado.touro
+                      ? `vários touros (paternidade indefinida): ${[nomeTouro(loteVinculado), ...loteVinculado.lote_touros.map(t => nomeTouro(t))].join(', ')}`
+                      : nomeTouro(loteVinculado)
                   } · {loteVinculado.tipo === 'natural' ? 'Monta Natural' : 'IA'} ({fmtData(loteVinculado.data)})
                 </div>
               )}
@@ -4209,7 +4705,7 @@ export default function Reprodutivo() {
                   style={{ width:'100%' }}>
                   <option value="">— selecione o lote —</option>
                   {candidatos.map(l => (
-                    <option key={l.id} value={l.id}>Lote {l.numero} — {l.ciclo?.nome || ''} — {l.touro} · {l.tipo === 'natural' ? 'Monta Natural' : 'IA'} ({fmtData(l.data)})</option>
+                    <option key={l.id} value={l.id}>Lote {l.numero} — {l.ciclo?.nome || ''} — {nomeTouro(l)} · {l.tipo === 'natural' ? 'Monta Natural' : 'IA'} ({fmtData(l.data)})</option>
                   ))}
                 </select>
               ) : (
@@ -4351,7 +4847,7 @@ export default function Reprodutivo() {
                   </div>
                   <div style={{ fontSize:'.92rem', fontWeight:700, color: erroJanela ? '#791F1F' : (loteVinculado ? '#1E55B0' : '#92620A'), marginBottom: 8 }}>
                     {loteVinculado
-                      ? <>Vinculado: Lote {loteVinculado.numero} — {loteVinculado.ciclo?.nome || ''} — {loteVinculado.touro} · {loteVinculado.tipo === 'natural' ? 'Monta Natural' : 'IA'} ({fmtData(loteVinculado.data)})</>
+                      ? <>Vinculado: Lote {loteVinculado.numero} — {loteVinculado.ciclo?.nome || ''} — {nomeTouro(loteVinculado)} · {loteVinculado.tipo === 'natural' ? 'Monta Natural' : 'IA'} ({fmtData(loteVinculado.data)})</>
                       : <>Sem lote vinculado — fora dos índices da safra (parição, mortalidade, GMD Terneiros etc.)</>}
                   </div>
                   {candidatos.length > 0 ? (
@@ -4360,7 +4856,7 @@ export default function Reprodutivo() {
                       style={{ width:'100%' }}>
                       <option value="">— nenhum (sem lote) —</option>
                       {candidatos.map(l => (
-                        <option key={l.id} value={l.id}>Lote {l.numero} — {l.ciclo?.nome || ''} — {l.touro} · {l.tipo === 'natural' ? 'Monta Natural' : 'IA'} ({fmtData(l.data)})</option>
+                        <option key={l.id} value={l.id}>Lote {l.numero} — {l.ciclo?.nome || ''} — {nomeTouro(l)} · {l.tipo === 'natural' ? 'Monta Natural' : 'IA'} ({fmtData(l.data)})</option>
                       ))}
                     </select>
                   ) : (

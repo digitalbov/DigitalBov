@@ -5,7 +5,7 @@ import { Field, AlertBox } from '../../../components/UI'
 // campos e componente <Field>, estado 100% local, não grava nada. Mesma
 // convenção de demonstração usada nas outras seções do manual.
 function DemoNovoAnimal() {
-  const [demo, setDemo] = useState({ brinco: '', sisbov: '', sexo: 'F', data_nascimento: '', numero_registro: '', classificacao: '', pai: '', mae_brinco: '' })
+  const [demo, setDemo] = useState({ brinco: '', sisbov: '', sexo: 'F', data_nascimento: '', numero_registro: '', nome: '', classificacao: '', pai: '', mae_brinco: '' })
 
   return (
     <div data-pdf-shot="true" style={{
@@ -27,6 +27,12 @@ function DemoNovoAnimal() {
           <input value={demo.sisbov} inputMode="numeric" placeholder="15 dígitos"
             onChange={e => setDemo(p => ({ ...p, sisbov: e.target.value.replace(/\D/g, '') }))} />
         </Field>
+        <Field label="Número do Registro" hint="Opcional — texto livre.">
+          <input value={demo.numero_registro} onChange={e => setDemo(p => ({ ...p, numero_registro: e.target.value }))} placeholder="ex: PO-12345" />
+        </Field>
+        <Field label="Nome" hint="Opcional — o brinco continua sendo a identificação principal.">
+          <input value={demo.nome} onChange={e => setDemo(p => ({ ...p, nome: e.target.value }))} placeholder="ex: Estrela" />
+        </Field>
         <Field label="Sexo" required>
           <select value={demo.sexo} onChange={e => setDemo(p => ({ ...p, sexo: e.target.value }))}>
             <option value="F">Fêmea</option>
@@ -38,9 +44,6 @@ function DemoNovoAnimal() {
         </Field>
         <Field label="Categoria" hint="Calculada automaticamente" hintInline>
           <input type="text" readOnly value="—" style={{ background: '#F3F4F6', color: '#9CA3AF', cursor: 'default' }} />
-        </Field>
-        <Field label="Número do Registro" hint="Opcional — texto livre.">
-          <input value={demo.numero_registro} onChange={e => setDemo(p => ({ ...p, numero_registro: e.target.value }))} placeholder="ex: PO-12345" />
         </Field>
         <Field label="Classificação" hint="Opcional.">
           <select value={demo.classificacao} onChange={e => setDemo(p => ({ ...p, classificacao: e.target.value }))}>
@@ -80,8 +83,8 @@ export default function SecaoAnimais({ item }) {
       <ol style={{ color: '#374151', fontSize: '.85rem', lineHeight: 1.8, marginBottom: 8, paddingLeft: 20 }}>
         <li>Clique em <strong>"Novo animal"</strong>.</li>
         <li>Preencha <strong>brinco</strong>, <strong>sexo</strong> e <strong>data de nascimento</strong> — a <strong>categoria</strong> é calculada sozinha a partir da data de nascimento, você não escolhe.</li>
-        <li><strong>SISBOV</strong>, <strong>Número do Registro</strong> e <strong>Classificação</strong> (PO/PA/CO/N-A) são opcionais. O SISBOV só aceita números; o padrão brasileiro tem 15 dígitos — se você digitar um número diferente disso, o sistema avisa mas deixa salvar do mesmo jeito (útil para registros em formato antigo).</li>
-        <li>Se for um macho reprodutor, marque <strong>"É touro"</strong> — isso faz ele contar como Touro para sempre, não importa a idade.</li>
+        <li><strong>SISBOV</strong>, <strong>Número do Registro</strong>, <strong>Nome</strong> e <strong>Classificação</strong> (PO/PA/CO/N-A) são opcionais. O SISBOV só aceita números; o padrão brasileiro tem 15 dígitos — se você digitar um número diferente disso, o sistema avisa mas deixa salvar do mesmo jeito (útil para registros em formato antigo). O <strong>Nome</strong> é só um dado complementar — o brinco continua sendo a identificação principal em listas, buscas e documentos, o nome nunca substitui ele.</li>
+        <li>Se for um macho reprodutor, marque <strong>"É touro"</strong> — isso faz ele contar como Touro para sempre, não importa a idade, e passa a mostrar o card <strong>"Histórico reprodutivo do touro"</strong> na ficha dele (veja mais abaixo).</li>
         <li>Preencha raça, pelagem, proprietário e, se já existir, o lote.</li>
         <li><strong>Pai</strong> e <strong>Mãe (brinco)</strong> são campos de texto livre, não uma busca no cadastro — preencha com cuidado, porque é esse texto que a árvore genealógica usa para tentar achar a mãe entre os animais já cadastrados.</li>
         <li>Clique em <strong>Salvar</strong>.</li>
@@ -106,10 +109,10 @@ export default function SecaoAnimais({ item }) {
       <h4 style={{ fontSize: '.88rem', fontWeight: 700, color: '#1a1a1a', marginBottom: 8 }}>Genealogia e monta natural com vários touros</h4>
       <p style={{ color: '#374151', fontSize: '.85rem', lineHeight: 1.8, marginBottom: 18 }}>
         Quando um bezerro nasce de um lote de <strong>monta natural com mais de um touro</strong> junto
-        (Reprodutivo), o sistema não sabe qual touro é o pai de verdade — nesse caso o campo Pai é preenchido
+        (Gestão Reprodutiva), o sistema não sabe qual touro é o pai de verdade — nesse caso o campo Pai é preenchido
         sozinho com algo como "Monta natural — Lote 4, Estação Repasse 26/27" em vez de um nome. Na ficha do
         animal e na árvore genealógica, esse "pai" aparece como um link clicável que leva direto ao lote de
-        monta em Reprodutivo, para você conferir quais touros estavam juntos naquele período — em vez de um
+        monta em Gestão Reprodutiva, para você conferir quais touros estavam juntos naquele período — em vez de um
         nome de touro comum, que não é clicável por não haver como confirmar de qual animal cadastrado
         aquele nome se refere.
       </p>
@@ -120,7 +123,7 @@ export default function SecaoAnimais({ item }) {
         inseminação (com o lote e o touro/sêmen usado), cada diagnóstico de gestação (prenha ou vazia), cada
         parto (tanto os que ela teve quanto o próprio nascimento dela, se foi registrado como bezerro) e cada
         aborto. Você não lança nada aqui — a linha do tempo só reúne o que já foi registrado nas telas
-        Pesagens, Reprodutivo e no próprio Cadastro de Animais.
+        Pesagens, Gestão Reprodutiva e no próprio Cadastro de Animais.
       </p>
 
       <h4 style={{ fontSize: '.88rem', fontWeight: 700, color: '#1a1a1a', marginBottom: 8 }}>Gráfico de evolução de peso</h4>
@@ -168,6 +171,36 @@ export default function SecaoAnimais({ item }) {
       <AlertBox type="green" icon="ti-info-circle"
         title='Cartão mostra "sem dados", nunca zero'
         body="Quando não há histórico suficiente para calcular um indicador específico (ex: só um parto registrado, sem intervalo pra medir), o cartão mostra “sem dados” em vez de 0 — um zero ali poderia ser lido como resultado ruim de verdade, e não é isso." />
+
+      <h4 style={{ fontSize: '.88rem', fontWeight: 700, color: '#1a1a1a', marginBottom: 8 }}>Histórico reprodutivo do touro (só machos marcados "É touro")</h4>
+      <p style={{ color: '#374151', fontSize: '.85rem', lineHeight: 1.8, marginBottom: 10 }}>
+        Card próprio na ficha do touro, com: <strong>nº de filhos</strong>, <strong>machos × fêmeas</strong>
+        entre eles, <strong>GMD médio dos filhos</strong> (mesma fórmula da "GMD Terneiros" de Metas — só
+        pesagens enquanto o filho ainda era Terneiro/Terneira), <strong>peso médio ao nascer</strong>,
+        <strong> efetividade de cobertura</strong> (% de fêmeas distintas diagnosticadas Prenha entre as
+        expostas a este touro — mesma fórmula oficial de "Taxa de Prenhez" usada no resto do sistema) e o
+        <strong> nº de safras</strong> em que ele atuou, além de 3 gráficos: machos × fêmeas, GMD deste touro
+        comparado à média da fazenda <strong>nas mesmas safras</strong> (nunca a fazenda inteira — senão um
+        touro antigo seria comparado com bezerros de hoje, com nutrição/manejo diferentes) e efetividade de
+        cobertura por safra.
+      </p>
+      <AlertBox type="amber" icon="ti-alert-triangle"
+        title='Lote com mais de um touro fica fora dos números'
+        body='Numa monta natural com MAIS DE UM touro, o sistema não tem como saber qual touro cobriu qual vaca — paternidade indefinida não gera estatística individual pra nenhum dos dois. Esses lotes nunca entram nos números/gráficos deste card, só numa contagem à parte avisando quantas coberturas ficaram de fora por esse motivo.' />
+      <p style={{ color: '#374151', fontSize: '.85rem', lineHeight: 1.8, marginBottom: 10 }}>
+        O vínculo entre o touro e cada filho/lote é por <strong>cadastro</strong> (não por texto): ao criar um
+        lote com este touro selecionado no seletor "Touros da fazenda", o sistema grava um id, não só o nome —
+        e esse mesmo id é herdado pelo bezerro na hora do nascimento. Isso significa que só entram no histórico
+        os filhos/lotes vinculados <strong>a partir de quando essa vinculação passou a existir</strong>. Um
+        filho ou lote de antes disso, com só o texto batendo com o brinco do touro, aparece <strong>à parte</strong>,
+        numa contagem própria de "sem vínculo" — nunca somado aos números principais.
+      </p>
+      <p style={{ color: '#374151', fontSize: '.85rem', lineHeight: 1.8, marginBottom: 18 }}>
+        Amostras pequenas (menos de 5 filhos, ou menos de 5 diagnósticos, dependendo do indicador) ganham um
+        selo <strong>"amostra pequena"</strong> ao lado do número — ele não some, só avisa que aquele
+        percentual ainda não é estatisticamente confiável. O carregamento é sob demanda: só busca os dados
+        desse touro específico quando a ficha dele é aberta, nunca ao carregar a lista geral de animais.
+      </p>
 
       <h4 style={{ fontSize: '.88rem', fontWeight: 700, color: '#1a1a1a', marginBottom: 8 }}>Como a categoria é calculada</h4>
       <p style={{ color: '#374151', fontSize: '.85rem', lineHeight: 1.6, marginBottom: 10 }}>

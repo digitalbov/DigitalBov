@@ -1,6 +1,6 @@
 ﻿import { useState, useEffect, useRef } from 'react'
 import { db } from '../lib/supabase'
-import { fmtData, algumErro, calcLotesFEFO, sanidadeRealizada, sanidadeAgendada, labelTipoSanidade } from '../lib/helpers'
+import { fmtData, algumErro, calcLotesFEFO, sanidadeRealizada, sanidadeAgendada, labelTipoSanidade, nomeTouro } from '../lib/helpers'
 import { hoje as hojeAgora } from '../lib/hoje'
 import { Loading, BotaoPDF, EmptyState, ErroCarregamento } from '../components/UI'
 import { useCiclo } from '../lib/CicloContext'
@@ -20,6 +20,7 @@ const TIPO_BADGE = {
   parto:    { label: 'Parto',    bg: '#E8F0FC', cor: '#1E55B0' },
   sanidade: { label: 'Sanidade', bg: '#E6F1FB', cor: '#0C447C' },
   estoque:  { label: 'Estoque',  bg: '#FAEEDA', cor: '#633806' },
+  feira:    { label: 'Feira',    bg: '#F3E8FF', cor: '#5B2A9E' },
 }
 
 // ── Card de evento ────────────────────────────────────────────────
@@ -137,9 +138,10 @@ export default function Calendario() {
         db.estoque.list(),
         db.animais.list({ situacao: 'ativo' }),
         db.movEstoque.list(),
+        db.feiraParticipacoes.listPendentes(),
       ])
       if (algumErro('[Calendario]', resultados)) { setLoadError(true); return }
-      const [rLotes, rSanidade, rEstoque, rAnimais, rMovEstoque] = resultados
+      const [rLotes, rSanidade, rEstoque, rAnimais, rMovEstoque, rFeirasPend] = resultados
 
       const evs = []
 
@@ -162,7 +164,7 @@ export default function Calendario() {
           evs.push({
             tipo: 'parto', icon: '🍼',
             titulo:    `Previsão de parto — Brinco ${ins.animal?.brinco || '?'}`,
-            descricao: `Lote ${lote.numero} · Touro ${lote.touro || '?'} · Inseminado em ${fmtData(lote.data)}`,
+            descricao: `Lote ${lote.numero} · Touro ${nomeTouro(lote) || '?'} · Inseminado em ${fmtData(lote.data)}`,
             data: dataPrev, dias
           })
         }
@@ -216,6 +218,37 @@ export default function Calendario() {
             titulo:    `Validade — ${item.item}`,
             descricao: `Lote: ${parseFloat(lote.saldo).toFixed(1)} ${item.unidade} · ${item.categoria}`,
             data: lote.validade, dias
+          })
+        }
+      }
+
+      // e. Feiras — participações sem resultado (colocacao IS NULL, ver
+      // db.feiraParticipacoes.listPendentes). Mesmo mecanismo derive-at-load
+      // dos demais blocos: uma query, dois desfechos possíveis conforme a
+      // data da feira — nunca uma segunda tabela/mecanismo de eventos.
+      // Feira ainda não terminou → "agendada", contando pra data de início.
+      // Feira já terminou sem colocacao lançada → alerta "resultado
+      // pendente", contando pra data de término (cai sozinho em Atrasados,
+      // mesma lógica de urgência de todo o resto — sem tratamento especial).
+      for (const p of (rFeirasPend.data || [])) {
+        const edicao = p.edicao
+        if (!edicao?.data_inicio && !edicao?.data_fim) continue
+        const nomeFeira = `${edicao.feira?.nome || '—'}${edicao.ano ? ` (${edicao.ano})` : ''}`
+        const dataRef  = edicao.data_fim || edicao.data_inicio
+        const diasRef  = diasAte(dataRef)
+        if (diasRef !== null && diasRef < 0) {
+          evs.push({
+            tipo: 'feira', icon: '⚠️',
+            titulo:    `Resultado pendente — Brinco ${p.animal?.brinco || '?'}`,
+            descricao: `Feira: ${nomeFeira}`,
+            data: dataRef, dias: diasRef
+          })
+        } else {
+          evs.push({
+            tipo: 'feira', icon: '🏆',
+            titulo:    `Feira agendada — Brinco ${p.animal?.brinco || '?'}`,
+            descricao: `Feira: ${nomeFeira}`,
+            data: edicao.data_inicio, dias: diasAte(edicao.data_inicio)
           })
         }
       }
@@ -287,6 +320,7 @@ export default function Calendario() {
             { key: 'parto',      icon: '🍼 ', label: 'Partos'     },
             { key: 'sanidade',   icon: '💉 ', label: 'Sanidade'   },
             { key: 'estoque',    icon: '📦 ', label: 'Estoque'    },
+            { key: 'feira',      icon: '🏆 ', label: 'Feiras'     },
             { key: 'reproducao', icon: '🔄 ', label: 'Reprodução' },
           ].map(t => (
             <button key={t.key} className={`pill ${filtTipo === t.key ? 'active' : ''}`}

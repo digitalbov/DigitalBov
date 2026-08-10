@@ -53,8 +53,9 @@ export async function gerarBackupPayload({ contaId, fazendaId, contaNome, fazend
     lancamentos_financeiros, transacoes_animais,
     ciclos_financeiros, categorias_preco, metas,
     lancamento_rateios, transacao_animais_itens, sanidade_animais,
-    lote_touros, estacoes_monta,
+    lote_touros, estacoes_monta, touros_externos,
     planejamentos, planejamento_acoes, simulacoes_transacoes,
+    feiras, feira_edicoes, feira_participacoes,
   ] = await Promise.all([
     safeQ('proprietarios', contaId, fazendaId),
     safeQ('fazendas', contaId, fazendaId, { porId: true }),
@@ -79,9 +80,13 @@ export async function gerarBackupPayload({ contaId, fazendaId, contaNome, fazend
     safeQ('sanidade_animais', contaId, fazendaId),
     safeQ('lote_touros', contaId, fazendaId),
     safeQ('estacoes_monta', contaId, fazendaId),
+    safeQ('touros_externos', contaId, fazendaId),
     safeQ('planejamentos', contaId, fazendaId),
     safeQ('planejamento_acoes', contaId, fazendaId),
     safeQ('simulacoes_transacoes', contaId, fazendaId),
+    safeQ('feiras', contaId, fazendaId),
+    safeQ('feira_edicoes', contaId, fazendaId),
+    safeQ('feira_participacoes', contaId, fazendaId),
   ])
 
   const dados = {
@@ -92,8 +97,9 @@ export async function gerarBackupPayload({ contaId, fazendaId, contaNome, fazend
     lancamentos_financeiros, transacoes_animais,
     ciclos_financeiros, categorias_preco, metas,
     lancamento_rateios, transacao_animais_itens, sanidade_animais,
-    lote_touros, estacoes_monta,
+    lote_touros, estacoes_monta, touros_externos,
     planejamentos, planejamento_acoes, simulacoes_transacoes,
+    feiras, feira_edicoes, feira_participacoes,
   }
 
   return {

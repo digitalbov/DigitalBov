@@ -130,7 +130,7 @@ export default function SecaoPesagens({ item }) {
           não um cancelando o outro) e são aplicados antes de paginar, então "34 de 78 animais" já é o resultado
           filtrado. Categoria e proprietário usam a mesma informação das colunas da lista, sem critério
           diferente. O lote aqui é o mesmo lote de manejo do resto do sistema (Propriedade/Animais/Rebanho) —
-          não tem relação com "lote de inseminação" do Reprodutivo.</li>
+          não tem relação com "lote de inseminação" da Gestão Reprodutiva.</li>
         <li>Uma lista muito grande (fazendas com milhares de animais ativos) vem paginada — os filtros acima
           reduzem o total antes de paginar.</li>
         <li>Clicar no brinco de uma linha abre o gráfico e o histórico daquele animal <strong>por cima da
@@ -148,7 +148,7 @@ export default function SecaoPesagens({ item }) {
         uma limitação da lista, é uma diferença real entre os dois: um desmame não é só "uma pesagem que
         aconteceu naquele dia", é um evento que também grava a <strong>data de desmame no cadastro do
         animal</strong> (o que muda a categoria dele e o que entra em Kg ao Desmame/P205 em Metas) — sempre pelo
-        mesmo fluxo dedicado (aba <strong>Desmame</strong> ou o card de desmame no lote, em Reprodutivo), nunca
+        mesmo fluxo dedicado (aba <strong>Desmame</strong> ou o card de desmame no lote, em Gestão Reprodutiva), nunca
         por um peso digitado numa lista genérica. Quando o animal da linha ainda pode ser desmamado (terneiro/
         terneira sem desmame registrado), um pequeno ícone <i className="ti ti-info-circle" style={{ color: '#9CA3AF' }} /> ao lado
         do brinco lembra disso — só um aviso, não impede nem sugere nada: pesar esse animal por aqui continua
@@ -167,7 +167,7 @@ export default function SecaoPesagens({ item }) {
         Desmamado/Matriz em Metas; confirmando, grava a data de desmame de cada um mais uma pesagem tipo
         "Desmama" — já é definitivo, não existe rascunho ou etapa de confirmação separada. Quem ficar sem peso
         simplesmente não é desmamado e continua na lista para depois. O mesmo atalho de desmame também existe
-        direto no detalhe do lote de inseminação, na aba Reprodutivo, com a mesma regra (peso digitado = gatilho
+        direto no detalhe do lote de inseminação, em Gestão Reprodutiva, com a mesma regra (peso digitado = gatilho
         do desmame, com o mesmo aviso antes de gravar). Em ambos os pontos, o desmame pode ser registrado mesmo
         com o ciclo do lote/monta encerrado — é a data do próprio desmame que precisa estar dentro do ciclo atual
         (ou carência), não a monta que originou o terneiro.
