@@ -39,11 +39,13 @@ const safeQ = async (table, contaId, fazendaId, opts = {}) => {
   return data || []
 }
 
-// Monta o payload completo do backup (formato_versao '2', 27 tabelas) — não
+// Monta o payload completo do backup de FAZENDA (formato_versao '2') — não
 // dispara download nenhum, só busca e monta o objeto. Quem chama decide o
 // que fazer com o resultado (Backup.jsx baixa um .json; RestaurarBackup.jsx
 // usa o mesmo payload como "backup de segurança" antes de uma restauração
-// total, e também pode baixá-lo).
+// total, e também pode baixá-lo). Número de tabelas de propósito não é
+// contado em comentário — já ficou desatualizado mais de uma vez; a lista
+// abaixo (Promise.all + dados{}) é a única fonte de verdade.
 export async function gerarBackupPayload({ contaId, fazendaId, contaNome, fazendaNome }) {
   const [
     proprietarios, fazendas, piquetes, lotes,

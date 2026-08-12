@@ -289,11 +289,12 @@ export default function RestaurarBackup() {
     supabase.rpc('fks_tabelas_publicas').then(({ data, error }) => {
       if (cancelado || error || !Array.isArray(data)) return
       // Só entram na comparação FKs cuja tabela de ORIGEM está em
-      // TABELAS_ESPERADAS (as mesmas 28 tabelas do export/backup de
-      // fazenda). O banco tem várias tabelas conta-scoped que nunca
-      // aparecem num arquivo de backup — o módulo Veterinário inteiro
-      // (veterinario_*), usuarios, contas, conta_membros, usuario_fazendas
-      // etc. — porque o backup é POR FAZENDA, não por conta, e essas
+      // TABELAS_ESPERADAS (a lista de tabelas do export/backup de fazenda,
+      // acima nesta tela). O banco tem várias tabelas conta-scoped que
+      // nunca aparecem NESTE arquivo de backup — o módulo Veterinário
+      // inteiro (veterinario_*, que tem seu PRÓPRIO backup à parte, ver
+      // RestaurarBackupVeterinario.jsx), usuarios, contas, conta_membros,
+      // usuario_fazendas etc. — porque este backup é POR FAZENDA, e essas
       // tabelas não pertencem a uma fazenda específica (decisão de
       // arquitetura, não esquecimento). Comparar contra o schema inteiro
       // gera divergência permanente e inevitável contra essas tabelas,

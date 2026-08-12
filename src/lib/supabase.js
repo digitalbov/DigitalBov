@@ -756,6 +756,15 @@ export const db = {
     update: (cenario, d) => escopo(T('benchmarks_rentabilidade').raw().update(d).eq('cenario', cenario)),
   },
 
+  // ── usuarios/contas/conta_membros/usuario_permissoes/usuario_fazendas —
+  // identidade e controle de acesso, categoria à parte de qualquer dado
+  // operacional. Ficam fora dos DOIS mecanismos de backup do sistema (o de
+  // fazenda em exportarBackup.js/restaurar_backup_fazenda.sql, e o de conta
+  // do Veterinário em exportarBackupVeterinario.js/restaurar_backup_conta_
+  // veterinario.sql) por design permanente, não por esquecimento — ver
+  // Backup.jsx e o manual (SecaoBackup.jsx). Incluir isso num backup de
+  // fazenda ou de conta vazaria/reescreveria quem tem acesso a quê, fora do
+  // escopo do que está sendo restaurado.
   contaMembros: {
     removerMembro: (contaId, usuarioId) => supabase.rpc('remover_membro', { p_conta_id: contaId, p_usuario_id: usuarioId }),
   },
@@ -784,11 +793,13 @@ export const db = {
   // fazenda; ver veterinario_schema.sql). Mesmo padrão de db.fazendas, único
   // outro consumidor de T(tabela, {semFazenda:true}) hoje.
   //
-  // NÃO coberto pelo backup/restauração de fazenda (exportarBackup.js,
-  // importarBackup.js, restaurar_backup_fazenda.sql): esses três mecanismos
-  // operam por FAZENDA, e este módulo é por CONTA — mesma categoria de
-  // usuarios/usuario_permissoes/contas, que já ficam fora hoje. Lacuna
-  // conhecida e documentada (ver Backup.jsx e o manual), não um esquecimento.
+  // NÃO coberto pelo backup de FAZENDA (exportarBackup.js, importarBackup.js,
+  // restaurar_backup_fazenda.sql) — esse mecanismo opera por fazenda, este
+  // módulo é por conta. Mas TEM seu próprio backup conta-scoped (P2,
+  // 2026-08-12): exportarBackupVeterinario.js + RestaurarBackupVeterinario.jsx
+  // (aba "Backup" dentro de Veterinario.jsx) + RPC restaurar_backup_conta_
+  // veterinario. logo_url (Storage) fica de fora dos dois, como a foto da
+  // fazenda no backup de fazenda.
   veterinario: {
     config: {
       get: () => T('veterinario_config', { semFazenda: true }).select('*').maybeSingle(),

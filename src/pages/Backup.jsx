@@ -94,25 +94,37 @@ export default function Backup() {
   }, [contaId, fazendaId])
 
   // ── Backup JSON ─────────────────────────────────────────────────
-  // Cobertura completa (Bloco D10): todas as 25 tabelas que guardam dado de
-  // FAZENDA (mapeadas lendo T()/supabase.js inteiro, não só o que já estava
-  // aqui) — as 17 originais + as 8 que faltavam (rateios, detalhe de compra/
-  // venda por animal, vínculo sanidade↔animal, touros extras da monta
-  // natural, estações de monta, planejamento e simulações). De propósito NÃO
-  // inclui: benchmarks_rentabilidade (referência global, não é dado desta
-  // fazenda — tabela está VAZIA hoje, conferido ao vivo em 2026-08-09, então
-  // não há nada a perder numa restauração NESTE MOMENTO; mas `excluir_fazenda`
-  // já apaga essa tabela com WHERE fazenda_id = p_fazenda_id, o que sugere
-  // escopo por fazenda — se um dia passar a ser populada por fazenda, essa
-  // exclusão do backup precisa ser revisada, não só assumida como ainda
-  // correta) nem contas/conta_membros/usuario_permissoes/usuario_fazendas
-  // (dado de CONTA/usuário, não de fazenda — vazaria gente de fora do escopo
-  // de um backup de fazenda). Todas filtradas por conta_id + fazenda_id como
-  // as demais — as 4 mais novas (lancamento_rateios, lote_touros,
-  // estacoes_monta, sanidade_animais) não têm CREATE TABLE rastreado nos
-  // migration_*.sql deste repo (foram criadas direto no Supabase), mas T()
-  // em supabase.js já as usa com .eq('conta_id',...)/.eq('fazenda_id',...)
-  // sem erro em produção — confirma que a coluna existe em todas.
+  // Cobertura completa: todas as tabelas que guardam dado de FAZENDA entram
+  // (ver a lista completa e sempre atual em gerarBackupPayload,
+  // exportarBackup.js — não duplicar a contagem aqui, ela já ficou
+  // desatualizada mais de uma vez).
+  //
+  // De propósito NÃO entram neste backup (nem no de fazenda, nem no
+  // conta-scoped do Veterinário — ver RestaurarBackupVeterinario.jsx):
+  //
+  // 1. benchmarks_rentabilidade — decisão permanente (2026-08-12), não
+  //    provisória: a tabela nasceu GLOBAL (migration_multi_fazenda.sql,
+  //    PASSO 12) — cenario text PRIMARY KEY, SEM fazenda_id, 3 linhas fixas
+  //    (ideal/media_rs/melhores_rs), RLS "qualquer autenticado". O
+  //    fazenda_id que existe hoje foi adicionado depois sem ALTER TABLE
+  //    rastreado em migration_*.sql (drift, não redesenho documentado) —
+  //    `excluir_fazenda` apaga por fazenda_id só por precaução defensiva,
+  //    isso não prova que a tabela passou a ser "dado de fazenda". Prova
+  //    mais forte: db.benchmarks.update() (supabase.js) nunca é chamado por
+  //    NENHUMA tela — só .list(), para o gráfico comparativo em
+  //    Propriedade.jsx. Não existe hoje um caminho de UI para o usuário
+  //    editar uma linha desta tabela. Isso é referência/parâmetro de
+  //    sistema (benchmark estadual fixo), não dado operacional que a
+  //    fazenda gera e possa perder numa restauração — por isso fica fora,
+  //    independente de estar vazia ou populada.
+  // 2. usuarios, contas, conta_membros, usuario_permissoes,
+  //    usuario_fazendas — dado de CONTA/usuário, não de fazenda. Um backup
+  //    de fazenda que incluísse isso vazaria gente de fora do escopo da
+  //    fazenda sendo restaurada (outros membros, outras permissões, outras
+  //    fazendas da mesma conta). Ficam fora dos DOIS mecanismos de backup
+  //    que existem no sistema — não é uma lacuna do Veterinário, é
+  //    identidade/controle de acesso, categoria à parte de qualquer dado
+  //    operacional (de fazenda ou de conta).
   const gerarJSON = async () => {
     if (!contaId || !fazendaId) { toast('Aguarde a fazenda carregar e tente novamente.', 'error'); return }
     setLoadingJSON(true)

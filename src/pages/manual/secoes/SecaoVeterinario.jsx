@@ -18,11 +18,15 @@ export default function SecaoVeterinario({ item }) {
         como clientes pré-cadastrados.
       </p>
 
-      <AlertBox type="amber" icon="ti-alert-triangle" title="Não coberto pelo backup de fazenda"
+      <AlertBox type="amber" icon="ti-alert-triangle" title='Backup separado — não é o mesmo de "Backup e Dados"'
         body={'Os dados deste módulo (configuração, categorias, clientes, ciclos, lançamentos e histórico de atestados) ' +
-          'NÃO entram no "Baixar Backup Completo" nem nos dois caminhos de restauração (Backup e Dados) — esses ' +
-          'mecanismos operam por FAZENDA, e este módulo é por CONTA, na mesma categoria de Usuários/Permissões, que ' +
-          'também já ficam fora do backup de fazenda hoje. É uma lacuna conhecida, não um esquecimento.'} />
+          'NÃO entram no "Baixar Backup Completo" nem nos dois caminhos de restauração de "Backup e Dados" no menu ' +
+          'principal — aquele mecanismo é por FAZENDA, e este módulo é por CONTA (dado compartilhado entre todas as ' +
+          'fazendas). Por isso o módulo Veterinário tem seu PRÓPRIO backup, numa aba própria abaixo — ver ' +
+          '"Backup" (5ª aba desta tela). Só administradores da conta veem essa aba. A logo do veterinário fica no ' +
+          'Storage e não entra nem neste backup nem em nenhum outro. Usuários/Permissões (usuários, contas, membros ' +
+          'da conta, permissões, vínculos usuário-fazenda) ficam de fora dos DOIS mecanismos de backup que existem — ' +
+          'isso sim é decisão permanente, não uma lacuna deste módulo.'} />
 
       <div style={H4}>Configuração</div>
       <p style={P}>
@@ -78,6 +82,18 @@ export default function SecaoVeterinario({ item }) {
           por animal, data de nascimento e a marcação aplicada. Toda emissão fica no histórico com todos os
           animais e campos, com opção de reemitir sem redigitar nada.</li>
       </ul>
+
+      <div style={H4}>Backup</div>
+      <p style={P}>
+        Aba própria, só visível a administradores da conta, com o mesmo padrão de duas fases do backup de fazenda
+        (validação 100% no navegador antes de qualquer gravação): baixe um arquivo .json com todo o módulo, ou
+        escolha um arquivo já validado para <strong>restaurar TUDO sobre a conta atual</strong> — apaga e regrava
+        configuração, categorias, clientes, ciclos, lançamentos e atestados. É <strong>irreversível</strong>: antes
+        de liberar o botão, o sistema avisa em vermelho o que será apagado, lembra que a
+        <strong> logo não faz parte do backup</strong>, obriga a baixar um backup de segurança do estado atual e só
+        libera depois de digitar o nome exato da conta para confirmar. Não existe "importar para conta nova" aqui —
+        diferente da fazenda, não há um caminho de criar uma conta nova dentro da mesma sessão.
+      </p>
 
       <div style={H4}>Permissões</div>
       <p style={P}>

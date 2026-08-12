@@ -68,6 +68,23 @@ export default function SecaoBackup({ item }) {
 
       <AlertBox type="amber" icon="ti-photo"
         body="A foto da fazenda não é gravada no backup — depois de restaurar, a foto que está na fazenda no momento da restauração é a que permanece." />
+
+      <div className="card-title" style={{ fontSize: '1rem', marginTop: 24, marginBottom: 10 }}>
+        <i className="ti ti-info-circle" /> O que fica de fora — e por quê
+      </div>
+
+      <p style={{ color: '#374151', fontSize: '.85rem', lineHeight: 1.8, marginBottom: 12 }}>
+        Existem <strong>dois backups distintos</strong> no sistema, com escopos diferentes que nunca se misturam:
+        este ("Backup e Dados", por <strong>FAZENDA</strong>) e o do módulo <strong>Veterinário</strong>
+        (por <strong>CONTA</strong>, aba própria dentro de Veterinário, só para administradores). Um arquivo de um
+        nunca é aceito pelo outro. Nenhum dos dois cobre:
+      </p>
+
+      <ul style={{ color: '#374151', fontSize: '.85rem', lineHeight: 1.8, marginBottom: 18, paddingLeft: 20 }}>
+        <li><strong>Fotos e logo</strong> — a foto da fazenda e a logo do veterinário ficam no Storage, não no banco; nenhum backup as inclui.</li>
+        <li><strong>Usuários e permissões</strong> (usuários, contas, membros da conta, permissões por módulo, vínculo usuário↔fazenda) — é dado de identidade/acesso, não dado operacional de fazenda nem de conta. Incluir isso no backup de uma fazenda vazaria informação de outras pessoas/fazendas da mesma conta que não têm relação com o que está sendo restaurado.</li>
+        <li><strong>Benchmarks de rentabilidade</strong> (valores de referência estadual mostrados no gráfico comparativo de Propriedade) — são parâmetros fixos de sistema, não dado que a fazenda gera; hoje nem sequer existe uma tela para editá-los.</li>
+      </ul>
     </div>
   )
 }

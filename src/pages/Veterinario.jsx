@@ -3,15 +3,18 @@ import { db, supabase } from '../lib/supabase'
 import { useConta } from '../lib/ContaContext'
 import { useFazenda } from '../lib/FazendaContext'
 import { usePermissoes } from '../lib/PermissoesContext'
-import { Loading, ErroCarregamento, Modal, Field, toast, Badge, Confirm } from '../components/UI'
+import { Loading, ErroCarregamento, Modal, Field, toast, Badge, Confirm, AlertBox } from '../components/UI'
 import { fmtData, fmtMoeda, algumErro, numeroPositivo, capitalizarPrimeira, capitalizarNome } from '../lib/helpers'
 import { hojeISO } from '../lib/hoje'
 import { useSubmitGuard } from '../lib/useSubmitGuard'
 import { carregarLogoFazenda } from '../lib/pdfWriter'
 import { gerarPDFPrestacaoContas, gerarPDFAtestado } from '../lib/veterinarioPdf'
 import { TIPOS_ATESTADO, CAMPOS_DOCUMENTO_POR_TIPO, CAMPOS_ANIMAL_POR_TIPO, linhaAnimalVazia, nomeArquivoAtestado, descricaoPorAnimal } from '../lib/veterinarioAtestados'
+import { gerarBackupVeterinarioPayload } from '../lib/exportarBackupVeterinario'
+import { baixarBackupJSON } from '../lib/exportarBackup'
+import RestaurarBackupVeterinario from '../components/RestaurarBackupVeterinario'
 
-const TABS = ['Configuração', 'Financeiro', 'Clientes', 'Documentos']
+const TABS = ['Configuração', 'Financeiro', 'Clientes', 'Documentos', 'Backup']
 // Uma sub-aba por tipo em TIPOS_ATESTADO + Prestação de Contas + Histórico —
 // um 5º tipo aprovado em veterinarioAtestados.js já aparece aqui sozinho,
 // sem tocar este arquivo.
@@ -125,6 +128,65 @@ export default function Veterinario() {
           atestados={atestados} setAtestados={setAtestados}
         />
       )}
+      {tab === 4 && <AbaBackup contaAtual={contaAtual} />}
+    </div>
+  )
+}
+
+// ── Aba Backup ───────────────────────────────────────────────────────────
+// Backup CONTA-scoped, mecanismo separado do "Backup e Dados" do menu
+// principal (que é por FAZENDA — ver Backup.jsx). De propósito não fica
+// junto daquela tela: os dois nunca deveriam se misturar visualmente, o
+// escopo de cada um é diferente (ver P2 aprovado / SecaoBackup.jsx no
+// manual). Só dono/admin da conta vê esta aba — mesmo critério de acesso da
+// RPC de restauração (restaurar_backup_conta_veterinario), não
+// pode_editar_modulo('veterinario') como o resto do módulo: restaurar é
+// mais privilegiado que editar.
+function AbaBackup({ contaAtual }) {
+  const { ehAdmin } = usePermissoes()
+  const [loading, setLoading] = useState(false)
+  const [ts, setTs] = useState('')
+
+  const gerarBackup = async () => {
+    if (!contaAtual?.id) { toast('Aguarde a conta carregar e tente novamente.', 'error'); return }
+    setLoading(true)
+    try {
+      const payload = await gerarBackupVeterinarioPayload({ contaId: contaAtual.id, contaNome: contaAtual.nome })
+      baixarBackupJSON(payload, `backup-veterinario-${(contaAtual.nome || 'conta').replace(/[^a-z0-9]/gi, '-').toLowerCase()}-${new Date().toISOString().split('T')[0]}.json`)
+      setTs(new Date().toLocaleString('pt-BR'))
+      toast(`Backup gerado! ${payload.dados.veterinario_clientes.length} clientes · ${payload.dados.veterinario_lancamentos.length} lançamentos · ${payload.dados.veterinario_atestados.length} atestados`)
+    } catch (e) {
+      toast('Erro ao gerar backup: ' + e.message, 'error')
+    }
+    setLoading(false)
+  }
+
+  if (!ehAdmin) {
+    return <AlertBox type="amber" icon="ti-lock" body="Só administradores da conta podem baixar ou restaurar o backup do módulo Veterinário." />
+  }
+
+  return (
+    <div>
+      <AlertBox type="amber" icon="ti-info-circle"
+        title="Este backup é separado do backup de fazenda"
+        body='Cobre só o módulo Veterinário (configuração, categorias, clientes, ciclos, lançamentos e atestados) — dado de CONTA, compartilhado entre todas as fazendas. NÃO cobre animais, financeiro de fazenda, reprodutivo, estoque ou sanidade: isso está em "Backup e Dados" no menu principal, um mecanismo à parte.' />
+
+      <div className="card" style={{ borderTop: '3px solid #2B6CD9', maxWidth: 420, marginBottom: 20 }}>
+        <div className="card-title" style={{ marginBottom: 6 }}>Backup do Veterinário (.json)</div>
+        <div style={{ fontSize: '.77rem', color: '#6B7280', marginBottom: 14 }}>
+          Exporta configuração, categorias, clientes, ciclos, lançamentos e atestados desta conta em um arquivo estruturado e restaurável.
+        </div>
+        <button className="btn btn-primary btn-sm" onClick={gerarBackup} disabled={loading} style={{ width: '100%', justifyContent: 'center' }}>
+          {loading ? 'Gerando...' : <><i className="ti ti-download" /> Baixar backup</>}
+        </button>
+        {ts && (
+          <div style={{ fontSize: '.68rem', color: '#9CA3AF', marginTop: 8, textAlign: 'center' }}>
+            <i className="ti ti-check" style={{ fontSize: 11 }} /> Gerado em: {ts}
+          </div>
+        )}
+      </div>
+
+      <RestaurarBackupVeterinario />
     </div>
   )
 }
