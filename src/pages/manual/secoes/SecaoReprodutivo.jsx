@@ -104,7 +104,7 @@ export default function SecaoReprodutivo({ item }) {
         </p>
         <AlertBox type="purple" icon="ti-message-2"
           title='Aviso de pendências no "Ver ciclo anterior"'
-          body='Se o ciclo anterior tiver vaca prenha ainda sem desfecho, e/ou vaca com cria ao pé, um balão aparece no botão avisando (some sozinho em ~15s, ou feche no X) — sem abrir esse ciclo pra você, é só um aviso. Se a cria ao pé já tiver 6 meses ou mais de idade, o aviso destaca que ela está apta ao desmame. Cada situação avisada uma vez só: fechar o balão (ou deixar ele sumir sozinho) não mostra a MESMA pendência de novo, mesmo saindo e voltando à tela — só volta a avisar se algo realmente novo aparecer por lá (uma vaca a mais pendente, por exemplo). Não aparece se você acabou de vir do ciclo anterior (você provavelmente já viu o que tinha por lá).' />
+          body='Se o ciclo anterior tiver vaca prenha ainda sem desfecho, e/ou vaca com cria ao pé, um balão aparece no botão avisando (some sozinho em ~15s, ou feche no X) — sem abrir esse ciclo pra você, é só um aviso. Se a cria ao pé já tiver 6 meses ou mais de idade, o aviso destaca que ela está apta ao desmame. Aparece TODA VEZ que a tela carrega com alguma dessas pendências no ciclo anterior — decisão do usuário: é informação que precisa ser vista sempre, não um aviso de primeira vez só. Não aparece se você acabou de vir do ciclo anterior (você provavelmente já viu o que tinha por lá).' />
         <ol style={OL}>
           <li>Informe a <strong>data</strong> da monta.</li>
           <li>Na inseminação: informe o <strong>touro</strong> (texto livre, digitando ou escolhendo do seletor) e, se usar, o <strong>protocolo</strong> (ex: "IATF P4"). Não existe cadastro obrigatório: a maioria das inseminações usa sêmen de fora da fazenda, e digitar o nome é o caminho normal, não uma exceção. O seletor <strong>"Selecionar…"</strong> ao lado do campo é só um atalho de preenchimento, com duas seções: <strong>🐮 Touros da fazenda</strong> (cadastrados em Animais → checkbox "É touro", mostrando brinco — nome) e <strong>🔗 Touros externos já usados</strong> (emprestado ou sêmen, sem cadastro de animal — reoferece um nome já digitado antes nesta fazenda, sem depender de bater a grafia exata). Assim que você digita alguma coisa, um aviso logo abaixo mostra exatamente qual touro vai ser usado ao salvar — cadastrado, externo já existente (mesmo com grafia um pouco diferente do que você digitou) ou um touro externo novo — nunca fica escondido.</li>
@@ -152,6 +152,14 @@ export default function SecaoReprodutivo({ item }) {
           terneiros delas entram nos índices da safra. O lote fica no ciclo da MONTA, não necessariamente o
           ciclo em foco na tela — o aviso ao confirmar diz em qual ciclo ele ficou quando for diferente, sem
           trocar sozinho o que está sendo exibido.
+        </p>
+        <p style={P}>
+          <strong>Ela sai dos índices de esforço/resultado reprodutivo</strong> (2026-08-12): Taxa de Prenhez,
+          Taxa de Aproveitamento, Taxa de Parição, Eficiência Gestacional, Perda Gestacional e Custo de Monta
+          / Matriz Exposta (Metas) — não foi exposta nem teve a gestação conduzida nesta fazenda, então não diz
+          nada sobre o manejo local. O <strong>terneiro dela conta normalmente</strong> em tudo que é produção:
+          desmame, kg produzido, GMD, mortalidade — nasceu e foi criado aqui. Onde isso muda algum número, a
+          tela mostra uma nota discreta avisando quantas prenhezes adquiridas foram excluídas.
         </p>
         <p style={P}>
           O mesmo fluxo também aparece <strong>dentro do formulário de Compra</strong> (Financeiro → Compra &
@@ -284,10 +292,9 @@ export default function SecaoReprodutivo({ item }) {
           na ficha do animal (Cadastro de Animais → Histórico reprodutivo). É <strong>derivado</strong>
           (recalculado toda vez que a tela abre, a partir dos diagnósticos/partos/abortos já lançados) — não
           existe uma coluna "falhada" separada no banco, então a exibição nunca diverge do que foi realmente
-          registrado. O botão <strong>"Marcar Falhada"</strong>, na sequência do lote, aparece numa linha ainda
-          sem diagnóstico (Pendente) de uma vaca que não tem nenhum "Prenha" em outro lote da mesma estação —
-          serve pra fechar o resultado ("não emprenhou") antes do fim da estação (ex: um repasse que não vai
-          mais ser testado), e grava exatamente o mesmo que o botão "Vazia" já grava. Pra desfazer, use o "x" ao
+          registrado. Não há um botão específico pra marcar "Falhada" — basta marcar <strong>"Vazia"</strong> (ou
+          registrar o aborto) normalmente: se a vaca não emprenhar em nenhum lote da estação, ela fecha a
+          estação como "Falhada — não emprenhou" sozinha, sem nenhuma ação extra. Pra desfazer, use o "x" ao
           lado do rótulo "Falhada" — volta o diagnóstico daquela linha para Pendente. Os outros dois motivos se
           desfazem pelos próprios fluxos: excluir o aborto, ou simplesmente não confirmar a perda presumida.
         </p>
@@ -313,6 +320,15 @@ export default function SecaoReprodutivo({ item }) {
             confundido com falha: quem não participou não fracassou.</li>
           <li>Falhou numa estação e está prenha noutra, ainda sem desfecho → "Gestação em aberto", não falhada
             ainda — só vira falhada se essa gestação se resolver sem terneiro.</li>
+          <li><strong>Vendida ainda prenha</strong> — status próprio "Vendida prenha", com a data da venda.
+            Nem sucesso nem falha: ela não vai parir nem abortar naquele lote porque não está mais na fazenda,
+            então nunca vira "Falhada — perda gestacional" (a confirmação automática, abaixo, nunca dispara pra
+            quem foi vendida). O diagnóstico de prenhez continua contando normalmente na Taxa de Prenhez — é o
+            que ela de fato entregou antes de sair; só sai do cálculo de Taxa de Parição, Eficiência
+            Gestacional, Perda Gestacional, Taxa de Aborto e Taxa de Desmama/Kg por matriz exposta — todo
+            índice cujo numerador dependeria de observar parto, aborto ou desmame depois da venda (não é
+            fertilidade do lote que falhou, é venda). Sempre que isso muda algum número, a tela mostra quantas
+            vendidas foram excluídas num texto discreto abaixo do valor.</li>
         </ul>
       </div>
 
@@ -345,7 +361,7 @@ export default function SecaoReprodutivo({ item }) {
         </div>
         <AlertBox type="amber" icon="ti-tag"
           title='Por que confirmar importa: muda a CATEGORIA da vaca, não os índices reprodutivos'
-          body='Taxa de prenhez, taxa de parição, taxa de aproveitamento e kg desmamado por matriz NÃO mudam com isso — são calculados a partir do diagnóstico da inseminação e dos partos/abortos, nunca da situação reprodutiva atual do animal. O que muda de verdade é a CATEGORIA dela (calcCategoriaRebanho): enquanto ficar "prenha" sem confirmação, ela continua contando como "Vaca Prenha" (ou "Vaca Prenha 13-24m" etc.) no Valor de Mercado do Rebanho (Dashboard, Relatórios) e nos filtros por categoria (Animais, Pesagens, Sanidade) — superavaliada, e na categoria errada — mesmo já fazendo mais de um ano que a gestação deveria ter terminado. Confirmar corrige isso.' />
+          body='Taxa de prenhez, taxa de parição, taxa de aproveitamento e kg desmamado por matriz NÃO mudam com isso — são calculados a partir do diagnóstico da inseminação e dos partos/abortos, nunca da situação reprodutiva atual do animal. O que muda de verdade é a CATEGORIA dela (calcCategoriaRebanho): enquanto ficar "prenha" sem confirmação, ela continua contando como "Vaca Prenha" (ou "Vaca Prenha 13-24m" etc.) no Valor de Mercado do Rebanho (Dashboard, Relatórios) e nos filtros por categoria (Animais, Pesagens, Manejo Sanitário) — superavaliada, e na categoria errada — mesmo já fazendo mais de um ano que a gestação deveria ter terminado. Confirmar corrige isso.' />
         <p style={P}>
           Se um parto atrasado for registrado depois — mesmo já tendo confirmado a perda presumida — não há
           conflito: registrar um nascimento sempre marca a mãe como "vazia" de novo, então é só uma gravação

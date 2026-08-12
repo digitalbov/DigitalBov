@@ -89,7 +89,7 @@ export default function Dashboard({ perfil }) {
   // Composição
   const cats = {}
   filtAnimais.forEach(a => {
-    const c = calcCategoria(a.data_nascimento, a.sexo)
+    const c = calcCategoria(a.data_nascimento, a.sexo, undefined, a.is_touro)
     cats[c] = (cats[c] || 0) + 1
   })
 

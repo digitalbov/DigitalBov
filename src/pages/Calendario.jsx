@@ -18,13 +18,18 @@ function getUrg(dias) {
 
 const TIPO_BADGE = {
   parto:    { label: 'Parto',    bg: '#E8F0FC', cor: '#1E55B0' },
-  sanidade: { label: 'Sanidade', bg: '#E6F1FB', cor: '#0C447C' },
+  sanidade: { label: 'Manejo Sanitário', bg: '#E6F1FB', cor: '#0C447C' },
   estoque:  { label: 'Estoque',  bg: '#FAEEDA', cor: '#633806' },
   feira:    { label: 'Feira',    bg: '#F3E8FF', cor: '#5B2A9E' },
 }
 
 // ── Card de evento ────────────────────────────────────────────────
-function EventoCard({ ev }) {
+// cicloNome (opcional) — só usado na seção "Além do ciclo": identifica pra
+// qual ciclo aquele evento pertence, ao lado da data. Sem isso, um PDF
+// impresso (sem o contexto do seletor de ciclo do topo, que não é
+// capturado) ficaria sem explicar por que aquele item está numa seção à
+// parte.
+function EventoCard({ ev, cicloNome }) {
   const urg   = getUrg(ev.dias)
   const badge = TIPO_BADGE[ev.tipo]
   return (
@@ -47,6 +52,11 @@ function EventoCard({ ev }) {
           {badge && (
             <span style={{ fontSize: '.67rem', fontWeight: 600, background: badge.bg, color: badge.cor, borderRadius: 5, padding: '1px 6px' }}>
               {badge.label}
+            </span>
+          )}
+          {cicloNome && (
+            <span style={{ fontSize: '.67rem', fontWeight: 600, background: '#F3F4F6', color: '#6B7280', borderRadius: 5, padding: '1px 6px' }}>
+              <i className="ti ti-calendar-event" style={{ fontSize: 10 }} /> Ciclo {cicloNome}
             </span>
           )}
         </div>
@@ -110,7 +120,7 @@ export default function Calendario() {
   const [vazias,    setVazias]   = useState([])
   const [filtTipo,  setFiltTipo] = useState('todos')
 
-  const { dentroDoCiclo, cicloSelecionado: cicloLocal } = useCiclo()
+  const { dentroDoCiclo, cicloDaData, cicloSelecionado: cicloLocal } = useCiclo()
 
   useEffect(() => { loadData() }, [])
 
@@ -154,8 +164,12 @@ export default function Calendario() {
           ...(lote.partos || []).map(p => p.mae_id),
           ...(lote.abortos || []).map(a => a.animal_id),
         ])
+        // 2026-08-11 — vendida ainda prenha (animal.situacao) também sai daqui,
+        // mesmo motivo de partos/abortos acima: ela não vai parir sob
+        // observação da fazenda, "previsão de parto" pra ela é um lembrete
+        // que nunca vai se cumprir.
         const prenhas = (lote.inseminacoes || []).filter(i =>
-          i.diagnostico === 'P' && !maesComPartoOuAborto.has(i.animal_id)
+          i.diagnostico === 'P' && !maesComPartoOuAborto.has(i.animal_id) && i.animal?.situacao !== 'vendido'
         )
         if (!prenhas.length) continue
         const dataPrev = previaParto(lote.data)
@@ -173,8 +187,19 @@ export default function Calendario() {
       // b. Próximos procedimentos sanitários (campo "proximo" preenchido) —
       // Fase 7: só de procedimentos REALIZADOS (agendamento ainda não
       // aconteceu, não faz sentido ter uma "próxima aplicação" dele).
+      // Bloco D16 — se a "próxima aplicação" já gerou UM agendamento, o
+      // evento "b.2" abaixo já representa esse aviso — pula aqui pra não
+      // duplicar, e continua pulando mesmo depois do agendamento gerado ser
+      // concluído ou cancelado (não só enquanto status='agendado' — mesma
+      // correção do bug em Sanidade.jsx: o campo proximo do pai não muda
+      // nem ao concluir nem ao cancelar o gerado, então filtrar só por
+      // 'agendado' fazia o evento antigo reaparecer sozinho).
+      const idsComAgendamentoGerado = new Set(
+        (rSanidade.data || []).filter(p => p.gerado_de_id).map(p => p.gerado_de_id)
+      )
       for (const proc of (rSanidade.data || [])) {
         if (!sanidadeRealizada(proc) || !proc.proximo || proc.proximo_concluido_em) continue
+        if (idsComAgendamentoGerado.has(proc.id)) continue
         const dias = diasAte(proc.proximo)
         const titulo = [labelTipoSanidade(proc.tipo), proc.procedimento].filter(Boolean).join(' — ')
         evs.push({
@@ -189,12 +214,17 @@ export default function Calendario() {
       // ainda não confirmado pelo usuário ("Marcar como concluído" em
       // Sanidade). Mesmo array/mesma agregação de KPIs dos demais eventos —
       // só uma origem de data diferente (proc.data, não proc.proximo).
+      // Bloco D17 — agendamento: true (flag explícita, não mais heurística
+      // por ícone): é um COMPROMISSO que o usuário marcou pra acontecer numa
+      // data — sempre visível em Atrasados/Próximos, nunca escondido pelo
+      // filtro de ciclo (diferente da "próxima aplicação" acima, que é só um
+      // campo derivado de um registro histórico, sem identidade própria).
       for (const proc of (rSanidade.data || [])) {
         if (!sanidadeAgendada(proc)) continue
         const dias = diasAte(proc.data)
         const titulo = [labelTipoSanidade(proc.tipo), proc.procedimento].filter(Boolean).join(' — ')
         evs.push({
-          tipo: 'sanidade', icon: '📅',
+          tipo: 'sanidade', icon: '📅', agendamento: true,
           titulo:    `Agendado: ${titulo || 'Procedimento sanitário'}`,
           descricao: proc.lote_descricao || 'Vacinação agendada',
           data: proc.data, dias
@@ -245,7 +275,7 @@ export default function Calendario() {
           })
         } else {
           evs.push({
-            tipo: 'feira', icon: '🏆',
+            tipo: 'feira', icon: '🏆', agendamento: true,
             titulo:    `Feira agendada — Brinco ${p.animal?.brinco || '?'}`,
             descricao: `Feira: ${nomeFeira}`,
             data: edicao.data_inicio, dias: diasAte(edicao.data_inicio)
@@ -277,16 +307,40 @@ export default function Calendario() {
   if (loading) return <Loading />
   if (loadError) return <ErroCarregamento onRetry={loadData} />
 
-  // Eventos dentro do ciclo local selecionado
+  // Bloco D17 — eventosCiclo continua estrito (só dentroDoCiclo), sem
+  // exceção pra agendamento: é a base dos KPIs, que são histórico por ciclo
+  // e não podem mudar com a mudança de comportamento de exibição abaixo.
   const eventosCiclo = eventos.filter(e => cicloLocal && dentroDoCiclo(e.data, cicloLocal))
 
+  // Eventos com agendamento:true são um COMPROMISSO que o usuário marcou —
+  // escapam do filtro de ciclo sempre, mesmo fora da janela do ciclo
+  // selecionado (union com eventosCiclo, sem duplicar quem já está dentro).
+  // Usados pra exibição (Atrasados/Próximos), nunca pros KPIs.
+  const eventosEscapamCiclo = eventos.filter(e => e.agendamento && !(cicloLocal && dentroDoCiclo(e.data, cicloLocal)))
+  const eventosVisiveis = [...eventosCiclo, ...eventosEscapamCiclo]
+
+  // "Além do ciclo" — só os DERIVADOS (sem agendamento:true) que ficam
+  // escondidos pelo filtro: previsão de parto, vencimento de estoque,
+  // "próxima aplicação" sanitária e resultado pendente de feira. Eventos com
+  // agendamento:true nunca entram aqui — já aparecem direto em Atrasados/
+  // Próximos (eventosEscapamCiclo acima), não há o que avisar sobre eles.
+  const eventosDerivadosForaDoCiclo = cicloLocal
+    ? eventos.filter(e => !e.agendamento && !dentroDoCiclo(e.data, cicloLocal))
+    : []
+
   // Filtros aplicados
-  const filtrados = filtTipo === 'todos' ? eventosCiclo : eventosCiclo.filter(e => e.tipo === filtTipo)
+  const filtrados = filtTipo === 'todos' ? eventosVisiveis : eventosVisiveis.filter(e => e.tipo === filtTipo)
   const overdue   = filtrados.filter(e => e.dias !== null && e.dias < 0)
   const upcoming  = filtrados.filter(e => e.dias === null || e.dias >= 0)
   const mostrarVazias = filtTipo === 'todos' || filtTipo === 'reproducao'
+  const foraDoCicloFiltrados = filtTipo === 'todos' ? eventosDerivadosForaDoCiclo : eventosDerivadosForaDoCiclo.filter(e => e.tipo === filtTipo)
 
-  // KPIs (sempre sobre o total do ciclo, independente do filtro de tipo)
+  // KPIs (sempre sobre o total do ciclo, independente do filtro de tipo) —
+  // índice é histórico, contagem por ciclo não muda com a exceção dos
+  // agendamentos acima. Rotulados "no ciclo" de propósito: como a lista
+  // visível agora pode ter MAIS itens que o KPI "Total" conta (por causa dos
+  // agendamentos que escapam), um número sem essa deixa parecendo errado —
+  // não bate com o que está na tela.
   const kpiAtrasados = eventosCiclo.filter(e => e.dias !== null && e.dias < 0).length
   const kpiSemana    = eventosCiclo.filter(e => e.dias !== null && e.dias >= 0 && e.dias <= 7).length
   const kpiMes       = eventosCiclo.filter(e => e.dias !== null && e.dias > 7 && e.dias <= 30).length
@@ -299,10 +353,10 @@ export default function Calendario() {
       {/* ── KPI cards ── */}
       <div className="kpi-grid" style={{ marginBottom: 16 }}>
         {[
-          { v: kpiAtrasados, label: 'Atrasados / Vencidos', icon: '⚠️', color: '#791F1F', bg: '#FCEBEB' },
-          { v: kpiSemana,    label: 'Esta semana (7d)',      icon: '📅', color: '#633806', bg: '#FAEEDA' },
-          { v: kpiMes,       label: 'Este mês (30d)',        icon: '📆', color: '#1E55B0', bg: '#E8F0FC' },
-          { v: kpiTotal,     label: 'Total de eventos',      icon: '📋', color: '#2B6CD9', bg: 'white'  },
+          { v: kpiAtrasados, label: 'Atrasados/Vencidos no ciclo', icon: '⚠️', color: '#791F1F', bg: '#FCEBEB' },
+          { v: kpiSemana,    label: 'Esta semana no ciclo (7d)',    icon: '📅', color: '#633806', bg: '#FAEEDA' },
+          { v: kpiMes,       label: 'Este mês no ciclo (30d)',      icon: '📆', color: '#1E55B0', bg: '#E8F0FC' },
+          { v: kpiTotal,     label: 'Total no ciclo',               icon: '📋', color: '#2B6CD9', bg: 'white'  },
         ].map(k => (
           <div key={k.label} className="kpi-card" style={{ background: k.v > 0 ? k.bg : 'white' }}>
             <div className="kpi-icon" style={{ background: k.bg, fontSize: 15 }}>{k.icon}</div>
@@ -312,13 +366,20 @@ export default function Calendario() {
         ))}
       </div>
 
+      {eventosDerivadosForaDoCiclo.length > 0 && (
+        <div style={{ fontSize:'.78rem', color:'#9CA3AF', marginBottom:12, display:'flex', alignItems:'center', gap:5 }}>
+          <i className="ti ti-info-circle" style={{ fontSize:12 }} />
+          {eventosDerivadosForaDoCiclo.length} evento{eventosDerivadosForaDoCiclo.length===1?'':'s'} previsto{eventosDerivadosForaDoCiclo.length===1?'':'s'} além deste ciclo — veja a seção "Além do ciclo" abaixo, ou troque de ciclo no seletor do topo.
+        </div>
+      )}
+
       {/* ── Filtros + PDF ── */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
         <div className="pill-group">
           {[
             { key: 'todos',      icon: '',    label: 'Todos'      },
             { key: 'parto',      icon: '🍼 ', label: 'Partos'     },
-            { key: 'sanidade',   icon: '💉 ', label: 'Sanidade'   },
+            { key: 'sanidade',   icon: '💉 ', label: 'Manejo Sanitário'   },
             { key: 'estoque',    icon: '📦 ', label: 'Estoque'    },
             { key: 'feira',      icon: '🏆 ', label: 'Feiras'     },
             { key: 'reproducao', icon: '🔄 ', label: 'Reprodução' },
@@ -358,11 +419,32 @@ export default function Calendario() {
 
             {/* Seção: Pendências sem data — Repasse de Vazias */}
             {mostrarVazias && vazias.length > 0 && (
-              <div>
+              <div style={{ marginBottom: foraDoCicloFiltrados.length > 0 ? 16 : 0 }}>
                 <SecLabel color="#3C3489" mt={upcoming.length > 0 || overdue.length > 0 ? 4 : 0}>
                   🔄 Pendências sem data — Repasse de Vazias ({vazias.length})
                 </SecLabel>
                 {vazias.map(a => <VaziaCard key={a.id} animal={a} />)}
+              </div>
+            )}
+
+            {/* Seção: Além do ciclo — Bloco D17. Só os DERIVADOS escondidos
+                pelo filtro de ciclo (previsão de parto, vencimento de
+                estoque, "próxima aplicação" sanitária, resultado pendente de
+                feira); eventos com agendamento:true nunca aparecem aqui,
+                porque já saem direto em Atrasados/Próximos acima. Nomeado
+                com o ciclo selecionado (não só "Além deste ciclo") pra um
+                PDF impresso — que não carrega o seletor de ciclo do topo —
+                continuar fazendo sentido sozinho; cada item repete o nome do
+                SEU próprio ciclo de destino, ao lado da data. */}
+            {foraDoCicloFiltrados.length > 0 && (
+              <div>
+                <SecLabel mt={overdue.length > 0 || upcoming.length > 0 || (mostrarVazias && vazias.length > 0) ? 4 : 0}>
+                  📤 Além do ciclo {cicloLocal?.nome || 'selecionado'} ({foraDoCicloFiltrados.length})
+                </SecLabel>
+                {foraDoCicloFiltrados
+                  .slice()
+                  .sort((a, b) => (a.data || '').localeCompare(b.data || ''))
+                  .map((ev, i) => <EventoCard key={`f${i}`} ev={ev} cicloNome={cicloDaData(ev.data)?.nome || 'não identificado'} />)}
               </div>
             )}
           </>

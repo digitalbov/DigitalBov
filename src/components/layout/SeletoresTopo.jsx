@@ -197,11 +197,11 @@ export default function SeletoresTopo() {
       </a>
 
       {modalNova && (
-        <div onClick={() => setModalNova(false)} style={{
+        <div style={{
           position:'fixed', inset:0, background:'rgba(0,0,0,.5)', zIndex:9999,
           display:'flex', alignItems:'center', justifyContent:'center', padding:20
         }}>
-          <div onClick={e => e.stopPropagation()} style={{
+          <div style={{
             background:'white', borderRadius:14, padding:'28px 26px', maxWidth:380, width:'100%'
           }}>
             <h3 style={{ fontSize:'1.1rem', fontWeight:700, color:'var(--brand-green)', marginBottom:16 }}>Nova fazenda</h3>

@@ -137,13 +137,60 @@ export function contarMatrizes(animais, dataRef = hojeAgora()) {
   return (animais || []).filter(a => ehMatriz(a, dataRef)).length
 }
 
+// Matrizes aptas do CICLO — união, não foto de um instante (2026-08-11).
+// Bug real encontrado ao vivo: contarMatrizes(animais, primeiraMontaCiclo)
+// ancorava tudo numa ÚNICA data (a 1ª monta do ciclo inteiro), enquanto
+// "expostas" (contarExpostas) soma inseminações de TODOS os lotes do ciclo,
+// inclusive lotes posteriores. Uma matriz comprada depois da 1ª monta mas
+// exposta num lote/repasse mais tarde no MESMO ciclo entrava no numerador
+// sem nunca entrar no denominador — Taxa de Aproveitamento passava de 100%.
+// Corrigido pra mesma granularidade de contarExpostas/contarPrenhas (união
+// por LOTE, não uma data-âncora única pro ciclo): apta = esteve apta na
+// data de PELO MENOS UM dos lotes do ciclo. Não é "apta em qualquer dia do
+// ciclo" (isso creditaria uma matriz que amadureceu num mês sem nenhuma
+// monta acontecendo) — é "apta numa data em que uma oportunidade real de
+// exposição existiu", o mesmo evento que define o numerador.
+export function contarMatrizesCiclo(animais, datasLotes) {
+  const datas = [...new Set((datasLotes || []).filter(Boolean))]
+  if (datas.length === 0) return 0
+  return (animais || []).filter(a => datas.some(d => ehMatriz(a, d))).length
+}
+
+// Prenhez adquirida na compra (prenhezAdquirida.js) — vaca comprada já
+// prenha, sem inseminação/monta real nesta fazenda; o lote sintético que
+// representa essa gestação é marcado só pelo touro (não há coluna/flag
+// própria). Movido pra cá (2026-08-11) porque virou critério de exclusão
+// usado por índices em 3 telas (Metas/Relatorios/Reprodutivo) — single
+// source of truth do "como identificar isso", nunca uma string solta
+// repetida em cada tela. "Expostas"/"prenhas" medem esforço reprodutivo SOB
+// GESTÃO desta fazenda — uma prenhez herdada de quem vendeu não diz nada
+// sobre o manejo daqui, então esses lotes saem de Taxa de Prenhez, Taxa de
+// Aproveitamento, Taxa de Parição e Eficiência Gestacional (numerador E
+// denominador, senão o parto dela infla a taxa sem uma exposta
+// correspondente). NUNCA filtra índices de PRODUÇÃO (desmame, kg
+// produzido, GMD, mortalidade) — o terneiro dela nasceu e foi criado
+// aqui, conta normalmente.
+export const PRENHEZ_ADQUIRIDA_LABEL = 'Prenhez adquirida na compra'
+export const ehLotePrenhezAdquirida = (lote) => lote?.touro === PRENHEZ_ADQUIRIDA_LABEL
+
 // ── Categoria automática ──────────────────────────────────────────────────────
 // dataRef opcional: idade calculada nessa data em vez de hoje — usado para
 // classificar um animal pela categoria que ele TINHA num momento passado (ex:
 // na data da última pesagem), não pela idade atual. Todos os chamadores
 // existentes omitem o 3º argumento e continuam usando hoje, sem mudança de
 // comportamento.
-export const calcCategoria = (dataNasc, sexo, dataRef = hojeAgora()) => {
+// isTouro (opcional, 4º parâmetro — 2026-08-10): sem ele, um animal marcado
+// "É touro" era classificado só pela idade, caindo em "Boi" feito qualquer
+// macho adulto comum — bug de derivação, não só de rótulo, porque calcCategoria
+// nunca soube de is_touro (diferente de calcCategoriaRebanho, que já tinha
+// esse override). Mesma regra dessa: Touro sempre, não importa a idade — só
+// aplicado explicitamente pelos chamadores que exibem "categoria" pra
+// composição/relatório do rebanho; os que usam isto pra testar elegibilidade
+// de Terneiro/Terneira (desmame, GMD terneiros) continuam sem passar isTouro
+// de propósito — não é sobre exibir a categoria certa, é sobre a faixa
+// etária, que não muda com a flag.
+export const calcCategoria = (dataNasc, sexo, dataRef = hojeAgora(), isTouro = false) => {
+  if (isTouro) return 'Touro'
   const m = mesesDeVida(dataNasc, dataRef)
   if (sexo === 'F') {
     if (m <= 12) return 'Terneira'
@@ -215,6 +262,10 @@ export function estimarDataNascimentoPorCategoria(categoria, dataRefISO) {
 // Relatorios.jsx/contextoIA.js).
 export const sanidadeRealizada = (p) => (p?.status || 'realizado') === 'realizado'
 export const sanidadeAgendada  = (p) => p?.status === 'agendado'
+// Bloco D15 — cancelar marca, nunca apaga (mesmo raciocínio de
+// proximo_concluido_em). Um cancelado não é agendado nem realizado — as duas
+// funções acima já retornam false pra ele sem precisar de ajuste.
+export const sanidadeCancelada = (p) => p?.status === 'cancelado'
 
 // ── Sanidade: rótulo de exibição por tipo (Fase 11) ─────────────────────────
 // procedimentos_sanitarios.tipo continua gravando um dos 5 valores originais
@@ -372,14 +423,26 @@ export const PERDA_PRESUMIDA_DIAS_APOS_PREVISTO = 180
 // desmame escrito solto.
 export const APTO_AO_DESMAME_DIAS = 180
 
-export function calcGestacaoLote(loteData, prenhas, nascimentos, nAbortos, hoje = hojeAgora()) {
+// vendidasPrenhas (opcional, 5º parâmetro — Bloco E, 2026-08-10): quantas das
+// `prenhas` foram vendidas ainda prenhas — saem de vez do cálculo, nem
+// gestando nem perda: quem foi vendida não "falhou" (não é perda gestacional
+// não identificada) nem tem como confirmar que "ainda está gestando" (não
+// está mais na fazenda). Default 0 preserva os chamadores que ainda não
+// passam isso, sem mudança de comportamento.
+export function calcGestacaoLote(loteData, prenhas, nascimentos, nAbortos, vendidasPrenhas = 0, hoje = hojeAgora()) {
   const diasDesdeMonta = loteData ? Math.round((hoje - new Date(loteData + 'T12:00:00')) / 86400000) : null
   const aindaDentroDaJanela = diasDesdeMonta !== null && diasDesdeMonta < GESTACAO_MAX_DIAS
-  const semDesfecho = Math.max(0, prenhas - nascimentos - nAbortos)
+  const semDesfecho = Math.max(0, prenhas - nascimentos - nAbortos - vendidasPrenhas)
   const gestando = aindaDentroDaJanela ? semDesfecho : 0
   const perdasNaoIdentificadas = aindaDentroDaJanela ? 0 : semDesfecho
-  const perdaGestacional = prenhas > 0 ? Math.round((nAbortos + perdasNaoIdentificadas) / prenhas * 100) : null
-  return { gestando, perdasNaoIdentificadas, perdaGestacional }
+  // Denominador também exclui vendidasPrenhas (2026-08-10, esclarecimento do
+  // usuário): perda gestacional só é observável em quem continuou na fazenda
+  // até o desfecho. Manter a vendida no denominador sem poder observar se ela
+  // abortou ou não faria o índice parecer melhor do que é — pior que o
+  // contrário. Mesmo raciocínio da Taxa de Parição (calcTaxaParicao, abaixo).
+  const prenhasEfetivas = prenhas - vendidasPrenhas
+  const perdaGestacional = prenhasEfetivas > 0 ? Math.round((nAbortos + perdasNaoIdentificadas) / prenhasEfetivas * 100) : null
+  return { gestando, perdasNaoIdentificadas, perdaGestacional, prenhasEfetivas }
 }
 
 // ── Taxa de Parição (Fase 8 — oficial: partos ÷ matrizes EXPOSTAS, nunca
@@ -400,21 +463,30 @@ export function calcGestacaoLote(loteData, prenhas, nascimentos, nAbortos, hoje 
 // houver gestação em andamento sem desfecho, fica null ("—"), porque ainda
 // não há o que medir; quando a janela se encerra sem partos, essa é uma
 // parição de 0% de verdade, não ausência de dado.
-export function calcTaxaParicao(expostas, partos, gestando = 0) {
-  if (!expostas) return null
+// vendidas (opcional, 4º parâmetro — 2026-08-10): mesma exclusão de
+// calcGestacaoLote — vendida ainda prenha sai do denominador porque o parto
+// dela (numerador desta taxa) não é mais observável depois da venda.
+export function calcTaxaParicao(expostas, partos, gestando = 0, vendidas = 0) {
+  const efetivas = expostas - vendidas
+  if (!efetivas) return null
   if (partos === 0 && gestando > 0) return null
-  return Math.round(partos / expostas * 100)
+  return Math.round(partos / efetivas * 100)
 }
 
 // Desmame + peso ajustado 205 dias (padrão Embrapa) para um conjunto de partos.
 // totalInseminadas = "matrizes expostas" — denominador oficial da taxa de
 // desmama e do kg desmamado por matriz exposta (não usa nascidos).
-export function calcDesmameMetrics(partosArr, totalInseminadas) {
+// vendidas (opcional, 3º parâmetro — 2026-08-10): vendida ainda prenha nunca
+// chega a desmamar sob observação da fazenda (depende de parto, que já é
+// inobservável pra ela) — sai do denominador de taxa de desmama e kg/matriz
+// exposta, mesma exclusão de calcTaxaParicao/calcGestacaoLote.
+export function calcDesmameMetrics(partosArr, totalInseminadas, vendidas = 0) {
+  const totalEfetivo = totalInseminadas - vendidas
   const desmamados = (partosArr || []).filter(p => p.bezerro?.data_desmame).length
   // Guardado por desmamados > 0, não só por totalInseminadas > 0: sem nenhum
   // desmame registrado ainda, "0%"/"0 kg" pareceriam resultado real (ruim) em
   // vez de "ainda não há desmames" — a safra pode estar só em andamento.
-  const txDesmama = (totalInseminadas > 0 && desmamados > 0) ? Math.round(desmamados / totalInseminadas * 100) : null
+  const txDesmama = (totalEfetivo > 0 && desmamados > 0) ? Math.round(desmamados / totalEfetivo * 100) : null
   const pesosDesmame = []
   const pesosNascimento = []
   const p205s = []
@@ -459,7 +531,7 @@ export function calcDesmameMetrics(partosArr, totalInseminadas) {
     pesoMedioDesmame: media(pesosDesmame),
     pesoMedioNascimento: media(pesosNascimento),
     p205Medio: media(p205s),
-    kgPorMatrizExposta: (totalInseminadas > 0 && pesosDesmame.length > 0) ? Math.round(pesosDesmame.reduce((s, v) => s + v, 0) / totalInseminadas * 10) / 10 : null,
+    kgPorMatrizExposta: (totalEfetivo > 0 && pesosDesmame.length > 0) ? Math.round(pesosDesmame.reduce((s, v) => s + v, 0) / totalEfetivo * 10) / 10 : null,
     // Contagens pra UI deixar claro que o índice considera só quem tem peso
     // (ex.: "8 de 10 com peso") — não confundir com `desmamados` (todo mundo
     // com data_desmame, com ou sem peso).
@@ -591,11 +663,11 @@ export function calcDesempenhoVidaFemea(animal, { partos = [], inseminacoes = []
 // de Matrizes, pra nunca ter duas paletas diferentes pro mesmo conceito.
 export const CORES_DESFECHO = {
   pariu: '#27A838', pariu_aguardando: '#1BA89C', abortou: '#E24B4A',
-  prenha: '#2B6CD9', falhou: '#D97706', nao_exposta: '#9CA3AF',
+  prenha: '#2B6CD9', falhou: '#D97706', nao_exposta: '#9CA3AF', vendida_prenha: '#5B2A9E',
 }
 export const ROTULOS_DESFECHO = {
   pariu: 'Pariu', pariu_aguardando: 'Pariu (aguard. desmame)', abortou: 'Abortou',
-  prenha: 'Prenha (aguardando)', falhou: 'Falhou', nao_exposta: 'Não exposta',
+  prenha: 'Prenha (aguardando)', falhou: 'Falhou', nao_exposta: 'Não exposta', vendida_prenha: 'Vendida prenha',
 }
 
 // Classifica, safra a safra (do primeiro ciclo em que a fêmea era matriz até
@@ -630,6 +702,12 @@ export function classificarDesfechosPorSafra(animal, ciclosFazenda, reprodutivoB
       }
       if (h.status === 'gestacao_aberta') return { ciclo: h.ciclo, safra: h.ciclo.nome, valor: 8, peso: null, desfecho: 'prenha' }
       if (h.status === 'falhada') return { ciclo: h.ciclo, safra: h.ciclo.nome, valor: 8, peso: null, desfecho: h.motivo === 'aborto' ? 'abortou' : 'falhou' }
+      // 2026-08-11 — vendida ainda prenha escapava pro fallback 'nao_exposta'
+      // (bug real: ela FOI exposta e prenhou, só não ficou pra parir) porque
+      // este switch não tinha um case pra statusReprodutivoCiclo já devolver
+      // 'vendida_prenha' (ver helpers.js, Bloco E) — precisa do próprio
+      // desfecho, não do guarda-chuva 'falhou'.
+      if (h.status === 'vendida_prenha') return { ciclo: h.ciclo, safra: h.ciclo.nome, valor: 8, peso: null, desfecho: 'vendida_prenha' }
       return { ciclo: h.ciclo, safra: h.ciclo.nome, valor: 8, peso: null, desfecho: 'nao_exposta' }
     })
 }
@@ -874,6 +952,25 @@ export function bezerroAindaComCriaAoPe(parto) {
 // que tem prioridade — é a informação mais relevante nessa hora).
 // `partos` precisa ter mae_id, natimorto e bezerro.{data_desmame,situacao}
 // (ex: db.partos.listAll(), ou selLote.partos no detalhe do lote).
+// Bloco E (2026-08-10) — vaca vendida ainda com sit_reprodutiva='prenha':
+// rótulo com a data da venda, nunca "Prenha" pura e simples (enganoso — ela
+// não está mais na fazenda). compacto=true pra espaços estreitos (chips/
+// badges) — encurta o texto, mas NUNCA a data, é ela que dá sentido ao
+// status. Reaproveitada por quem exibe o status — nunca reimplementada.
+export function statusReprodutivoVendida(animal, { compacto = false } = {}) {
+  if (!animal || animal.sit_reprodutiva !== 'prenha' || animal.situacao !== 'vendido') return null
+  if (compacto) {
+    const dataCurta = animal.data_baixa ? fmtData(animal.data_baixa).replace(/\/(\d{2})\d{2}$/, '/$1') : '—'
+    return `Vendida prenha · ${dataCurta}`
+  }
+  return `Prenha — vendida em ${fmtData(animal.data_baixa)}`
+}
+
+// IMPORTANTE: o retorno desta função é usado como CHAVE de cor (repCor[...])
+// em quem chama, não só como texto — por isso continua devolvendo o valor
+// CRU ('prenha'/'vazia'/'Com cria ao pé'), nunca o rótulo rico de vendida
+// (isso é decidido no PONTO DE EXIBIÇÃO do texto, com statusReprodutivoVendida
+// acima, sem mexer aqui e sem quebrar o lookup de cor de ninguém).
 export function statusReprodutivoExibicao(animal, partos) {
   if (!animal || animal.sit_reprodutiva !== 'vazia') return animal?.sit_reprodutiva ?? null
   const partosDaMae = (partos || [])
@@ -972,7 +1069,12 @@ export function tentativaMaisRecentePendente(insAnimal) {
   return !!maisRecente && !maisRecente.diagnostico
 }
 
-export function desfechoReprodutivo(animalId, { inseminacoes = [], partos = [], abortos = [] } = {}, hoje = hojeISO(), todosPartos = null) {
+// animal (opcional, 5º parâmetro — Bloco E, 2026-08-10): {situacao,
+// data_baixa} do próprio animal. Só usado pra um caso: vaca vendida ainda
+// PRENHA (sem parto/aborto que resolva). Sem `animal` (chamador não
+// forneceu), esse caso simplesmente nunca é detectado e o comportamento é
+// idêntico ao de antes — nenhum caller quebra.
+export function desfechoReprodutivo(animalId, { inseminacoes = [], partos = [], abortos = [] } = {}, hoje = hojeISO(), todosPartos = null, animal = null) {
   const resultadoBase = (() => {
     const partoAnimal = (partos || []).find(p => p.mae_id === animalId)
     if (partoAnimal) return { resultado: 'pariu', data: partoAnimal.data_parto }
@@ -992,6 +1094,14 @@ export function desfechoReprodutivo(animalId, { inseminacoes = [], partos = [], 
       .filter(a => a.animal_id === animalId && a.data && a.data >= ultimaPrenhez.data_diagnostico)
       .sort((a, b) => b.data.localeCompare(a.data))
     if (abortosResolvendo.length > 0) return { resultado: 'falhou', motivo: 'aborto', data: abortosResolvendo[0].data }
+    // Bloco E — vendida ainda prenha: resultado TERMINAL próprio, nem
+    // sucesso nem falha. Checado ANTES do prazo de perda presumida —
+    // vender preempta o auto-flip pra "falhou: perda_gestacional",
+    // não importa há quanto tempo a venda já passou do prazo. Índice
+    // histórico não muda: a inseminação/diagnóstico continuam contando
+    // normalmente em tudo que já vinha antes deste ponto (taxa de
+    // prenhez); só o desfecho da GESTAÇÃO deixa de ser "em aberto".
+    if (animal?.situacao === 'vendido') return { resultado: 'vendida_prenha', data: animal.data_baixa }
     if (!ultimaPrenhez.lote?.data) return { resultado: 'em_aberto' }
     const d = new Date(ultimaPrenhez.lote.data + 'T12:00:00')
     d.setDate(d.getDate() + GESTACAO_ANGUS_DIAS)
@@ -1055,6 +1165,12 @@ export function statusReprodutivoDetalhado(animal, partos, dataMonta) {
 
   if (!ultimoParto) {
     if (animal.sit_reprodutiva !== 'prenha') return vazio
+    // Bloco E — vendida ainda prenha: nunca dispara perda presumida (mesma
+    // guarda de desfechoReprodutivo, aqui porque esta função tem sua PRÓPRIA
+    // conta independente, não passa por desfechoReprodutivo).
+    if (animal.situacao === 'vendido') {
+      return { ...vazio, etapa: 'vendida_prenha', dataParto: animal.data_baixa }
+    }
     let dataPrevistaParto = null
     let perdaPresumida = false
     if (dataMonta) {
@@ -1148,6 +1264,7 @@ export const STATUS_CICLO_ANIMAL = {
   nao_era_matriz: { label: 'Ainda não era matriz', bg: '#F3F4F6', text: '#9CA3AF' },
   pariu:          { label: 'Pariu',                bg: '#EAF3DE', text: '#27500A' },
   gestacao_aberta:{ label: 'Gestação em aberto',   bg: '#E6F1FB', text: '#1E55B0' },
+  vendida_prenha: { label: 'Vendida prenha',       bg: '#F3E8FF', text: '#5B2A9E' },
   em_andamento:   { label: 'Ciclo em andamento',   bg: '#F3F4F6', text: '#6B7280' },
   nao_exposta:    { label: 'Não exposta',          bg: '#F3F4F6', text: '#9CA3AF' },
   falhada:        { label: 'Falhada',              bg: '#FCEBEB', text: '#791F1F' },
@@ -1160,10 +1277,11 @@ export function statusReprodutivoCiclo(animal, ciclo, { partos = [], inseminacoe
   const partosCiclo = (partos || []).filter(p => p.data_parto && p.data_parto >= ciclo.inicio && p.data_parto <= ciclo.fim)
   const insCiclo     = (inseminacoes || []).filter(i => i.lote?.data && i.lote.data >= ciclo.inicio && i.lote.data <= ciclo.fim)
   const abortosCiclo = (abortos || []).filter(a => a.data && a.data >= ciclo.inicio && a.data <= ciclo.fim)
-  const desfecho = desfechoReprodutivo(animal.id, { inseminacoes: insCiclo, partos: partosCiclo, abortos: abortosCiclo }, hoje)
+  const desfecho = desfechoReprodutivo(animal.id, { inseminacoes: insCiclo, partos: partosCiclo, abortos: abortosCiclo }, hoje, null, animal)
 
-  if (desfecho.resultado === 'pariu')      return { status: 'pariu', data: desfecho.data }
-  if (desfecho.resultado === 'em_aberto')  return { status: 'gestacao_aberta' }
+  if (desfecho.resultado === 'pariu')          return { status: 'pariu', data: desfecho.data }
+  if (desfecho.resultado === 'vendida_prenha') return { status: 'vendida_prenha', data: desfecho.data }
+  if (desfecho.resultado === 'em_aberto')      return { status: 'gestacao_aberta' }
   // Repasse em andamento (ver resultado 'em_repasse', desfechoReprodutivo
   // acima) — mesmo se o ciclo já encerrou no calendário, ela ainda não fechou
   // desfecho: não é falhada nem "em andamento" por acaso, é literalmente um
@@ -1396,6 +1514,14 @@ export function resumoFeirasAnimal(participacoes = []) {
 // genealógica, PDF da ficha, export Excel), onde nome sozinho pode ser
 // ambíguo (animais.nome não tem UNIQUE); os demais lugares (cards, gráficos,
 // filtros, calendário, PDFs de relatório) usam nome puro.
+// NOTA (não corrigido, registrado a pedido do usuário 2026-08-09): quando
+// `animal`/`externo` existe, o retorno já deriva do embed ao vivo — imune a
+// rename de BRINCO. Mas se o usuário renomear o NOME de um touro cadastrado
+// (campo "Nome" em Animais.jsx), esse texto pode ter sido copiado pra
+// lotes_inseminacao.touro/lote_touros.nome/animais.pai de QUEM NÃO TEM
+// pai_animal_id/touro_animal_id (dado sem vínculo, mesmo caso do brinco sem
+// id) — aí sim fica desatualizado, problema análogo ao do brinco, ainda não
+// tratado. Só afeta quem não tem id; quem tem, deriva daqui e nunca diverge.
 function resolverNomeVinculo({ animal, externo, textoLegado, comBrinco }) {
   if (animal) {
     const nome = animal.nome || animal.brinco

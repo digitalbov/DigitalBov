@@ -1,5 +1,5 @@
 import { db } from './supabase'
-import { GESTACAO_ANGUS_DIAS } from './helpers'
+import { GESTACAO_ANGUS_DIAS, PRENHEZ_ADQUIRIDA_LABEL } from './helpers'
 
 // ── Prenhez adquirida (Item 8) — vaca comprada já prenha, sem nenhuma
 // inseminação/monta registrada NESTE sistema. Sem um lote com diagnóstico
@@ -12,7 +12,11 @@ import { GESTACAO_ANGUS_DIAS } from './helpers'
 // retroativo (Reprodutivo.jsx, aba Lotes/Montas) — mesmo helper, pra nunca
 // divergir entre os dois pontos de entrada.
 
-export const PRENHEZ_ADQUIRIDA_LABEL = 'Prenhez adquirida na compra'
+// PRENHEZ_ADQUIRIDA_LABEL agora mora em helpers.js (2026-08-11) — virou
+// critério de exclusão de índices reprodutivos (Metas/Relatorios/
+// Reprodutivo), que não importam mais nada deste arquivo. Reexportado aqui
+// pra nenhum import existente (Reprodutivo.jsx) precisar mudar.
+export { PRENHEZ_ADQUIRIDA_LABEL }
 
 function addDias(dataISO, dias) {
   const d = new Date(dataISO + 'T12:00:00')

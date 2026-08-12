@@ -35,7 +35,7 @@ const NAV = [
   { path: '/animais',     icon: 'ti-clipboard-list',   label: 'Cadastro de Animais' },
   { path: '/feiras',      icon: 'ti-trophy',           label: 'Feiras e Premiações' },
   { path: '/reprodutivo', icon: 'ti-activity',         label: 'Gestão Reprodutiva' },
-  { path: '/sanidade',    icon: 'ti-shield-check',     label: 'Sanidade' },
+  { path: '/sanidade',    icon: 'ti-shield-check',     label: 'Manejo Sanitário' },
   { path: '/pesagens',    icon: 'ti-weight',           label: 'Pesagens' },
   { path: '/estoque',     icon: 'ti-box',              label: 'Estoque' },
   { path: '/financeiro',  icon: 'ti-cash',             label: 'Gestão Financeira' },

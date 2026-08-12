@@ -317,8 +317,20 @@ export class PdfWriter {
   }
 
   // Linha simples "rótulo .......... valor" (equivalente às .row da tela).
-  linha(label, valor, { corValor } = {}) {
-    this.ensureSpace(LINE_H + 1)
+  // metaTexto (opcional): 2ª linha menor/muted, right-aligned embaixo do
+  // valor — equivalente ao "meta: X ✓" que a tela desenha do LADO do valor
+  // (flex, se ajusta sozinho). Bug corrigido (2026-08-10): linhaIndice
+  // (pdfRelatorios.js) concatenava valor+meta numa string só, right-aligned
+  // sozinha contra rightEdge, sem checar largura nenhuma — com um rótulo
+  // longo (ex: "Matrizes pendentes de diagnóstico") crescendo da esquerda
+  // sem limite, as duas colidiam/sobrepunham no PDF (nunca na tela, onde
+  // flexbox resolve isso sozinho). Duas linhas reais nunca colidem, não
+  // importa o tamanho do rótulo — sem precisar de captura de tela (html2canvas
+  // faria o arquivo grande e o texto deixar de ser selecionável, o problema
+  // que este writer existe justamente pra evitar, ver comentário no topo do
+  // arquivo).
+  linha(label, valor, { corValor, metaTexto } = {}) {
+    this.ensureSpace(LINE_H + 1 + (metaTexto ? 4 : 0))
     this.pdf.setFont(undefined, 'normal'); this.pdf.setFontSize(FONT_SIZE_BODY)
     this.pdf.setTextColor(...COR_TEXTO)
     this.pdf.text(paraPdfTexto(String(label)), this.marginX, this.y)
@@ -326,6 +338,13 @@ export class PdfWriter {
     this.pdf.setTextColor(...(corValor || COR_TEXTO))
     this.pdf.text(paraPdfTexto(String(valor)), this.rightEdge, this.y, { align: 'right' })
     this.pdf.setFont(undefined, 'normal')
+    if (metaTexto) {
+      this.y += 4
+      this.pdf.setFontSize(7.6)
+      this.pdf.setTextColor(...COR_MUTED)
+      this.pdf.text(paraPdfTexto(metaTexto), this.rightEdge, this.y, { align: 'right' })
+      this.pdf.setFontSize(FONT_SIZE_BODY)
+    }
     this.y += LINE_H + 1.5
   }
 

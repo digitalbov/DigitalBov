@@ -54,14 +54,14 @@ export default function SecaoSanidade({ item }) {
       <div className="card-title"><i className={`ti ${item.icone}`} /> {item.titulo}</div>
 
       <p style={{ color: '#374151', fontSize: '.88rem', lineHeight: 1.6, marginBottom: 16 }}>
-        A tela <strong>Sanidade</strong> registra vacinas, vermifugações, tratamentos e exames aplicados no
+        A tela <strong>Manejo Sanitário</strong> registra vacinas, vermifugações, tratamentos e exames aplicados no
         rebanho, com agenda de retorno e, opcionalmente, baixa automática dos itens usados no Estoque.
       </p>
 
       <h4 style={{ fontSize: '.88rem', fontWeight: 700, color: '#1a1a1a', marginBottom: 8 }}>Abas do módulo</h4>
       <ul style={{ color: '#374151', fontSize: '.85rem', lineHeight: 1.8, marginBottom: 18, paddingLeft: 20 }}>
         <li><strong>Registros</strong> — lista de procedimentos JÁ REALIZADOS, com o formulário de novo procedimento.</li>
-        <li><strong>Calendário de vacinação</strong> — vacinações AGENDADAS (data futura, ainda não concluídas). Ver seção própria abaixo.</li>
+        <li><strong>Calendário de vacinação</strong> — vacinações AGENDADAS (data futura, ainda não concluídas), mais uma seção recolhível "Cancelados" com os agendamentos marcados como não realizados. Ver seção própria abaixo.</li>
         <li><strong>Alertas</strong> — retornos vencidos e próximos (30 dias) de procedimentos já realizados, MAIS os agendamentos vencidos e dentro dos próximos 90 dias (com selo "Agendado"), com um calendário sanitário dos próximos 90 dias.</li>
         <li><strong>Histórico</strong> — consulta geral dos procedimentos já realizados, por período/animal.</li>
       </ul>
@@ -91,28 +91,50 @@ export default function SecaoSanidade({ item }) {
         só de procedimentos já realizados.
       </p>
       <p style={{ color: '#374151', fontSize: '.85rem', lineHeight: 1.8, marginBottom: 10 }}>
-        Cada agendamento tem 3 ações — na aba Calendário de vacinação ou direto num alerta de Alertas:
+        Cada agendamento tem 4 ações — na aba Calendário de vacinação ou direto num alerta de Alertas:
       </p>
       <ol style={{ color: '#374151', fontSize: '.85rem', lineHeight: 1.8, marginBottom: 10, paddingLeft: 20 }}>
         <li><strong>Editar</strong> (ícone de lápis) — abre o formulário completo, com todos os campos, os animais selecionados e os <strong>itens de estoque previstos</strong> editáveis. Continua agendado depois de salvar. É aqui (e só aqui) que você mexe nos dados do agendamento — a conclusão, abaixo, não edita nada.</li>
-        <li><strong>Marcar como concluído</strong> (ícone de check) — <strong>não abre formulário</strong>: mostra uma confirmação curta com o resumo (data, procedimento, quantidade de animais e os itens previstos, se houver) e dois botões. Ao confirmar: se algum item previsto não tiver saldo suficiente (ou tiver sido excluído do estoque), a conclusão inteira é recusada, com o aviso de qual item e quanto falta — nada é alterado. Se estiver tudo certo, o registro vira "realizado", a baixa de estoque acontece de verdade e ele passa a valer normalmente: entra em Registros, na ficha dos animais, nos indicadores. Se a data ainda estiver no futuro, a conclusão também é recusada — mude a data em Editar primeiro.</li>
-        <li><strong>Excluir</strong> (ícone de lixeira) — nunca reverte nada, porque um agendamento nunca baixou estoque nem afetou qualquer outro dado (itens previstos não são movimentação, só planejamento). É só apagar a agenda.</li>
+        <li><strong>Marcar como concluído</strong> (ícone de check) — <strong>não abre formulário</strong>: mostra uma confirmação curta com o resumo (data, procedimento, quantidade de animais e os itens previstos, se houver) e dois botões. Antes de concluir, os animais vinculados são conferidos de novo — quem foi vendido ou morreu depois que o agendamento foi criado sai da conta automaticamente (com aviso). Ao confirmar: se algum item previsto não tiver saldo suficiente (ou tiver sido excluído do estoque), a conclusão inteira é recusada, com o aviso de qual item e quanto falta — nada é alterado. Se estiver tudo certo, o registro vira "realizado", a baixa de estoque acontece de verdade e ele passa a valer normalmente: entra em Registros, na ficha dos animais, nos indicadores. Se a data ainda estiver no futuro, a conclusão também é recusada — mude a data em Editar primeiro.</li>
+        <li><strong>Marcar como não realizado</strong> (ícone de X) — cancela o agendamento sem apagar: some da agenda ativa e vai para a seção "Cancelados" (veja abaixo), com a data de cancelamento. Pode ser reaberto a qualquer momento.</li>
+        <li><strong>Excluir</strong> (ícone de lixeira) — nunca reverte nada, porque um agendamento nunca baixou estoque nem afetou qualquer outro dado (itens previstos não são movimentação, só planejamento). É só apagar a agenda, mesmo que ela já esteja cancelada.</li>
       </ol>
+      <p style={{ color: '#374151', fontSize: '.85rem', lineHeight: 1.8, marginBottom: 18 }}>
+        A seção <strong>Cancelados</strong>, recolhível no fim da aba Calendário de vacinação, lista os
+        agendamentos marcados como não realizados (texto riscado, com a data do cancelamento). De lá dá pra
+        <strong> Reabrir</strong> (volta a valer como agendamento normal) ou <strong>Excluir</strong> em
+        definitivo.
+      </p>
 
       <h4 style={{ fontSize: '.88rem', fontWeight: 700, color: '#1a1a1a', marginBottom: 8 }}>Agenda de retorno</h4>
       <p style={{ color: '#374151', fontSize: '.85rem', lineHeight: 1.8, marginBottom: 10 }}>
-        Se você preencher <strong>"Próxima aplicação"</strong> ao registrar um procedimento REALIZADO, ele
-        entra na aba <strong>Alertas</strong>: aparece em vermelho se já venceu, em amarelo se vence nos
-        próximos 30 dias. Um botão <strong>"Marcar como concluído"</strong> fecha o alerta e já oferece
-        registrar a nova aplicação na hora, com a data de hoje.
+        Se você preencher <strong>"Próxima aplicação"</strong> ao registrar (ou editar) um procedimento
+        REALIZADO, o sistema gera sozinho um <strong>agendamento de verdade</strong> nessa data — o mesmo
+        tipo de item da aba Calendário de vacinação, com as mesmas 4 ações (Editar, Concluir, Não realizado,
+        Excluir), herdando os animais do procedimento de origem (só os que ainda estão ativos). Você não
+        precisa criar esse agendamento manualmente.
+      </p>
+      <p style={{ color: '#374151', fontSize: '.85rem', lineHeight: 1.8, marginBottom: 10 }}>
+        Esse agendamento fica sincronizado com a "Próxima aplicação" enquanto ninguém mexer nele: mudar a
+        data em "Próxima aplicação" atualiza a data do agendamento; apagar "Próxima aplicação" apaga o
+        agendamento gerado (ele nunca tinha sido confirmado por ninguém). Depois que o agendamento é
+        concluído ou cancelado, ele vira independente — editar "Próxima aplicação" no registro original não
+        mexe mais nele. Se o agendamento gerado for concluído e o novo registro (agora realizado) também
+        tiver uma "Próxima aplicação" preenchida, o processo se repete sozinho — um novo agendamento é
+        gerado, encadeando quantas aplicações forem necessárias.
+      </p>
+      <p style={{ color: '#374151', fontSize: '.85rem', lineHeight: 1.8, marginBottom: 10 }}>
+        Esse agendamento aparece na aba <strong>Alertas</strong> com o selo <strong>"Agendado"</strong>
+        (vermelho se venceu, amarelo se está nos próximos 90 dias) e também no módulo <strong>Calendário</strong>
+        — não duas vezes: o antigo alerta "💉 próxima aplicação" só aparece separado quando ainda não existe
+        nenhum agendamento vivo pra aquela data (por exemplo, registros antigos, de antes desta função
+        existir, que ainda não foram editados).
       </p>
       <p style={{ color: '#374151', fontSize: '.85rem', lineHeight: 1.8, marginBottom: 18 }}>
-        Os <strong>agendamentos</strong> (Calendário de vacinação) aparecem na mesma aba Alertas, misturados
-        na mesma ordem por proximidade da data, mas com o selo <strong>"Agendado"</strong> pra você não
-        confundir com um retorno de procedimento já realizado — a janela deles é mais larga (90 dias, não 30)
-        e o botão vira <strong>Editar/Concluir</strong> em vez de "Marcar como concluído". Um agendamento
-        vencido (passou a data e ninguém concluiu) aparece na seção vermelha de vencidos, junto dos retornos
-        vencidos — é o caso que mais precisa da sua atenção.
+        Mesmo esse alerta antigo "💉 próxima aplicação" tem os mesmos 3 botões (Editar, Concluir, Não
+        realizado) de um agendamento normal — clicar em qualquer um deles gera o agendamento na hora, por
+        trás, e já aplica a ação escolhida nele. Você não percebe esse passo: do seu ponto de vista, só clicou
+        na ação. A partir daí esse item passa a ser um agendamento de verdade, igual a qualquer outro.
       </p>
 
       <h4 style={{ fontSize: '.88rem', fontWeight: 700, color: '#1a1a1a', marginBottom: 8 }}>Baixa de estoque</h4>
@@ -153,10 +175,10 @@ export default function SecaoSanidade({ item }) {
           body='Ao editar um procedimento que já baixou estoque, os itens usados aparecem só como consulta (não dá pra mudar item nem quantidade). Para corrigir, exclua o procedimento — isso devolve os itens ao estoque — e registre de novo com os valores certos.' />
         <AlertBox type="amber" icon="ti-shield-lock"
           title="Excluir um procedimento com baixa exige permissão também de Estoque"
-          body='Se o procedimento baixou itens do estoque, excluí-lo devolve essas quantidades — por isso o sistema também exige que você tenha permissão de edição no módulo Estoque, além de Sanidade. Sem ela, a exclusão é recusada com o aviso: "Este registro baixou itens do estoque. É necessária permissão de edição no módulo Estoque para excluí-lo."' />
+          body='Se o procedimento baixou itens do estoque, excluí-lo devolve essas quantidades — por isso o sistema também exige que você tenha permissão de edição no módulo Estoque, além de Manejo Sanitário. Sem ela, a exclusão é recusada com o aviso: "Este registro baixou itens do estoque. É necessária permissão de edição no módulo Estoque para excluí-lo."' />
         <AlertBox type="green" icon="ti-swords"
-          title="Uma baixa de Sanidade só se desfaz por aqui, nunca pela tela Estoque"
-          body='É proposital: se você for até Estoque → Movimentar tentar reverter uma linha marcada com o selo "Sanidade", o sistema recusa e te manda voltar pra cá. Isso é diferente de uma entrada/saída ligada a uma despesa ou receita do Financeiro, que pode ser desfeita dos dois lados — a diferença é que um procedimento de Sanidade pode baixar vários itens de uma vez, então só ele tem o contexto completo pra reverter direito.' />
+          title="Uma baixa de Manejo Sanitário só se desfaz por aqui, nunca pela tela Estoque"
+          body='É proposital: se você for até Estoque → Movimentar tentar reverter uma linha marcada com o selo "Manejo Sanitário", o sistema recusa e te manda voltar pra cá. Isso é diferente de uma entrada/saída ligada a uma despesa ou receita do Financeiro, que pode ser desfeita dos dois lados — a diferença é que um procedimento de Manejo Sanitário pode baixar vários itens de uma vez, então só ele tem o contexto completo pra reverter direito.' />
       </div>
     </div>
   )

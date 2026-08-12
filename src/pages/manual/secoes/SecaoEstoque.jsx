@@ -101,13 +101,13 @@ export default function SecaoEstoque({ item }) {
         texto:
       </p>
       <ul style={{ color: '#374151', fontSize: '.85rem', lineHeight: 1.8, marginBottom: 14, paddingLeft: 20 }}>
-        <li><Badge color="purple">Sanidade</Badge> — baixa automática de um procedimento sanitário.</li>
+        <li><Badge color="purple">Manejo Sanitário</Badge> — baixa automática de um procedimento sanitário.</li>
         <li><Badge color="red">Despesa</Badge> — entrada criada junto de uma despesa no Financeiro (pelo lançamento, por "Movimentar" ou pela criação de um item novo, aqui em Estoque).</li>
         <li><Badge color="green">Receita</Badge> — saída criada junto de uma receita no Financeiro.</li>
       </ul>
       <AlertBox type="amber" icon="ti-swords"
-        title="Sanidade só se desfaz pela Sanidade — Despesa/Receita se desfazem pelos dois lados"
-        body='Uma movimentação com o selo "Sanidade" não pode ser excluída nem revertida direto por aqui — clicar no ícone mostra o aviso pra ir excluir o procedimento na tela Sanidade, que devolve o estoque de lá. Já uma movimentação com o selo "Despesa" ou "Receita" PODE ser revertida direto por aqui: reverter também apaga o lançamento financeiro vinculado (exige permissão de Financeiro além de Estoque). Essa diferença é proposital — Sanidade pode baixar vários itens de uma vez só e por isso "é dona" da baixa; despesa/receita ligam sempre 1 movimentação a 1 lançamento, então qualquer um dos dois lados pode desfazer com segurança.' />
+        title="Manejo Sanitário só se desfaz pelo Manejo Sanitário — Despesa/Receita se desfazem pelos dois lados"
+        body='Uma movimentação com o selo "Manejo Sanitário" não pode ser excluída nem revertida direto por aqui — clicar no ícone mostra o aviso pra ir excluir o procedimento na tela Manejo Sanitário, que devolve o estoque de lá. Já uma movimentação com o selo "Despesa" ou "Receita" PODE ser revertida direto por aqui: reverter também apaga o lançamento financeiro vinculado (exige permissão de Financeiro além de Estoque). Essa diferença é proposital — Manejo Sanitário pode baixar vários itens de uma vez só e por isso "é dono" da baixa; despesa/receita ligam sempre 1 movimentação a 1 lançamento, então qualquer um dos dois lados pode desfazer com segurança.' />
     </div>
   )
 }

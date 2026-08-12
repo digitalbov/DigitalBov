@@ -3,6 +3,8 @@
 // dentro de lerPlanilhaAnimais, em vez de estática no topo do arquivo (o que
 // forçaria o download em toda visita à tela de Animais).
 
+import { resolverTouroDigitado } from './helpers'
+
 // Colunas da planilha modelo (ordem e nomes exatos). numero_registro/
 // classificacao/sisbov (Fase 13) foram adicionadas no FIM de propósito —
 // templates antigos (sem essas 3 colunas) continuam funcionando, só vêm com
@@ -50,10 +52,24 @@ export async function lerPlanilhaAnimais(file) {
 
 // Valida e transforma as linhas em payloads prontos para inserir.
 // proprietarios e lotes são arrays [{id, nome}] para mapear nome->id.
-// Retorna { validos: [payloads], erros: [{linha, motivo}] }
-export function validarLinhas(linhas, proprietarios, lotes) {
+// tourosCadastrados/tourosExternos (Item 5) resolvem "pai" pra
+// pai_animal_id/pai_externo_id — só quando o texto bate com um cadastro OU
+// externo JÁ EXISTENTE (mesma resolverTouroDigitado do formulário manual).
+// Proposital NÃO chamar findOrCreate aqui: uma planilha de centenas de linhas
+// com erro de digitação no nome do touro criaria touros_externos de lixo em
+// massa, sem ninguém revisar cada um antes — diferente do cadastro manual
+// (uma linha por vez, o usuário vê a confirmação ao vivo antes de salvar).
+// Quem não bate com nada existente fica só como texto, igual sempre foi.
+// mae_brinco->mae_id fica de propósito FORA daqui — vira uma segunda passada
+// em Animais.jsx::confirmarImportacao, depois que TODAS as linhas já foram
+// inseridas (mesmo princípio das camadas de lancamentos_financeiros na
+// restauração de backup): a mãe pode estar na MESMA planilha, ainda sem id
+// nenhum no momento desta validação.
+// Retorna { validos: [payloads], erros: [{linha, motivo}], paiResolvidos, paiTexto }
+export function validarLinhas(linhas, proprietarios, lotes, tourosCadastrados = [], tourosExternos = []) {
   const validos = []
   const erros = []
+  let paiResolvidos = 0, paiTexto = 0
   const propPorNome = {}
   proprietarios.forEach(p => { propPorNome[(p.nome||'').trim().toLowerCase()] = p.id })
   const lotePorNome = {}
@@ -104,11 +120,24 @@ export function validarLinhas(linhas, proprietarios, lotes) {
       erros.push({ linha: nLinha, motivo: 'classificacao deve ser PO, PA, CO ou N/A' }); return
     }
 
+    // Resolve o pai contra cadastro/externo já EXISTENTE — pura, sem rede
+    // (nunca cria touros_externos aqui, ver comentário no topo da função).
+    const paiTxt = String(linha.pai || '').trim() || null
+    let paiAnimalId = null, paiExternoId = null
+    if (paiTxt) {
+      const r = resolverTouroDigitado(paiTxt, tourosCadastrados, tourosExternos)
+      if (r?.tipo === 'cadastro') { paiAnimalId = r.touro.id; paiResolvidos++ }
+      else if (r?.tipo === 'externo_exato') { paiExternoId = r.touro.id; paiResolvidos++ }
+      else { paiTexto++ }
+    }
+
     validos.push({
       brinco, sexo, data_nascimento: dataNasc,
       raca: String(linha.raca || '').trim() || 'Angus',
       pelagem: String(linha.pelagem || '').trim() || null,
-      pai: String(linha.pai || '').trim() || null,
+      pai: paiTxt,
+      pai_animal_id: paiAnimalId,
+      pai_externo_id: paiExternoId,
       mae_brinco: String(linha.mae_brinco || '').trim() || null,
       proprietario_id: propId,
       lote_id: loteId,
@@ -123,5 +152,5 @@ export function validarLinhas(linhas, proprietarios, lotes) {
     })
   })
 
-  return { validos, erros }
+  return { validos, erros, paiResolvidos, paiTexto }
 }

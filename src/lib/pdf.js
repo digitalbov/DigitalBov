@@ -175,30 +175,56 @@ export async function gerarPDFComMolduras(elemento, filename, titulo = '', fazen
 export async function gerarPDFComMoldurasPorBlocos(blocos, filename, titulo = '', fazenda = '', logoUrl = '') {
   const elementos = (blocos || []).filter(Boolean)
   if (elementos.length === 0) return
-  const { pdf, contentTop, contentBot, contentW, margem, desenharMolduras, desenharMarca } = await _prepararDocumento(titulo, fazenda, logoUrl)
+  const { pdf, contentTop, contentBot, contentH, contentW, margem, desenharMolduras, desenharMarca } = await _prepararDocumento(titulo, fazenda, logoUrl)
 
   const capturas = await Promise.all(elementos.map(async el => {
     const canvas = await html2canvas(el, { scale: 2, useCORS: true, logging: false, backgroundColor: '#ffffff' })
     return { canvas, h: (canvas.height * contentW) / canvas.width }
   }))
 
-  // Empacota os blocos em páginas ANTES de desenhar nada.
-  const paginas = [[]]
+  // Empacota os blocos em páginas ANTES de desenhar nada. Bloco mais alto que
+  // o conteúdo de uma página inteira (2026-08-11 — passou a acontecer de
+  // verdade: o donut de Perdas ganhou uma fatia a mais e, com o card
+  // empilhando mais linhas em telas estreitas, ultrapassa a altura da
+  // página) NÃO estoura mais a margem em silêncio — vira sua(s) própria(s)
+  // página(s), fatiado por altura (mesma técnica de gerarPDFComMolduras).
+  // Perder conteúdo cortado é sempre pior que gastar uma página extra.
+  const paginas = []
+  let atual = []
   let y = contentTop
+  const fecharPagina = () => { paginas.push(atual); atual = []; y = contentTop }
   for (const { canvas, h } of capturas) {
-    if (y + h > contentBot && y > contentTop) {
-      paginas.push([])
-      y = contentTop
+    if (h > contentH) {
+      if (atual.length > 0) fecharPagina()
+      const escala = canvas.width / contentW
+      const nFatias = Math.ceil(h / contentH)
+      for (let f = 0; f < nFatias; f++) {
+        const sy = f * contentH * escala
+        const sh = Math.min(contentH * escala, canvas.height - sy)
+        if (sh <= 0) continue
+        atual.push({ canvas, sy, sh, sliceH: (sh * contentW) / canvas.width, y: contentTop })
+        fecharPagina()
+      }
+      continue
     }
-    paginas[paginas.length - 1].push({ canvas, h, y })
+    if (y + h > contentBot && y > contentTop) fecharPagina()
+    atual.push({ canvas, h, y })
     y += h + 6
   }
+  if (atual.length > 0) fecharPagina()
 
   paginas.forEach((blocosDaPagina, i) => {
     if (i > 0) pdf.addPage()
     desenharMolduras(i + 1, paginas.length)
-    blocosDaPagina.forEach(({ canvas, h, y: yBloco }) => {
-      pdf.addImage(canvas.toDataURL('image/png'), 'PNG', margem, yBloco, contentW, h)
+    blocosDaPagina.forEach(item => {
+      if (item.sy !== undefined) {
+        const slice = document.createElement('canvas')
+        slice.width = item.canvas.width; slice.height = item.sh
+        slice.getContext('2d').drawImage(item.canvas, 0, item.sy, item.canvas.width, item.sh, 0, 0, item.canvas.width, item.sh)
+        pdf.addImage(slice.toDataURL('image/png'), 'PNG', margem, item.y, contentW, item.sliceH)
+      } else {
+        pdf.addImage(item.canvas.toDataURL('image/png'), 'PNG', margem, item.y, contentW, item.h)
+      }
     })
     desenharMarca()
   })

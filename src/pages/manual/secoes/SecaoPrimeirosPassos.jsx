@@ -99,7 +99,7 @@ export default function SecaoPrimeirosPassos({ item }) {
       <ul style={{ color: '#374151', fontSize: '.85rem', lineHeight: 1.8, marginBottom: 10, paddingLeft: 20 }}>
         <li><strong>Dono</strong> — quem contratou o sistema. Acesso total, não pode ser removido nem rebaixado.</li>
         <li><strong>Administrador</strong> — acesso total a todos os módulos de todas as fazendas, incluindo gerenciar outros usuários.</li>
-        <li><strong>Operador</strong> — acesso configurado módulo por módulo, fazenda por fazenda: para cada módulo (Propriedade, Animais, Gestão Reprodutiva, Sanidade, Pesagens, Estoque, Financeiro, Metas, Relatórios, Rebanho) você escolhe entre <strong>Sem acesso</strong>, <strong>Ver</strong> (só consulta) ou <strong>Ver e editar</strong>.</li>
+        <li><strong>Operador</strong> — acesso configurado módulo por módulo, fazenda por fazenda: para cada módulo (Propriedade, Animais, Gestão Reprodutiva, Manejo Sanitário, Pesagens, Estoque, Financeiro, Metas, Relatórios, Rebanho) você escolhe entre <strong>Sem acesso</strong>, <strong>Ver</strong> (só consulta) ou <strong>Ver e editar</strong>.</li>
       </ul>
       <p style={{ color: '#374151', fontSize: '.85rem', lineHeight: 1.8, marginBottom: 18 }}>
         Passo a passo para adicionar um operador: clique em <strong>"Adicionar operador"</strong>, informe
@@ -112,7 +112,7 @@ export default function SecaoPrimeirosPassos({ item }) {
       <h4 style={{ fontSize: '.88rem', fontWeight: 700, color: '#1a1a1a', marginBottom: 8 }}>Recursos gerais da tela</h4>
       <ul style={{ color: '#374151', fontSize: '.85rem', lineHeight: 1.8, marginBottom: 18, paddingLeft: 20 }}>
         <li><strong>Menu recolhível</strong> — no computador, a seta no canto do menu lateral recolhe o menu para uma faixa fina de ícones, deixando mais espaço de tela para tabelas e gráficos. A preferência fica salva neste computador/navegador.</li>
-        <li><strong>Lançamento por voz</strong> — telas como Financeiro, Pesagens, Sanidade, Estoque e Gestão Reprodutiva têm um botão de microfone ao lado de alguns campos. Clique, fale a informação (ex: "brinco zero dois três um, quatrocentos quilos, intermediária") e o sistema tenta preencher o campo sozinho. Funciona só no Chrome ou Edge, e pede permissão do navegador para usar o microfone na primeira vez.</li>
+        <li><strong>Lançamento por voz</strong> — telas como Financeiro, Pesagens, Manejo Sanitário, Estoque e Gestão Reprodutiva têm um botão de microfone ao lado de alguns campos. Clique, fale a informação (ex: "brinco zero dois três um, quatrocentos quilos, intermediária") e o sistema tenta preencher o campo sozinho. Funciona só no Chrome ou Edge, e pede permissão do navegador para usar o microfone na primeira vez.</li>
       </ul>
 
       <h4 style={{ fontSize: '.88rem', fontWeight: 700, color: '#1a1a1a', marginBottom: 10 }}>Avisos importantes</h4>

@@ -66,9 +66,24 @@ export default function SecaoMetas({ item }) {
         <h5 style={H5}>Taxa de Aproveitamento</h5>
         <div style={FORMULA}>Matrizes expostas ÷ Matrizes aptas × 100</div>
         <p style={P}>
-          "Matriz apta" = fêmea com mais de 24 meses de idade <strong>na data da primeira monta do
-          ciclo</strong> (não na data de hoje). É o mesmo corte de idade usado em todo o sistema para contar
-          matrizes.
+          "Matriz apta" = fêmea com mais de 24 meses de idade, presente na fazenda, <strong>na data de PELO
+          MENOS UM lote do ciclo</strong> — não mais uma foto única da 1ª monta (2026-08-12, correção de bug:
+          uma matriz comprada depois da 1ª monta, mas exposta só num lote/repasse posterior do mesmo ciclo,
+          entrava no numerador sem nunca entrar no denominador, e a taxa passava de 100% por engano). "Matrizes
+          expostas" exclui prenhez adquirida na compra (ver abaixo).
+        </p>
+        <p style={P}>
+          <strong>Acima de 100% continua sendo normal</strong>, não um bug: acontece quando novilhas com menos
+          de 24 meses (fora da definição de "matriz apta") são expostas à reprodução. O card mostra um aviso
+          discreto quando isso acontece, pra ninguém desconfiar do número à toa.
+        </p>
+        <p style={P}>
+          <strong>Prenhez adquirida na compra</strong> (vaca comprada já prenha, sem monta registrada nesta
+          fazenda) sai de Taxa de Prenhez, Taxa de Aproveitamento, Taxa de Parição, Eficiência Gestacional,
+          Perda Gestacional e Custo de Monta / Matriz Exposta — ela não foi exposta nem teve a gestação
+          conduzida aqui, então não diz nada sobre o manejo reprodutivo desta fazenda. Continua contando
+          normalmente em tudo que é produção: desmame, kg produzido, GMD, mortalidade — o terneiro dela nasceu
+          e foi criado aqui. O card mostra quantas foram excluídas quando isso muda o número.
         </p>
 
         <h5 style={H5}>Taxa de Parição</h5>
@@ -86,6 +101,13 @@ export default function SecaoMetas({ item }) {
           acima, que divide pelo total de expostas (inclui quem nunca prenhou). Até a virada da Fase 8 este
           indicador se chamava "Taxa de Parição"; a fórmula não mudou, só o nome — metas já configuradas
           continuam valendo para o mesmo número de antes.
+        </p>
+        <p style={P}>
+          <strong>Vaca vendida ainda prenha</strong> sai do denominador dos dois indicadores acima (Taxa de
+          Parição e Eficiência Gestacional): o parto dela deixa de ser observável pela fazenda a partir da
+          venda, e mantê-la no cálculo sem poder confirmar o desfecho faria o índice parecer melhor do que é.
+          Ela continua contando normalmente em Taxa de Prenhez (isso já aconteceu antes da venda). Quando isso
+          acontece, o card mostra quantas foram excluídas num texto discreto abaixo do valor.
         </p>
 
         <h5 style={H5}>Intervalo entre Partos <span style={{ fontWeight: 400, color: '#9CA3AF' }}>(menor é melhor)</span></h5>
@@ -108,6 +130,14 @@ export default function SecaoMetas({ item }) {
           gestação (300 dias desde a monta) já fechou, sem parto NEM aborto lançado — o sistema entende que
           algo deu errado e ninguém registrou. Enquanto ainda está dentro dos 300 dias, ela conta como
           "gestando" (em andamento), não como perda.
+        </p>
+        <p style={P}>
+          Vaca vendida ainda prenha sai do denominador (Prenhas) deste indicador — parto/aborto não são
+          observáveis depois da venda. <strong>Prenhez adquirida na compra também sai</strong> (2026-08-12):
+          a gestação não foi conduzida aqui desde a concepção, então uma perda dela diz pouco sobre o manejo
+          local. O Kg Desmamado / Matriz sai apenas para vendida ainda prenha — prenhez adquirida NÃO sai dali
+          (o terneiro dela desmama normalmente aqui). O card avisa quantas foram excluídas quando isso muda o
+          número.
         </p>
 
         <h5 style={H5}>Mortalidade de Terneiros <span style={{ fontWeight: 400, color: '#9CA3AF' }}>(menor é melhor)</span></h5>
@@ -199,6 +229,11 @@ export default function SecaoMetas({ item }) {
           % do Valor Produzido = Custo total ÷ Valor Produzido × 100<br />
           Custo por Matriz = Custo total ÷ Matrizes expostas
         </div>
+        <p style={P}>
+          <strong>Custo por Matriz exclui prenhez adquirida na compra</strong> (2026-08-12): ela não gerou
+          nenhum custo de monta nesta fazenda (não foi inseminada/coberta aqui) — mantê-la no denominador
+          diluiria o custo médio pra baixo, fazendo o manejo parecer mais barato do que foi de verdade.
+        </p>
         <AlertBox type="amber" icon="ti-receipt-off"
           title='Por que "Monta Natural" costuma aparecer sem despesas'
           body='Nem "Inseminação" nem "Monta Natural" são grupos financeiros criados automaticamente pelo sistema — os dois são só opções na lista de grupos em Financeiro, que só ganham número se VOCÊ lançar uma despesa manualmente com esse grupo exato (ex: nota de sêmen, protocolo, ou o custo de manter o touro). Não é uma limitação do modo Monta Natural: se ninguém lançou nada com o grupo "Monta Natural", o card mostra "Sem despesas lançadas no período" mesmo que a monta tenha custado dinheiro de verdade — o sistema não tem como adivinhar isso sozinho.' />

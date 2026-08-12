@@ -156,7 +156,7 @@ export default function Backup() {
         'SISBOV':           a.sisbov || '',
         'Sexo':             a.sexo === 'F' ? 'Fêmea' : 'Macho',
         'Nascimento':       a.data_nascimento || '',
-        'Categoria':        calcCategoria(a.data_nascimento, a.sexo),
+        'Categoria':        calcCategoria(a.data_nascimento, a.sexo, undefined, a.is_touro),
         'Nº Registro':      a.numero_registro || '',
         'Classificação':    a.classificacao || '',
         'Raça':             a.raca || '',

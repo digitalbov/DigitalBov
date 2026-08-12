@@ -45,6 +45,16 @@ const FKS_POR_TABELA = {
   transacoes_animais:       { lancamento_id: 'lancamentos_financeiros', ciclo_id: 'ciclos_financeiros' },
   transacao_animais_itens:  { transacao_id: 'transacoes_animais', animal_id: 'animais' },
   pesagens:                 { animal_id: 'animais', transacao_id: 'transacoes_animais' },
+  // gerado_de_id (auto-referência, migration_sanidade_agendamento_cancelado_
+  // d15.sql): agendamento gerado pela "próxima aplicação" de outro
+  // procedimento — mesmo princípio de pai_animal_id acima, mas aqui a cadeia
+  // pode ter profundidade arbitrária (concluir → gera outro → concluir →
+  // gera outro...), então ordenar por uma flag booleana não basta. Resolvido
+  // ordenando por criado_em ANTES do insert em chunks (ver linhasOriginais
+  // abaixo): o "pai" sempre existe cronologicamente antes do "filho" que ele
+  // gerou, então essa ordem garante o pai já inserido pra qualquer
+  // profundidade, sem precisar de múltiplos passes.
+  procedimentos_sanitarios: { gerado_de_id: 'procedimentos_sanitarios' },
   sanidade_animais:         { procedimento_id: 'procedimentos_sanitarios', animal_id: 'animais' },
   estoque_movimentacoes:    { item_id: 'estoque_itens', procedimento_id: 'procedimentos_sanitarios' },
   planejamento_acoes:       { planejamento_id: 'planejamentos' },
@@ -257,8 +267,13 @@ export async function importarBackup(payload, { contaId, nomeFazenda }, onProgre
     // isso garante que o "pai" já existe na tabela quando o "filho" for
     // inserido, sem precisar de um segundo passe de UPDATE (ver comentário
     // em FKS_POR_TABELA).
+    // procedimentos_sanitarios: criado_em ascendente — mesmo raciocínio do
+    // sort de animais acima, mas por data em vez de flag, porque a cadeia de
+    // gerado_de_id pode ter profundidade arbitrária (ver FKS_POR_TABELA).
     const linhasOriginais = tabela === 'animais'
       ? [...(dados[tabela] || [])].sort((a, b) => (b.is_touro ? 1 : 0) - (a.is_touro ? 1 : 0))
+      : tabela === 'procedimentos_sanitarios'
+      ? [...(dados[tabela] || [])].sort((a, b) => (a.criado_em || '').localeCompare(b.criado_em || ''))
       : (dados[tabela] || [])
     const esperado = linhasOriginais.length
     report({ tabela, status: 'rodando', esperado, importado: 0 })

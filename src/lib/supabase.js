@@ -54,6 +54,54 @@ const escopo = (q, opts = {}) => {
   return q
 }
 
+// ── Filtro de colunas reais (correção de raiz — bug do brinco/pai_animal) ──
+// Achado ao vivo: abrir um animal pra editar carrega a linha com EMBEDS
+// (proprietario/lote/pai_animal/pai_externo — ver db.animais.list abaixo),
+// e telas que pré-preenchem o formulário espalhando esse objeto inteiro
+// (`{ ...a }`) acabavam mandando essas chaves de volta num update/insert —
+// PostgREST rejeita com 400 ("Could not find the 'pai_animal' column"),
+// porque embed de select nunca é coluna de verdade. Cada tela apagando as
+// chaves de embed uma a uma (`delete payload.proprietario`) é frágil — some
+// no dia em que um embed novo é adicionado e ninguém lembra de atualizar
+// TODOS os deletes espalhados.
+//
+// Mesma IDEIA já usada por importarBackup.js (colunas_tabelas_publicas +
+// filtrarColunasValidas) pra descartar coluna que não existe mais no banco
+// — reaproveita a MESMA RPC (fonte única: information_schema, nunca uma
+// lista de colunas mantida à mão), só que aqui pra UM objeto de UMA tabela
+// só, no momento do save, em vez de um lote inteiro de linhas na
+// restauração de backup — por isso é uma função separada, não a mesma
+// (formatos de uso diferentes: ali processa N linhas de M tabelas de uma
+// vez com relatório de descarte; aqui é síncrono ao clique de salvar).
+// Cacheada por tabela (1ª chamada busca, as próximas reaproveitam) — não
+// pesa o salvar depois da primeira vez. RPC indisponível (rede, função
+// ainda não aplicada) → devolve o objeto SEM filtrar, nunca bloqueia salvar
+// por causa disto.
+const _cacheColunasPorTabela = {}
+async function colunasDaTabela(tabela) {
+  if (!_cacheColunasPorTabela[tabela]) {
+    _cacheColunasPorTabela[tabela] = supabase.rpc('colunas_tabelas_publicas', { p_tabelas: [tabela] })
+      .then(({ data, error }) => {
+        if (error) { delete _cacheColunasPorTabela[tabela]; return null }
+        return new Set((data || []).map(r => r.coluna))
+      })
+  }
+  return _cacheColunasPorTabela[tabela]
+}
+// Descarta de `objeto` qualquer chave que não seja coluna real de `tabela`
+// — embed de select (proprietario, lote, pai_animal, touro_animal...) ou
+// campo auxiliar de formulário (ex.: `_edit`). Use antes de mandar pra
+// insert/update um objeto que pode ter vindo de um `{ ...linhaCarregada }`.
+export async function apenasColunasReais(tabela, objeto) {
+  const colunas = await colunasDaTabela(tabela)
+  if (!colunas) return objeto
+  const out = {}
+  for (const [chave, valor] of Object.entries(objeto)) {
+    if (colunas.has(chave)) out[chave] = valor
+  }
+  return out
+}
+
 // ── Auth helpers ──────────────────────────────────────────────────
 export const auth = {
   signIn:            (email, pw) => supabase.auth.signInWithPassword({ email, password: pw }),
@@ -144,7 +192,7 @@ export const db = {
     // lote_touros também tem seu próprio touro_animal/touro_externo — um touro
     // ADICIONAL também pode estar vinculado por id, mesma regra do principal.
     list: (cicloId) => T('lotes_inseminacao').select(`
-      *, inseminacoes(*, animal:animais(brinco,proprietario_id,sit_reprodutiva,proprietario:proprietarios(nome))),
+      *, inseminacoes(*, animal:animais(brinco,proprietario_id,sit_reprodutiva,situacao,data_baixa,proprietario:proprietarios(nome))),
       partos(id,bezerro_id,mae_id,data_parto,natimorto,mae:animais!mae_id(brinco,proprietario_id),bezerro:animais!bezerro_id(id,brinco,sexo,pai,situacao,data_desmame,pesagens(id,data,tipo,peso_kg))),
       abortos(id,animal_id,data,causa,observacoes,animal:animais(proprietario_id)),
       estacao:estacoes_monta(id,nome,inicio,fim),
@@ -153,7 +201,7 @@ export const db = {
     `).eq('ciclo_id', cicloId).order('data', { ascending: false }),
     listAll: () => T('lotes_inseminacao').select(`
       *, ciclo:ciclos_financeiros(id,nome,inicio,fim),
-      inseminacoes(*, animal:animais(brinco,proprietario_id,proprietario:proprietarios(nome))),
+      inseminacoes(*, animal:animais(brinco,proprietario_id,sit_reprodutiva,situacao,data_baixa,proprietario:proprietarios(nome))),
       partos(id,bezerro_id,mae_id,data_parto,natimorto,mae:animais!mae_id(proprietario_id),bezerro:animais!bezerro_id(situacao,data_desmame,pesagens(data,tipo,peso_kg))),
       abortos(id,animal_id,data,causa,animal:animais(proprietario_id)),
       estacao:estacoes_monta(id,nome,inicio,fim),
@@ -168,13 +216,15 @@ export const db = {
     // embeds pesados de pesagens/estação (Dashboard, Rebanho, Metas, Calendario,
     // Relatorios, contextoIA). partos(mae_id)/abortos(animal_id) só trazem o id
     // do animal (não o funil inteiro) — usados pelo Calendario pra não sugerir
-    // "previsão de parto" de uma vaca que já pariu ou abortou nesse lote. Sem
-    // cicloId, traz de todos os ciclos.
+    // "previsão de parto" de uma vaca que já pariu ou abortou nesse lote.
+    // animal.situacao (2026-08-11) — mesmo motivo: não sugerir "previsão de
+    // parto" de uma vendida ainda prenha (não está mais na fazenda pra parir
+    // sob observação). Sem cicloId, traz de todos os ciclos.
     listInseminacoesResumo: (cicloId) => {
       let q = T('lotes_inseminacao').select(`
         ciclo_id, numero, touro, data,
         touro_animal:animais!touro_animal_id(id,brinco,nome), touro_externo:touros_externos(id,nome),
-        inseminacoes(animal_id, diagnostico, animal:animais(brinco,proprietario_id)),
+        inseminacoes(animal_id, diagnostico, animal:animais(brinco,proprietario_id,situacao)),
         partos(mae_id, bezerro_id), abortos(animal_id)
       `)
       if (cicloId) q = q.eq('ciclo_id', cicloId)
@@ -185,10 +235,12 @@ export const db = {
     // proprietário), mas com o que listInseminacoesResumo não tem —
     // data_diagnostico (desfechoReprodutivo precisa pra achar a prenhez mais
     // recente) e bezerro.situacao/data_desmame/data_nascimento (cria ao pé +
-    // apto ao desmame, ver APTO_AO_DESMAME_DIAS em helpers.js).
+    // apto ao desmame, ver APTO_AO_DESMAME_DIAS em helpers.js). animal.
+    // situacao/data_baixa (Bloco E) — pra desfechoReprodutivo saber se a
+    // vaca foi vendida ainda prenha, e não avisar pendência de quem já saiu.
     listPendenciasCiclo: (cicloId) => T('lotes_inseminacao').select(`
       id, data,
-      inseminacoes(animal_id, diagnostico, data_diagnostico),
+      inseminacoes(animal_id, diagnostico, data_diagnostico, animal:animais(situacao,data_baixa)),
       partos(mae_id, bezerro_id, data_parto, natimorto, bezerro:animais!bezerro_id(situacao,data_desmame,data_nascimento)),
       abortos(animal_id, data)
     `).eq('ciclo_id', cicloId).order('data', { ascending: false }),

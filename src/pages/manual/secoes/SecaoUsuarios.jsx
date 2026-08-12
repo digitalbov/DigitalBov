@@ -79,7 +79,7 @@ export default function SecaoUsuarios({ item }) {
       <p style={{ color: '#374151', fontSize: '.85rem', lineHeight: 1.6 }}>
         <strong>Ver</strong> deixa a pessoa abrir a tela e consultar os dados, mas os botões de criar, editar e
         excluir ficam escondidos. <strong>Ver e editar</strong> libera tudo naquele módulo. Um operador pode
-        ter, por exemplo, "Ver e editar" em Pesagens e Sanidade, só "Ver" em Financeiro, e "Sem acesso" em
+        ter, por exemplo, "Ver e editar" em Pesagens e Manejo Sanitário, só "Ver" em Financeiro, e "Sem acesso" em
         Estoque — cada módulo é independente, e as permissões valem só para a fazenda em que foram
         configuradas: se ele também tem acesso a uma segunda fazenda, o nível ali pode ser completamente
         diferente.

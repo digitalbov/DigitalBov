@@ -4,9 +4,10 @@ import { usePermissoes } from '../lib/PermissoesContext'
 import { useConta } from '../lib/ContaContext'
 import { useFazenda } from '../lib/FazendaContext'
 import { useCiclo, statusCiclo } from '../lib/CicloContext'
-import { fmtData, diasDesde, calcCategoriaRebanho, algumErro, capitalizarPrimeira, sanidadeRealizada, sanidadeAgendada, labelTipoSanidade } from '../lib/helpers'
+import { fmtData, diasDesde, calcCategoriaRebanho, algumErro, capitalizarPrimeira, sanidadeRealizada, sanidadeAgendada, sanidadeCancelada, labelTipoSanidade } from '../lib/helpers'
 import { hoje as hojeAgora, hojeISO } from '../lib/hoje'
 import { validarSaldoEstoque, aplicarMovimentacaoEstoque, reverterCascata } from '../lib/estoqueFinanceiro'
+import { useSubmitGuard } from '../lib/useSubmitGuard'
 import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, AlertBox, BotaoPDF, Confirm, ErroCarregamento, BadgeSomenteLeitura } from '../components/UI'
 
 const TABS   = ['Registros','Calendário de vacinação','Alertas','Histórico']
@@ -53,8 +54,13 @@ export default function Sanidade() {
   const [saving,     setSaving]     = useState(false)
   const [confirmDel, setConfirmDel] = useState(null)
   const [loadError,  setLoadError]  = useState(false)
-  const [concluindoId,   setConcluindoId]   = useState(null)
-  const [ofertaNovoProc, setOfertaNovoProc] = useState(null)
+  // Bloco D16 — ação sobre um alerta de reaplicação (Editar/Concluir/Não
+  // realizado): gera o agendamento na hora se ainda não existir (ver
+  // agirSobreAlerta abaixo), então aplica a ação nele. Guarda por item
+  // (chave = d.id) — ações em alertas diferentes podem rodar em paralelo,
+  // só bloqueia repetição no MESMO item.
+  const guard = useSubmitGuard()
+  const [reaplicacaoEmAndamentoId, setReaplicacaoEmAndamentoId] = useState(null)
 
   const [selAnimais,     setSelAnimais]     = useState([])
   const [filtroCategSan, setFiltroCategSan] = useState('')
@@ -191,6 +197,108 @@ export default function Sanidade() {
   // confirmConcluir guarda o registro sendo concluído, só pra montar o resumo
   // no <Confirm>; confirmarConclusao é chamado com esse mesmo registro.
   const [confirmConcluir, setConfirmConcluir] = useState(null)
+  // Bloco D15 — cancelar MARCA (nunca apaga, mesmo raciocínio de
+  // proximo_concluido_em). confirmCancelar guarda o registro pro resumo do
+  // <Confirm>, mesmo padrão de confirmConcluir acima.
+  const [confirmCancelar,  setConfirmCancelar]  = useState(null)
+  const [canceladosAberto, setCanceladosAberto] = useState(false)
+
+  // Bloco D15 — agendamento gerado automaticamente pela "Próxima aplicação"
+  // de um procedimento JÁ REALIZADO. Mesma rotina de criação do "Novo
+  // agendamento" manual (db.sanidade.insert com status='agendado') — só o
+  // gatilho muda: aqui é o campo `proximo` de outro registro, lá é a data
+  // escolhida no form. Chamada depois de qualquer escrita que possa ter
+  // mexido em `proximo` num realizado (editar registro, criar registro já
+  // realizado, concluir um agendamento que já carregava sua própria
+  // "próxima aplicação" — encadeando sozinho). Idempotente por design: só
+  // garante o invariante "existe um agendamento vivo espelhando `proximo`,
+  // ou não existe nenhum" — nunca precisa saber se o valor mudou desde a
+  // última vez. gerado_de_id (auto-referência, DEFERRABLE — migração D15)
+  // marca a origem.
+  // Devolve o agendamento vivo espelhando pai.proximo — existente, recém-
+  // criado, ou null quando não há nada pra sincronizar (proximo vazio, já
+  // apagado o que existia). { erro } no lugar disso se a criação falhar —
+  // quem chama decide o que fazer (fluxo automático só toasta e segue;
+  // agirSobreAlerta, abaixo, aborta a ação inteira). Usada tanto no gatilho
+  // automático (salvar/concluir) quanto sob demanda (clique em Editar/
+  // Concluir/Não realizado num alerta de reaplicação, Bloco D16).
+  const sincronizarAgendamentoGerado = async (pai) => {
+    const gerado = dados.find(d => d.gerado_de_id === pai.id && d.status === 'agendado')
+    if (!pai.proximo) {
+      if (gerado) await db.sanidade.delete(gerado.id)
+      return null
+    }
+    if (gerado) {
+      if (gerado.data === pai.proximo) return gerado
+      const { data, error } = await db.sanidade.update(gerado.id, { data: pai.proximo })
+      if (error) { toast('Não foi possível atualizar o agendamento da próxima aplicação: ' + error.message, 'error'); return { erro: error } }
+      return data
+    }
+    // Herda os animais do procedimento-pai, filtrados pelos ATIVOS agora —
+    // vendido/morto entre o registro original e a geração do agendamento
+    // fica de fora, mesmo filtro do seletor de animais da tela (animais
+    // carregado em load() já é só situacao:'ativo').
+    const { data: vincsPai } = await db.sanidadeAnimais.listPorProcedimento(pai.id)
+    const idsAtivos = (vincsPai || []).map(v => v.animal_id).filter(id => animais.some(a => a.id === id))
+
+    const { data: novoAgendamento, error } = await db.sanidade.insert({
+      data:            pai.proximo,
+      tipo:            pai.tipo,
+      procedimento:    pai.procedimento,
+      lote_descricao:  pai.lote_descricao || '',
+      quantidade:      idsAtivos.length,
+      proximo:         null,
+      observacoes:     '',
+      status:          'agendado',
+      itens_previstos: [],
+      gerado_de_id:    pai.id,
+    })
+    if (error) { toast('Não foi possível gerar o agendamento da próxima aplicação: ' + error.message, 'error'); return { erro: error } }
+    if (idsAtivos.length > 0) {
+      const { error: errVinc } = await db.sanidadeAnimais.inserirVarios(idsAtivos.map(animalId => ({
+        conta_id: contaAtual.id, fazenda_id: fazendaAtual.id, procedimento_id: novoAgendamento.id, animal_id: animalId,
+      })))
+      if (errVinc) { toast('Agendamento gerado, mas erro ao vincular animais: ' + errVinc.message, 'error'); return { erro: errVinc } }
+    }
+    return novoAgendamento
+  }
+
+  // Bloco D16 — unifica reaplicação e agendamento nos botões de Alertas:
+  // clicar em Editar/Concluir/Não realizado num item de reaplicação gera o
+  // agendamento na hora (mesma sincronizarAgendamentoGerado que já roda ao
+  // salvar — não é caminho paralelo, é a MESMA função, só disparada pela
+  // interação em vez de pelo save) e já aplica a ação nele, no mesmo
+  // clique — do ponto de vista do usuário, ele só clicou numa ação, nunca
+  // um toast avisando que algo foi criado por trás. Se a geração falhar, a
+  // ação aborta inteira (nunca aplica ação sem o registro existir) — o erro
+  // já vem toastado por sincronizarAgendamentoGerado. Reentrância travada
+  // por item (chave = d.id, useSubmitGuard).
+  const agirSobreAlerta = (d, aplicarAcao) => guard(async () => {
+    setReaplicacaoEmAndamentoId(d.id)
+    try {
+      const alvo = d._origem === 'agendamento' ? d : await sincronizarAgendamentoGerado(d)
+      if (!alvo || alvo.erro) return
+      aplicarAcao(alvo)
+    } finally {
+      setReaplicacaoEmAndamentoId(null)
+    }
+  }, d.id)
+
+  const cancelarAgendamento = async (d) => {
+    if (!d || !podeEditarSanidadeCiclo) return
+    const { error } = await db.sanidade.update(d.id, { status: 'cancelado', cancelado_em: hojeISO() })
+    if (error) { toast('Erro: ' + error.message, 'error'); return }
+    toast('Agendamento marcado como não realizado.')
+    load()
+  }
+
+  const reabrirAgendamento = async (d) => {
+    if (!podeEditarSanidadeCiclo) return
+    const { error } = await db.sanidade.update(d.id, { status: 'agendado', cancelado_em: null })
+    if (error) { toast('Erro: ' + error.message, 'error'); return }
+    toast('Agendamento reaberto.')
+    load()
+  }
 
   const confirmarConclusao = async (d) => {
     if (!d || !podeEditarSanidadeCiclo) return
@@ -224,7 +332,26 @@ export default function Sanidade() {
       if (erroSaldo) { toast(erroSaldo, 'error'); return }
     }
 
-    const { error } = await db.sanidade.update(d.id, { status: 'realizado' })
+    // Bloco D15 — re-filtra os animais vinculados pelos ATIVOS agora, não só
+    // os que estavam ativos quando o agendamento foi criado/editado. Cobre
+    // sobretudo o agendamento gerado automaticamente pela "próxima
+    // aplicação", que herda a lista na hora da geração e pode nunca ser
+    // reaberto por ninguém até a conclusão.
+    const { data: vincsAtuais } = await db.sanidadeAnimais.listPorProcedimento(d.id)
+    const idsAtivos = (vincsAtuais || []).map(v => v.animal_id).filter(id => animais.some(a => a.id === id))
+    let quantidadeFinal = d.quantidade
+    if (idsAtivos.length !== (vincsAtuais || []).length) {
+      await db.sanidadeAnimais.deletePorProcedimento(d.id)
+      if (idsAtivos.length > 0) {
+        await db.sanidadeAnimais.inserirVarios(idsAtivos.map(animalId => ({
+          conta_id: contaAtual.id, fazenda_id: fazendaAtual.id, procedimento_id: d.id, animal_id: animalId,
+        })))
+      }
+      quantidadeFinal = idsAtivos.length
+      toast(`${(vincsAtuais || []).length - idsAtivos.length} animal(is) removido(s) da conclusão por não estarem mais ativos.`, 'warning')
+    }
+
+    const { error } = await db.sanidade.update(d.id, { status: 'realizado', quantidade: quantidadeFinal })
     if (error) { toast('Erro: ' + error.message, 'error'); return }
 
     // A partir daqui itens_previstos deixa de valer — a movimentação real
@@ -233,6 +360,11 @@ export default function Sanidade() {
     if (podeEditarEstoque && previstos.length > 0) {
       await aplicarBaixaEstoque(d.id, d.data, d.procedimento, previstos.map(p => ({ item_id: p.item_id, quantidade: String(p.quantidade) })))
     }
+
+    // Bloco D15 — se este realizado (recém-concluído) já carregava sua
+    // própria "próxima aplicação" (editável em "Editar agendamento"), gera o
+    // elo seguinte da cadeia agora — mesma rotina de sempre.
+    await sincronizarAgendamentoGerado({ ...d, quantidade: quantidadeFinal })
 
     toast('Vacinação concluída!')
     load()
@@ -311,7 +443,7 @@ export default function Sanidade() {
   const aplicarBaixaEstoque = async (procedimentoId, dataProced, procedimentoNome, linhasBrutas) => {
     const linhas = linhasBrutas.filter(l => l.item_id && parseFloat(l.quantidade) > 0)
     if (linhas.length === 0) return
-    const motivo = `Sanidade: ${procedimentoNome} em ${fmtData(dataProced)}`
+    const motivo = `Manejo Sanitário: ${procedimentoNome} em ${fmtData(dataProced)}`
     let itensSnapshot = estoqueItens
     for (const linha of linhas) {
       const item = itensSnapshot.find(i => i.id === linha.item_id)
@@ -371,15 +503,22 @@ export default function Sanidade() {
     // ── Editar registro REALIZADO (Registros) — só os campos do registro em
     // si, como já era antes da Fase 7. ──
     if (editandoId && modalIntent === 'editar') {
-      const { error } = await db.sanidade.update(editandoId, {
+      const payloadRealizado = {
         data:         form.data,
         tipo:         form.tipo,
         procedimento: capitalizarPrimeira(form.procedimento),
         proximo:      form.proximo || null,
         observacoes:  capitalizarPrimeira(form.obs) || ''
-      })
+      }
+      const { error } = await db.sanidade.update(editandoId, payloadRealizado)
       setSaving(false)
       if (error) { toast('Erro: ' + error.message, 'error'); return }
+      // Bloco D15 — reconcilia o agendamento gerado pela "próxima aplicação"
+      // (cria/atualiza a data/apaga, conforme o novo valor de proximo).
+      await sincronizarAgendamentoGerado({
+        id: editandoId, ...payloadRealizado,
+        lote_descricao: dados.find(d => d.id === editandoId)?.lote_descricao,
+      })
       toast('Procedimento atualizado!')
       fecharModal(); load()
       return
@@ -430,6 +569,11 @@ export default function Sanidade() {
       await aplicarBaixaEstoque(procData.id, form.data, form.procedimento, itensEstoqueUsados)
     }
 
+    // Bloco D15 — só procedimento já REALIZADO pode gerar o espelho da
+    // "próxima aplicação" (agendamento em si nunca gera, ver comentário na
+    // definição da função).
+    if (!criandoAgendamento) await sincronizarAgendamentoGerado(procData)
+
     setSaving(false)
     toast(criandoAgendamento ? 'Vacinação agendada!' : 'Procedimento registrado!')
     fecharModal(); load()
@@ -461,26 +605,6 @@ export default function Sanidade() {
     load()
   }
 
-  const concluirAlerta = async (d) => {
-    if (!podeEditarSanidadeCiclo) return
-    setConcluindoId(d.id)
-    const { error } = await db.sanidade.update(d.id, { proximo_concluido_em: hojeISO() })
-    setConcluindoId(null)
-    if (error) { toast('Erro ao concluir: ' + error.message, 'error'); return }
-    toast('Alerta concluído!')
-    setOfertaNovoProc(d)
-    load()
-  }
-
-  const registrarAplicacaoDoAlerta = (d) => {
-    resetFormSelecao()
-    setEditandoId(null)
-    setModalIntent('novo')
-    setForm({ tipo: d.tipo, procedimento: d.procedimento, data: hojeISO() })
-    setOfertaNovoProc(null)
-    setModal(true)
-  }
-
   const vozSan = (text) => {
     const t = text.toLowerCase()
     const tipo = TIPOS.find(tp => t.includes(tp.toLowerCase())) || 'Vacina'
@@ -504,14 +628,27 @@ export default function Sanidade() {
   // (reaplicação de realizado × agendamento) ficam juntos nas mesmas seções
   // vencidos/próximos, ordenados por proximidade da data, cada um com um
   // _origem pra o JSX saber como renderizar (badge "Agendado" só no segundo).
+  // Bloco D16 — se a "próxima aplicação" já gerou UM agendamento pra este
+  // pai, a "reaplicação" derivada nunca mais volta a aparecer — mesmo depois
+  // que o agendamento gerado for concluído ou cancelado. Bug corrigido
+  // (2026-08-09): a versão anterior só contava agendamentos ainda
+  // status='agendado', então concluir ou cancelar tirava o gerado do
+  // conjunto e o alerta derivado (que nunca tinha saído do pai, já que
+  // proximo/proximo_concluido_em do pai não mudam nem ao concluir nem ao
+  // cancelar) voltava a aparecer sozinho — cancelar parecia não fazer nada.
+  // Não depende de status: um pai que já gerou um agendamento tem, a partir
+  // daí, ESSE agendamento (em qualquer estado) como fonte de verdade — nunca
+  // mais o texto solto. Reabrir/gerar de novo (ver sincronizarAgendamentoGerado)
+  // continua funcionando normalmente por cima disso.
+  const idsComAgendamentoGerado = new Set(dados.filter(d => d.gerado_de_id).map(d => d.gerado_de_id))
   const vencidos = [
-    ...dados.filter(d => sanidadeRealizada(d) && d.proximo && !d.proximo_concluido_em && new Date(d.proximo + 'T12:00:00') < hoje)
+    ...dados.filter(d => sanidadeRealizada(d) && d.proximo && !d.proximo_concluido_em && !idsComAgendamentoGerado.has(d.id) && new Date(d.proximo + 'T12:00:00') < hoje)
       .map(d => ({ ...d, _origem: 'reaplicacao', _dataRef: d.proximo })),
     ...dados.filter(d => sanidadeAgendada(d) && new Date(d.data + 'T12:00:00') < hoje)
       .map(d => ({ ...d, _origem: 'agendamento', _dataRef: d.data })),
   ].sort((a, b) => a._dataRef.localeCompare(b._dataRef))
   const proximos = [
-    ...dados.filter(d => sanidadeRealizada(d) && d.proximo && !d.proximo_concluido_em && new Date(d.proximo + 'T12:00:00') >= hoje && new Date(d.proximo + 'T12:00:00') <= em30)
+    ...dados.filter(d => sanidadeRealizada(d) && d.proximo && !d.proximo_concluido_em && !idsComAgendamentoGerado.has(d.id) && new Date(d.proximo + 'T12:00:00') >= hoje && new Date(d.proximo + 'T12:00:00') <= em30)
       .map(d => ({ ...d, _origem: 'reaplicacao', _dataRef: d.proximo })),
     ...dados.filter(d => sanidadeAgendada(d) && new Date(d.data + 'T12:00:00') >= hoje && new Date(d.data + 'T12:00:00') <= em90)
       .map(d => ({ ...d, _origem: 'agendamento', _dataRef: d.data })),
@@ -524,6 +661,10 @@ export default function Sanidade() {
   // ciclo (é uma lista prospectiva, não presa ao período de um ciclo fechado).
   const dadosFiltrados = dados.filter(d => sanidadeRealizada(d) && cicloLocal && dentroDoCiclo(d.data, cicloLocal))
   const dadosAgendados = dados.filter(sanidadeAgendada).sort((a, b) => a.data.localeCompare(b.data))
+  // Bloco D15 — cancelados vivem numa seção própria (recolhível) dentro da
+  // aba Calendário de vacinação, mais recente primeiro; sem filtro de ciclo,
+  // mesmo raciocínio de dadosAgendados (lista prospectiva/administrativa).
+  const dadosCancelados = dados.filter(sanidadeCancelada).sort((a, b) => (b.cancelado_em || '').localeCompare(a.cancelado_em || ''))
 
   // Fase 7 — no modal, a seleção de animais e a visibilidade da seção de
   // estoque dependem do modo (novo/editar/editar-agendamento) e, numa
@@ -542,9 +683,9 @@ export default function Sanidade() {
 
   // Botão único de PDF ao lado das abas (Fase 14) — "Calendário de vacinação"
   // (tab 1) não tem exportação própria.
-  const pdfAtual = tab === 0 ? { ref: refReg,     filename:'sanidade-registros', titulo:'Sanidade: Registros' }
-    : tab === 2 ? { ref: refAlertas, filename:'sanidade-alertas',   titulo:'Sanidade: Alertas' }
-    : tab === 3 ? { ref: refHist,    filename:'sanidade-historico', titulo:'Sanidade: Histórico' }
+  const pdfAtual = tab === 0 ? { ref: refReg,     filename:'sanidade-registros', titulo:'Manejo Sanitário: Registros' }
+    : tab === 2 ? { ref: refAlertas, filename:'sanidade-alertas',   titulo:'Manejo Sanitário: Alertas' }
+    : tab === 3 ? { ref: refHist,    filename:'sanidade-historico', titulo:'Manejo Sanitário: Histórico' }
     : null
 
   return (
@@ -684,6 +825,9 @@ export default function Sanidade() {
                               <button className="btn-icon" onClick={() => setConfirmConcluir(d)} title="Marcar como concluído">
                                 <i className="ti ti-check" style={{ fontSize:13, color:'#1E7A34' }} />
                               </button>
+                              <button className="btn-icon" onClick={() => setConfirmCancelar(d)} title="Marcar como não realizado">
+                                <i className="ti ti-x" style={{ fontSize:13, color:'#B45309' }} />
+                              </button>
                               <button className="btn-icon" onClick={() => setConfirmDel(d)} title="Excluir">
                                 <i className="ti ti-trash" style={{ fontSize:13 }} />
                               </button>
@@ -697,6 +841,50 @@ export default function Sanidade() {
               </div>
             )
           }
+
+          {/* ── Cancelados (Bloco D15) — marcado como não realizado, nunca
+              apagado. Recolhível porque é histórico administrativo, não
+              trabalho pendente (diferente da lista acima). ── */}
+          {dadosCancelados.length > 0 && (
+            <div className="card" style={{ marginTop:16 }}>
+              <div className="card-title" style={{ cursor:'pointer', display:'flex', justifyContent:'space-between', alignItems:'center' }}
+                onClick={() => setCanceladosAberto(o => !o)}>
+                <span><i className="ti ti-ban" /> Cancelados ({dadosCancelados.length})</span>
+                <i className={`ti ti-chevron-${canceladosAberto ? 'up' : 'down'}`} />
+              </div>
+              {canceladosAberto && (
+                <div className="table-wrap" style={{ marginTop:10 }}>
+                  <table>
+                    <thead>
+                      <tr><th>Data</th><th>Tipo</th><th>Procedimento</th><th>Cancelado em</th><th></th></tr>
+                    </thead>
+                    <tbody>
+                      {dadosCancelados.map(d => (
+                        <tr key={d.id}>
+                          <td style={{ textDecoration:'line-through', color:'#9CA3AF' }}>{fmtData(d.data)}</td>
+                          <td><Badge color={COR_TP[d.tipo] || 'gray'}>{labelTipoSanidade(d.tipo)}</Badge></td>
+                          <td style={{ textDecoration:'line-through', color:'#9CA3AF' }}>{d.procedimento}</td>
+                          <td style={{ fontSize:'.78rem', color:'#9CA3AF' }}>{d.cancelado_em ? fmtData(d.cancelado_em) : '—'}</td>
+                          <td style={{ whiteSpace:'nowrap' }}>
+                            {podeEditarSanidadeCiclo && (
+                              <>
+                                <button className="btn-icon" onClick={() => reabrirAgendamento(d)} title="Reabrir agendamento">
+                                  <i className="ti ti-arrow-back-up" style={{ fontSize:13 }} />
+                                </button>
+                                <button className="btn-icon" onClick={() => setConfirmDel(d)} title="Excluir">
+                                  <i className="ti ti-trash" style={{ fontSize:13 }} />
+                                </button>
+                              </>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -716,16 +904,13 @@ export default function Sanidade() {
                 ? `${d.lote_descricao || 'Sem grupo/lote'} · Estava agendado para ${fmtData(d.data)} · ${diasDesde(d.data)} dias em atraso`
                 : `${d.lote_descricao} · Deveria ter sido aplicado em ${fmtData(d.proximo)} · ${diasDesde(d.proximo)} dias em atraso`}
               action={podeEditarSanidadeCiclo && (
-                d._origem === 'agendamento' ? (
-                  <div style={{ display:'flex', gap:6 }}>
-                    <button className="btn btn-secondary btn-xs" onClick={() => abrirEditarAgendamento(d)}><i className="ti ti-edit"/> Editar</button>
-                    <button className="btn btn-secondary btn-xs" onClick={() => setConfirmConcluir(d)}><i className="ti ti-check"/> Concluir</button>
-                  </div>
-                ) : (
-                  <button className="btn btn-secondary btn-xs" disabled={concluindoId === d.id} onClick={() => concluirAlerta(d)}>
-                    <i className="ti ti-check" /> {concluindoId === d.id ? 'Concluindo...' : 'Marcar como concluído'}
+                <div style={{ display:'flex', gap:6 }}>
+                  <button className="btn btn-secondary btn-xs" disabled={reaplicacaoEmAndamentoId === d.id} onClick={() => agirSobreAlerta(d, abrirEditarAgendamento)}><i className="ti ti-edit"/> Editar</button>
+                  <button className="btn btn-secondary btn-xs" disabled={reaplicacaoEmAndamentoId === d.id} onClick={() => agirSobreAlerta(d, setConfirmConcluir)}>
+                    <i className="ti ti-check"/> {reaplicacaoEmAndamentoId === d.id ? '...' : 'Concluir'}
                   </button>
-                )
+                  <button className="btn btn-secondary btn-xs" disabled={reaplicacaoEmAndamentoId === d.id} onClick={() => agirSobreAlerta(d, setConfirmCancelar)}><i className="ti ti-x"/> Não realizado</button>
+                </div>
               )}
             />
           ))}
@@ -738,23 +923,20 @@ export default function Sanidade() {
                 ? `${d.lote_descricao || 'Sem grupo/lote'} · Agendado para ${fmtData(d.data)} · ${d.quantidade || 0} animais`
                 : `${d.lote_descricao} · Previsto para ${fmtData(d.proximo)} · ${d.quantidade || ''} animais`}
               action={podeEditarSanidadeCiclo && (
-                d._origem === 'agendamento' ? (
-                  <div style={{ display:'flex', gap:6 }}>
-                    <button className="btn btn-secondary btn-xs" onClick={() => abrirEditarAgendamento(d)}><i className="ti ti-edit"/> Editar</button>
-                    <button className="btn btn-secondary btn-xs" onClick={() => setConfirmConcluir(d)}><i className="ti ti-check"/> Concluir</button>
-                  </div>
-                ) : (
-                  <button className="btn btn-secondary btn-xs" disabled={concluindoId === d.id} onClick={() => concluirAlerta(d)}>
-                    <i className="ti ti-check" /> {concluindoId === d.id ? 'Concluindo...' : 'Marcar como concluído'}
+                <div style={{ display:'flex', gap:6 }}>
+                  <button className="btn btn-secondary btn-xs" disabled={reaplicacaoEmAndamentoId === d.id} onClick={() => agirSobreAlerta(d, abrirEditarAgendamento)}><i className="ti ti-edit"/> Editar</button>
+                  <button className="btn btn-secondary btn-xs" disabled={reaplicacaoEmAndamentoId === d.id} onClick={() => agirSobreAlerta(d, setConfirmConcluir)}>
+                    <i className="ti ti-check"/> {reaplicacaoEmAndamentoId === d.id ? '...' : 'Concluir'}
                   </button>
-                )
+                  <button className="btn btn-secondary btn-xs" disabled={reaplicacaoEmAndamentoId === d.id} onClick={() => agirSobreAlerta(d, setConfirmCancelar)}><i className="ti ti-x"/> Não realizado</button>
+                </div>
               )}
             />
           ))}
           <div className="card" style={{ marginTop:12 }}>
             <div className="card-title"><i className="ti ti-calendar-event" /> Calendário sanitário — próximos 90 dias</div>
             {dados
-              .filter(d => sanidadeRealizada(d) && d.proximo && !d.proximo_concluido_em)
+              .filter(d => sanidadeRealizada(d) && d.proximo && !d.proximo_concluido_em && !idsComAgendamentoGerado.has(d.id))
               .sort((a, b) => a.proximo.localeCompare(b.proximo))
               .slice(0, 8)
               .map(d => {
@@ -822,24 +1004,16 @@ export default function Sanidade() {
         open={!!confirmDel}
         onClose={() => setConfirmDel(null)}
         onConfirm={() => excluir(confirmDel.id)}
-        title={confirmDel && sanidadeAgendada(confirmDel) ? 'Excluir agendamento' : 'Excluir procedimento'}
+        title={confirmDel && (sanidadeAgendada(confirmDel) || sanidadeCancelada(confirmDel)) ? 'Excluir agendamento' : 'Excluir procedimento'}
         message={(() => {
           if (!confirmDel) return ''
-          if (sanidadeAgendada(confirmDel)) return 'Excluir este agendamento? Ele nunca baixou estoque nem afetou nada além da própria agenda — nada será revertido. Esta ação não pode ser desfeita.'
+          if (sanidadeAgendada(confirmDel) || sanidadeCancelada(confirmDel)) return 'Excluir este agendamento? Ele nunca baixou estoque nem afetou nada além da própria agenda — nada será revertido. Esta ação não pode ser desfeita.'
           const movs = movsPorProcedimento[confirmDel.id] || []
           if (movs.length === 0) return 'Excluir este procedimento? Esta ação não pode ser desfeita.'
           const efeito = movs.map(m => `${parseFloat(m.quantidade).toFixed(1)} ${m.item?.unidade || ''} de ${m.item?.item || 'item'}`).join(', ')
           return `Isto vai devolver ${efeito} ao estoque, e apagar o procedimento e seus vínculos. Esta ação não pode ser desfeita.`
         })()}
         danger
-      />
-
-      <Confirm
-        open={!!ofertaNovoProc}
-        onClose={() => setOfertaNovoProc(null)}
-        onConfirm={() => registrarAplicacaoDoAlerta(ofertaNovoProc)}
-        title="Registrar aplicação agora?"
-        message="Alerta concluído. Deseja já registrar esta aplicação como um novo procedimento (com a data de hoje)? Você poderá selecionar o lote/animais e informar a próxima data, se houver."
       />
 
       {/* Fase 7 — concluir um agendamento é uma confirmação curta com o
@@ -859,6 +1033,19 @@ export default function Sanidade() {
             : ''
           return `${fmtData(confirmConcluir.data)} · ${labelTipoSanidade(confirmConcluir.tipo)} — ${confirmConcluir.procedimento} · ${confirmConcluir.quantidade || 0} animal(is)${confirmConcluir.lote_descricao ? ` (${confirmConcluir.lote_descricao})` : ''}.${itensTxt} Confirma que esta vacinação foi realizada?`
         })() : ''}
+      />
+
+      {/* Bloco D15 — cancelar MARCA (status='cancelado'), nunca apaga; fica
+          na seção "Cancelados" e pode ser reaberto depois. */}
+      <Confirm
+        open={!!confirmCancelar}
+        onClose={() => setConfirmCancelar(null)}
+        onConfirm={() => cancelarAgendamento(confirmCancelar)}
+        title="Marcar agendamento como não realizado"
+        message={confirmCancelar
+          ? `${fmtData(confirmCancelar.data)} · ${labelTipoSanidade(confirmCancelar.tipo)} — ${confirmCancelar.procedimento}. O agendamento sai da agenda e fica marcado como não realizado, sem apagar o registro — você pode reabri-lo depois na seção "Cancelados" do Calendário de vacinação.`
+          : ''}
+        danger
       />
 
       {/* ── Modal ── */}

@@ -119,6 +119,12 @@ const REFERENCIAS = [
   ['pesagens', 'transacao_id', 'transacoes_animais', true],
   ['sanidade_animais', 'procedimento_id', 'procedimentos_sanitarios', false],
   ['sanidade_animais', 'animal_id', 'animais', false],
+  // gerado_de_id (auto-referência, migration_sanidade_agendamento_cancelado_
+  // d15.sql): agendamento criado automaticamente pela "próxima aplicação" de
+  // outro procedimento — mesmo padrão de animais.pai_animal_id acima, já
+  // nasceu DEFERRABLE INITIALLY DEFERRED (não precisou de migração de
+  // correção depois, ver comentário no arquivo D15).
+  ['procedimentos_sanitarios', 'gerado_de_id', 'procedimentos_sanitarios', true],
   ['estoque_movimentacoes', 'item_id', 'estoque_itens', true],
   ['estoque_movimentacoes', 'procedimento_id', 'procedimentos_sanitarios', true],
   // lancamento_id: baixa/estorno automático de estoque a partir de um

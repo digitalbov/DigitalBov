@@ -106,7 +106,9 @@ export function Modal({ open, onClose, title, children, width = 520 }) {
         display:'flex', alignItems:'center', justifyContent:'center',
         zIndex:1000, padding:16
       }}
-      onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
+      // Clicar fora NÃO fecha mais (perdia o que já tinha sido digitado) —
+      // só o X ou o Cancelar do conteúdo fecham. Não reintroduzir o onClick
+      // no backdrop.
     >
       <div style={{
         background:'white', borderRadius:12, width:'100%', maxWidth:`min(95vw, ${width}px)`,

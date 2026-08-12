@@ -1,7 +1,7 @@
 ﻿import { useState, useEffect, useRef } from 'react'
 import { db } from '../lib/supabase'
 import {
-  calcCategoria, calcGMD, calcTaxaPrenhez, contarPrenhas, contarExpostas, contarMatrizes,
+  calcCategoria, calcGMD, calcTaxaPrenhez, contarPrenhas, contarExpostas, contarMatrizesCiclo, ehLotePrenhezAdquirida,
   calcGestacaoLote, calcTaxaParicao, calcDesmameMetrics, calcIntervaloPartos, algumErro, fmtMoeda, nomeTouro,
 } from '../lib/helpers'
 import { Loading, Modal, toast, BotaoPDF, EmptyState, ErroCarregamento, AlertBox, Badge } from '../components/UI'
@@ -20,8 +20,13 @@ import {
 // evento aconteceu ainda) — evita mostrar "meta batida" enganoso pra um 0%
 // que na verdade é "ainda não sabemos".
 const CFG = {
-  taxa_prenhez:         { label: 'Taxa de Prenhez',         icon: '💉', inverted: false, desc: 'Prenhas / total de inseminadas no ciclo atual' },
-  taxa_aproveitamento:  { label: 'Taxa de Aproveitamento',  icon: '🎯', inverted: false, desc: 'Matrizes expostas / matrizes aptas (fêmeas >24 meses na data da monta)' },
+  taxa_prenhez:         { label: 'Taxa de Prenhez',         icon: '💉', inverted: false, desc: 'Prenhas / total de inseminadas no ciclo atual — exclui prenhez adquirida na compra (não foi exposta nesta fazenda)', mostraSubtitulo: true },
+  // 2026-08-11 — "matrizes aptas" corrigido: não é mais uma foto da 1ª
+  // monta do ciclo (uma matriz comprada e exposta só num lote/repasse
+  // POSTERIOR nunca entrava no denominador, mesmo entrando no numerador —
+  // Taxa de Aproveitamento passava de 100%). Agora é a união das matrizes
+  // aptas na data de CADA lote do ciclo (contarMatrizesCiclo, helpers.js).
+  taxa_aproveitamento:  { label: 'Taxa de Aproveitamento',  icon: '🎯', inverted: false, desc: 'Matrizes expostas (exclui prenhez adquirida) / matrizes aptas (união das aptas na data de cada lote do ciclo)', mostraSubtitulo: true },
   // Fase 8 (correção de nomenclatura, Opção A) — "taxa_paricao" existia com
   // esse nome desde antes, com fórmula partos/PRENHAS. Isso colidia com
   // outra tela (Reprodutivo.jsx) que já usava "Taxa de parição" pra
@@ -31,16 +36,16 @@ const CFG = {
   // Gestacional". A chave nova abaixo (taxa_paricao_expostas) é quem passa a
   // se chamar "Taxa de Parição" de verdade, com meta própria (75%, sem
   // herdar nada — número novo, denominador estruturalmente maior).
-  taxa_paricao:         { label: 'Eficiência Gestacional',  icon: '🍼', inverted: false, desc: 'Partos / prenhas confirmadas (ciclo atual) — mede quantas gestações confirmadas realmente resultaram em parto', semDadosMsg: 'Aguardando partos' },
-  taxa_paricao_expostas:{ label: 'Taxa de Parição',         icon: '🐮', inverted: false, desc: 'Partos / matrizes expostas no ciclo (padrão do setor) — inclui vacas que nunca prenharam, diferente de Eficiência Gestacional', semDadosMsg: 'Aguardando partos' },
+  taxa_paricao:         { label: 'Eficiência Gestacional',  icon: '🍼', inverted: false, desc: 'Partos / prenhas confirmadas (ciclo atual) — exclui vendida ainda prenha e prenhez adquirida na compra', semDadosMsg: 'Aguardando partos', mostraSubtitulo: true },
+  taxa_paricao_expostas:{ label: 'Taxa de Parição',         icon: '🐮', inverted: false, desc: 'Partos / matrizes expostas no ciclo (padrão do setor) — exclui vendida ainda prenha e prenhez adquirida na compra', semDadosMsg: 'Aguardando partos', mostraSubtitulo: true },
   gmd_terneiros:        { label: 'GMD Terneiros',           icon: '⚖️', inverted: false, desc: 'GMD médio dos terneiros com ≥2 pesagens' },
   gmd_terneiros_femeas: { label: 'GMD Terneiras (fêmeas)',  icon: '⚖️', inverted: false, desc: 'GMD médio das terneiras (fêmeas) com ≥2 pesagens' },
   gmd_terneiros_machos: { label: 'GMD Terneiros (machos)',  icon: '⚖️', inverted: false, desc: 'GMD médio dos terneiros (machos) com ≥2 pesagens' },
-  kg_bezerro_matriz:    { label: 'Kg Desmamado / Matriz',   icon: '🐄', inverted: false, desc: 'Peso de desmame somado / matrizes expostas (ciclo atual)', semDadosMsg: 'Aguardando desmames' },
+  kg_bezerro_matriz:    { label: 'Kg Desmamado / Matriz',   icon: '🐄', inverted: false, desc: 'Peso de desmame somado / matrizes expostas (ciclo atual) — inclui prenhez adquirida (o terneiro nasceu e foi criado aqui)', semDadosMsg: 'Aguardando desmames', mostraSubtitulo: true },
   kg_nascimento:        { label: 'Kg ao Nascer',            icon: '⚖️', inverted: false, desc: 'Peso médio dos terneiros ao nascer na safra do ciclo', semDadosMsg: 'Aguardando pesagens de nascimento' },
   kg_desmame:           { label: 'Kg ao Desmame',           icon: '⚖️', inverted: false, desc: 'Peso médio dos terneiros desmamados na safra do ciclo', semDadosMsg: 'Aguardando desmames' },
   intervalo_partos:     { label: 'Intervalo entre Partos',  icon: '📅', inverted: true,  desc: 'Média de dias entre partos consecutivos da mesma matriz (meta = máx. aceitável)', semDadosMsg: 'Precisa de matrizes com 2+ partos' },
-  taxa_aborto:          { label: 'Perda Gestacional',       icon: '⚠️', inverted: true,  desc: 'Abortos + perdas não identificadas / prenhas — exclui gestações ainda em andamento', semDadosMsg: 'Aguardando desfechos da safra' },
+  taxa_aborto:          { label: 'Perda Gestacional',       icon: '⚠️', inverted: true,  desc: 'Abortos + perdas não identificadas / prenhas — exclui gestações ainda em andamento, vendida ainda prenha e prenhez adquirida na compra (a gestação não foi conduzida aqui desde a concepção)', semDadosMsg: 'Aguardando desfechos da safra', mostraSubtitulo: true },
   mortalidade:          { label: 'Mortalidade de Terneiros', icon: '📊', inverted: true,  desc: 'Mortos entre os terneiros nascidos na safra do ciclo (meta = máx. aceitável)', semDadosMsg: 'Aguardando nascimentos' },
   // Produção da safra x hectare útil — mesmos 4 números que antes eram um
   // painel kpi-card só leitura (ver git history); viraram indicador completo
@@ -74,7 +79,7 @@ const CFG = {
   custo_insem_terneiro: { label: 'Custo de Monta / Terneiro', icon: '💉', inverted: true, desc: 'Despesas da modalidade de monta selecionada, no período, ÷ terneiros produzidos dessa safra', semDadosMsg: 'Sem despesas lançadas no período', mostraSubtitulo: true },
   custo_insem_pct_valor: { label: 'Custo de Monta / Valor do Terneiro', icon: '📉', inverted: true, desc: 'Despesas da modalidade de monta selecionada ÷ valor produzido da safra (Terneiro/Terneira)', semDadosMsg: 'Sem despesas lançadas no período', mostraSubtitulo: true },
   custo_insem_total: { label: 'Custo Total de Monta', icon: '💰', inverted: true, desc: 'Soma das despesas da modalidade de monta selecionada, lançadas dentro do período de monta deste ciclo', semDadosMsg: 'Sem despesas lançadas no período', mostraSubtitulo: true },
-  custo_insem_matriz: { label: 'Custo de Monta / Matriz Exposta', icon: '🐄', inverted: true, desc: 'Despesas da modalidade de monta selecionada ÷ matrizes expostas no ciclo', semDadosMsg: 'Sem despesas lançadas no período', mostraSubtitulo: true },
+  custo_insem_matriz: { label: 'Custo de Monta / Matriz Exposta', icon: '🐄', inverted: true, desc: 'Despesas da modalidade de monta selecionada ÷ matrizes expostas no ciclo — exclui prenhez adquirida na compra (não gerou custo de monta nesta fazenda)', semDadosMsg: 'Sem despesas lançadas no período', mostraSubtitulo: true },
 }
 
 // ── Texto de apoio dos 4 indicadores de Produção — mostra a base de cálculo
@@ -118,6 +123,45 @@ function subtituloCustos(indicador, custosPorModo, modo) {
   const d = custosPorModo?.[modo]
   if (!d || d.nLancamentos === 0) return null
   return `Baseado ${GRUPO_CUSTO_LABEL[modo]} — ${d.nLancamentos} lançamento${d.nLancamentos === 1 ? '' : 's'} no período`
+}
+
+// Nota de transparência (2026-08-10, requisito do usuário): taxa_paricao,
+// taxa_paricao_expostas e kg_bezerro_matriz excluem vendida prenha do
+// denominador (parto/aborto/desmame não são observáveis após a venda, ver
+// calcGestacaoLote/calcTaxaParicao/calcDesmameMetrics em helpers.js).
+// Regra geral (2026-08-12, decisão do usuário): QUALQUER índice de esforço
+// ou resultado reprodutivo da fazenda também exclui prenhez adquirida na
+// compra (ver ehLotePrenhezAdquirida, helpers.js) — taxa_prenhez,
+// taxa_aproveitamento, taxa_paricao, taxa_paricao_expostas, taxa_aborto
+// (Perda Gestacional) e custo_insem_matriz. Índice de PRODUÇÃO
+// (kg_bezerro_matriz/desmame/GMD/mortalidade) nunca exclui nenhuma das duas
+// — o terneiro conta normalmente. Cada indicador lê do bloco do MODO
+// selecionado no seu próprio contêiner (Reprodução/Perdas/GMD/Custos podem
+// estar em modos diferentes ao mesmo tempo).
+function subtituloReprodutivo(indicador, bReproducaoAtual, bPerdasAtual, bGmdAtual, bCustosAtual) {
+  const blocoPorIndicador = {
+    taxa_prenhez: bReproducaoAtual, taxa_aproveitamento: bReproducaoAtual,
+    taxa_paricao: bReproducaoAtual, taxa_paricao_expostas: bReproducaoAtual,
+    taxa_aborto: bPerdasAtual, kg_bezerro_matriz: bGmdAtual,
+    custo_insem_matriz: bCustosAtual,
+  }
+  const b = blocoPorIndicador[indicador]
+  if (!b) return null
+  const usaVendida   = ['taxa_paricao', 'taxa_paricao_expostas', 'kg_bezerro_matriz'].includes(indicador)
+  const usaAdquirida = ['taxa_prenhez', 'taxa_aproveitamento', 'taxa_paricao', 'taxa_paricao_expostas', 'taxa_aborto', 'custo_insem_matriz'].includes(indicador)
+  const nVendida   = usaVendida   ? (b.vendidasPrenhasSafra   || 0) : 0
+  const nAdquirida = usaAdquirida ? (b.prenhezAdquiridaCount || 0) : 0
+  const partesExclusao = []
+  if (nVendida > 0)   partesExclusao.push(`${nVendida} vendida${nVendida === 1 ? '' : 's'} prenha${nVendida === 1 ? '' : 's'} excluída${nVendida === 1 ? '' : 's'}`)
+  if (nAdquirida > 0) partesExclusao.push(`${nAdquirida} prenhez${nAdquirida === 1 ? '' : 'es'} adquirida${nAdquirida === 1 ? '' : 's'} na compra excluída${nAdquirida === 1 ? '' : 's'}`)
+  const notaExclusao = partesExclusao.length > 0 ? `${partesExclusao.join(' · ')} do cálculo` : null
+  // notaNovilhasPrecoces (2026-08-12, requisito do usuário): Aproveitamento
+  // acima de 100% é resultado real (novilhas <24 meses expostas), mas sem
+  // explicação nenhuma faz o usuário desconfiar do sistema inteiro.
+  const notaNovilhas = (indicador === 'taxa_aproveitamento' && b.taxaAproveitamento > 100)
+    ? 'Acima de 100%: novilhas com menos de 24 meses foram expostas (novilhas precoces) — resultado esperado, não é erro'
+    : null
+  return [notaExclusao, notaNovilhas].filter(Boolean).join(' · ') || null
 }
 // Posição no array = ordem de entrada nos GRUPOS abaixo — cada grupo tem seu
 // próprio grid de 4 colunas (.grid-4), então a posição dentro do array só
@@ -412,6 +456,7 @@ function GraficoDesfechos({ dados }) {
     { name: 'Abortos',               value: dados.abortos,              color: '#D97706' },
     { name: 'Perdas não identif.',   value: dados.perdasNaoIdentificadas, color: '#7B2FBE' },
     { name: 'Gestando',              value: dados.gestando,             color: '#2B6CD9' },
+    { name: 'Vendida prenha',        value: dados.vendidasPrenhas,      color: '#5B2A9E' },
   ].filter(d => d.value > 0)
   const total = fatias.reduce((s, d) => s + d.value, 0)
   if (total === 0) return <SemDadosGrafico texto="Sem desfechos de prenhez registrados neste ciclo ainda." />
@@ -645,8 +690,19 @@ function calcularBlocoIndicadores(lotesX, {
   const todasInseminacoes = filtrarPorProp(lotesX.flatMap(l => l.inseminacoes || []), i => i.animal?.proprietario_id)
   const prenhas           = contarPrenhas(todasInseminacoes)
   const matrizesExpostas  = contarExpostas(todasInseminacoes)
-  const taxaPrenhez       = calcTaxaPrenhez(todasInseminacoes)
-  const taxaAproveitamento = matrizesAptas > 0 ? (matrizesExpostas / matrizesAptas) * 100 : null
+  // Prenhez adquirida na compra (2026-08-11, decisão do usuário) — sai de
+  // Taxa de Prenhez/Aproveitamento/Parição/Eficiência Gestacional (número E
+  // denominador: não foi exposta/inseminada NESTA fazenda). NUNCA filtra
+  // desmame/kg produzido/GMD/custoPorMatriz (matrizesExpostas/partosSafra
+  // acima ficam CHEIAS de propósito) — o terneiro dela nasceu e foi criado
+  // aqui, conta normalmente (ver ehLotePrenhezAdquirida, helpers.js).
+  const lotesXReprodutivos = lotesX.filter(l => !ehLotePrenhezAdquirida(l))
+  const prenhezAdquiridaCount = lotesX.length - lotesXReprodutivos.length
+  const insReprodutivas = filtrarPorProp(lotesXReprodutivos.flatMap(l => l.inseminacoes || []), i => i.animal?.proprietario_id)
+  const prenhasReprodutiva          = contarPrenhas(insReprodutivas)
+  const matrizesExpostasReprodutiva = contarExpostas(insReprodutivas)
+  const taxaPrenhez       = calcTaxaPrenhez(insReprodutivas)
+  const taxaAproveitamento = matrizesAptas > 0 ? (matrizesExpostasReprodutiva / matrizesAptas) * 100 : null
 
   const partosSafra = filtrarPorProp(
     lotesX.flatMap(l => (l.partos || []).map(p => ({
@@ -657,26 +713,56 @@ function calcularBlocoIndicadores(lotesX, {
     p => p.mae?.proprietario_id
   )
   const nPartos = partosSafra.length
+  const nPartosReprodutivo = filtrarPorProp(
+    lotesXReprodutivos.flatMap(l => l.partos || []), p => p.mae?.proprietario_id
+  ).length
 
   const abortosSafra = filtrarPorProp(lotesX.flatMap(l => l.abortos || []), a => a.animal?.proprietario_id)
   const nAbortos = abortosSafra.length
+  const nAbortosReprodutivo = filtrarPorProp(lotesXReprodutivos.flatMap(l => l.abortos || []), a => a.animal?.proprietario_id).length
+  // Bloco E (2026-08-10) — vaca vendida ainda prenha sai de gestandoTotal
+  // (nem sucesso nem falha, ver desfechoReprodutivo/calcGestacaoLote).
+  const vendidasPrenhasIds = new Set(
+    (animaisFiltrados || []).filter(a => a.situacao === 'vendido' && a.sit_reprodutiva === 'prenha').map(a => a.id)
+  )
   let gestandoTotal = 0
+  let gestandoTotalReprodutivo = 0
   lotesX.forEach(l => {
     const insLote     = filtrarPorProp(l.inseminacoes || [], i => i.animal?.proprietario_id)
     const partosLote  = filtrarPorProp(l.partos || [],       p => p.mae?.proprietario_id)
     const abortosLote = filtrarPorProp(l.abortos || [],      a => a.animal?.proprietario_id)
-    gestandoTotal += calcGestacaoLote(l.data, contarPrenhas(insLote), partosLote.length, abortosLote.length).gestando
+    const vendidasLote = insLote.filter(i => i.diagnostico === 'P' && vendidasPrenhasIds.has(i.animal_id)).length
+    const g = calcGestacaoLote(l.data, contarPrenhas(insLote), partosLote.length, abortosLote.length, vendidasLote).gestando
+    gestandoTotal += g
+    // Regra geral (2026-08-12): índice de esforço/resultado reprodutivo
+    // exclui prenhez adquirida — gestandoTotalReprodutivo soma só os lotes
+    // que não são dela, pra alimentar Perda Gestacional/Taxa de Aborto e a
+    // guarda "ainda gestando" de Parição, nunca o funil de PRODUÇÃO.
+    if (!ehLotePrenhezAdquirida(l)) gestandoTotalReprodutivo += g
   })
-  const taxaParicao = (prenhas > 0 && nPartos > 0) ? (nPartos / prenhas) * 100 : null
-  const taxaParicaoExpostas = calcTaxaParicao(matrizesExpostas, nPartos, gestandoTotal)
-  const desmameMetrics  = calcDesmameMetrics(partosSafra, matrizesExpostas)
+  const vendidasPrenhasSafra = todasInseminacoes.filter(i => i.diagnostico === 'P' && vendidasPrenhasIds.has(i.animal_id)).length
+  // prenhasEfetivaReprodutiva (2026-08-11): as duas exclusões somadas —
+  // parte de prenhasReprodutiva (já sem prenhez adquirida) e ainda subtrai
+  // vendidasPrenhasSafra. Usada em Parição/Eficiência Gestacional/Perda
+  // Gestacional/Taxa de Aborto (2026-08-12 — regra geral do usuário).
+  const prenhasEfetivaReprodutiva = prenhasReprodutiva - vendidasPrenhasSafra
+  const taxaParicao = (prenhasEfetivaReprodutiva > 0 && nPartosReprodutivo > 0) ? (nPartosReprodutivo / prenhasEfetivaReprodutiva) * 100 : null
+  const taxaParicaoExpostas = calcTaxaParicao(matrizesExpostasReprodutiva, nPartosReprodutivo, gestandoTotalReprodutivo, vendidasPrenhasSafra)
+  const desmameMetrics  = calcDesmameMetrics(partosSafra, matrizesExpostas, vendidasPrenhasSafra)
   const kgBezerroMatriz = desmameMetrics.kgPorMatrizExposta
   const kgNascimento    = desmameMetrics.pesoMedioNascimento
   const kgDesmame       = desmameMetrics.pesoMedioDesmame
 
-  const perdasNaoIdentificadas = Math.max(0, prenhas - nPartos - nAbortos - gestandoTotal)
-  const desfechosResolvidos = nPartos + nAbortos + perdasNaoIdentificadas
-  const taxaAborto = (prenhas > 0 && desfechosResolvidos > 0) ? ((nAbortos + perdasNaoIdentificadas) / prenhas) * 100 : null
+  // perdasNaoIdentificadas (exibição, histórico completo) continua com o
+  // funil CHEIO — perdasNaoIdentificadasReprodutivas (2026-08-12) é o
+  // resíduo recalculado só com lotesXReprodutivos, pra Perda Gestacional/
+  // Taxa de Aborto nunca misturar peças de dois funis diferentes (residual:
+  // prenhas − partos − abortos − gestando não fecha se um lado excluir
+  // prenhez adquirida e o outro não).
+  const perdasNaoIdentificadas = Math.max(0, prenhas - nPartos - nAbortos - gestandoTotal - vendidasPrenhasSafra)
+  const perdasNaoIdentificadasReprodutivas = Math.max(0, prenhasReprodutiva - nPartosReprodutivo - nAbortosReprodutivo - gestandoTotalReprodutivo - vendidasPrenhasSafra)
+  const desfechosResolvidosReprodutivo = nPartosReprodutivo + nAbortosReprodutivo + perdasNaoIdentificadasReprodutivas
+  const taxaAborto = (prenhasEfetivaReprodutiva > 0 && desfechosResolvidosReprodutivo > 0) ? ((nAbortosReprodutivo + perdasNaoIdentificadasReprodutivas) / prenhasEfetivaReprodutiva) * 100 : null
 
   const bezerroIdsSafra = new Set(partosSafra.map(p => p.bezerro_id).filter(Boolean))
   const candidatosGmd = animaisFiltrados.filter(a => a.situacao !== 'morto' && bezerroIdsSafra.has(a.id))
@@ -724,12 +810,17 @@ function calcularBlocoIndicadores(lotesX, {
 
   const custoPorTerneiro = (custoTotalModo != null && nPartos > 0) ? custoTotalModo / nPartos : null
   const custoPctValor    = (custoTotalModo != null && valorProduzido > 0) ? (custoTotalModo / valorProduzido) * 100 : null
-  const custoPorMatriz   = (custoTotalModo != null && matrizesExpostas > 0) ? custoTotalModo / matrizesExpostas : null
+  // custoPorMatriz (2026-08-12, decisão do usuário) — matrizesExpostasReprodutiva
+  // (exclui prenhez adquirida): ela não gerou custo de monta nenhum aqui
+  // (não foi inseminada/coberta nesta fazenda); mantê-la no denominador
+  // diluiria o custo médio pra baixo, fazendo o manejo parecer mais barato
+  // do que foi de verdade.
+  const custoPorMatriz   = (custoTotalModo != null && matrizesExpostasReprodutiva > 0) ? custoTotalModo / matrizesExpostasReprodutiva : null
 
   return {
     partosSafra, prenhas, matrizesExpostas, taxaPrenhez, taxaAproveitamento,
     nPartos, taxaParicao, taxaParicaoExpostas, kgBezerroMatriz, kgNascimento, kgDesmame,
-    nAbortos, gestandoTotal, perdasNaoIdentificadas, taxaAborto,
+    nAbortos, gestandoTotal, perdasNaoIdentificadas, taxaAborto, vendidasPrenhasSafra, prenhezAdquiridaCount,
     gmdTerneiros: media(gmdsT), gmdTerneirosFemeas: media(gmdsF), gmdTerneirosMachos: media(gmdsM),
     gmdIndividuais: gmdsT,
     mortosBezerros, mortalidade,
@@ -753,8 +844,10 @@ async function buscarIndicadoresConsolidadoCiclo(cicloAlvo, base) {
   const { data: rLotes, error } = await db.lotesInseminacao.list(cicloAlvo.id)
   if (error) return { error: error.message }
   const lotesCiclo = rLotes || []
-  const primeiraMontaCiclo = lotesCiclo.map(l => l.data).filter(Boolean).sort()[0] || null
-  const matrizesAptas = primeiraMontaCiclo ? contarMatrizes(base.animaisFiltrados, primeiraMontaCiclo) : 0
+  // matrizesAptas (2026-08-11 — corrige a data-âncora única, ver
+  // contarMatrizesCiclo em helpers.js): união das matrizes aptas na data de
+  // CADA lote do ciclo, não só a 1ª monta.
+  const matrizesAptas = contarMatrizesCiclo(base.animaisFiltrados, lotesCiclo.map(l => l.data))
   const dentroCiclo = (d) => !!(d && d >= cicloAlvo.inicio && d <= cicloAlvo.fim)
   const despesasIA  = base.todosLancamentos.filter(l => l.tipo === 'D' && l.grupo === 'Inseminação'  && dentroCiclo(l.data))
   const despesasNat = base.todosLancamentos.filter(l => l.tipo === 'D' && l.grupo === 'Monta Natural' && dentroCiclo(l.data))
@@ -1106,9 +1199,11 @@ export default function Metas() {
       // elegíveis não depende do método de cobertura) e recursos físicos/
       // financeiros, todos INVARIANTES por modo — calculados 1x, antes do
       // bloco por-modo abaixo.
-      const primeiraMontaCiclo = lotesCiclo.map(l => l.data).filter(Boolean).sort()[0] || null
       const animaisFiltrados   = filtroProp ? todosAnimais.filter(a => a.proprietario_id === filtroProp) : todosAnimais
-      const matrizesAptas      = primeiraMontaCiclo ? contarMatrizes(animaisFiltrados, primeiraMontaCiclo) : 0
+      // matrizesAptas (2026-08-11 — corrige a data-âncora única, ver
+      // contarMatrizesCiclo em helpers.js): união das matrizes aptas na data
+      // de CADA lote do ciclo, não só a 1ª monta.
+      const matrizesAptas      = contarMatrizesCiclo(animaisFiltrados, lotesCiclo.map(l => l.data))
 
       const dentroCicloLocal = (d) => !!(d && cicloLocal && d >= cicloLocal.inicio && d <= cicloLocal.fim)
 
@@ -1384,9 +1479,11 @@ export default function Metas() {
   // isso é bit-a-bit o `atuais`/gráficos de antes — regressão-zero.
   const modos = { reproducao: modoReproducao, perdas: modoPerdas, gmd: modoGmd, producao: modoProducao, custos: modoCustos }
   const atuais = construirAtuais(blocosPorModo, modos, producaoSafra?.temValorCadastrado)
-  const bGmdAtual      = blocosPorModo ? blocosPorModo[modoGmd]      : null
-  const bPerdasAtual   = blocosPorModo ? blocosPorModo[modoPerdas]   : null
-  const bProducaoAtual = blocosPorModo ? blocosPorModo[modoProducao] : null
+  const bGmdAtual        = blocosPorModo ? blocosPorModo[modoGmd]        : null
+  const bPerdasAtual     = blocosPorModo ? blocosPorModo[modoPerdas]     : null
+  const bProducaoAtual   = blocosPorModo ? blocosPorModo[modoProducao]   : null
+  const bReproducaoAtual = blocosPorModo ? blocosPorModo[modoReproducao] : null
+  const bCustosAtual     = blocosPorModo ? blocosPorModo[modoCustos]     : null
   const gmdIndividuais = bGmdAtual ? bGmdAtual.gmdIndividuais : []
   const desfechosSafra = bPerdasAtual ? {
     vivos: Math.max(0, bPerdasAtual.nPartos - bPerdasAtual.mortosBezerros),
@@ -1394,6 +1491,10 @@ export default function Metas() {
     abortos: bPerdasAtual.nAbortos,
     perdasNaoIdentificadas: bPerdasAtual.perdasNaoIdentificadas,
     gestando: bPerdasAtual.gestandoTotal,
+    // 2026-08-10 — fatia própria (não some do donut): a prenha vendida teve
+    // um desfecho real (foi vendida ainda gestando), só não é observável a
+    // partir daqui. Escondê-la faria o total do gráfico não bater com prenhas.
+    vendidasPrenhas: bPerdasAtual.vendidasPrenhasSafra || 0,
   } : null
   const producaoDetalhes = bProducaoAtual ? {
     pesados: bProducaoAtual.pesosSafraLength, totalTerneiros: bProducaoAtual.nPartos,
@@ -1518,7 +1619,7 @@ export default function Metas() {
                     <div className="grid-4">
                       {cardsDoGrupo.map(m => (
                         <IndicadorCard key={m.id} meta={m} atual={atuais[m.indicador] ?? null}
-                          subtitulo={subtituloProducao(m.indicador, producaoDetalhes) || subtituloCustos(m.indicador, custosDetalhes, modoAtual)} />
+                          subtitulo={subtituloProducao(m.indicador, producaoDetalhes) || [subtituloCustos(m.indicador, custosDetalhes, modoAtual), subtituloReprodutivo(m.indicador, bReproducaoAtual, bPerdasAtual, bGmdAtual, bCustosAtual)].filter(Boolean).join(' · ') || null} />
                       ))}
                     </div>
 

@@ -54,10 +54,10 @@ function DemoNovoAnimal() {
             <option value="NA">N/A</option>
           </select>
         </Field>
-        <Field label="Pai" hint="Texto livre — nome do touro, não um cadastro de animal.">
+        <Field label="Pai" hint="Digite o nome — o sistema mostra ao vivo se bate com um touro cadastrado ou externo já usado, e há um seletor de atalho com os dois.">
           <input value={demo.pai} onChange={e => setDemo(p => ({ ...p, pai: e.target.value }))} placeholder="Nome do touro" />
         </Field>
-        <Field label="Mãe (brinco)" hint="Texto livre — precisa bater com o brinco cadastrado da mãe para a árvore genealógica encontrá-la.">
+        <Field label="Mãe (brinco)" hint="Digite o brinco — o sistema avisa ao vivo se encontrou um animal cadastrado com esse brinco, e há um seletor de atalho com as fêmeas da fazenda.">
           <input value={demo.mae_brinco} onChange={e => setDemo(p => ({ ...p, mae_brinco: e.target.value }))} placeholder="ex: 03" />
         </Field>
       </div>
@@ -86,7 +86,7 @@ export default function SecaoAnimais({ item }) {
         <li><strong>SISBOV</strong>, <strong>Número do Registro</strong>, <strong>Nome</strong> e <strong>Classificação</strong> (PO/PA/CO/N-A) são opcionais. O SISBOV só aceita números; o padrão brasileiro tem 15 dígitos — se você digitar um número diferente disso, o sistema avisa mas deixa salvar do mesmo jeito (útil para registros em formato antigo). O <strong>Nome</strong> é só um dado complementar — o brinco continua sendo a identificação principal em listas, buscas e documentos, o nome nunca substitui ele.</li>
         <li>Se for um macho reprodutor, marque <strong>"É touro"</strong> — isso faz ele contar como Touro para sempre, não importa a idade, e passa a mostrar o card <strong>"Histórico reprodutivo do touro"</strong> na ficha dele (veja mais abaixo).</li>
         <li>Preencha raça, pelagem, proprietário e, se já existir, o lote.</li>
-        <li><strong>Pai</strong> e <strong>Mãe (brinco)</strong> são campos de texto livre, não uma busca no cadastro — preencha com cuidado, porque é esse texto que a árvore genealógica usa para tentar achar a mãe entre os animais já cadastrados.</li>
+        <li><strong>Pai</strong> e <strong>Mãe (brinco)</strong> continuam sendo campos de texto (você pode digitar o nome/brinco de um touro ou mãe que nunca foi cadastrado no sistema), mas agora com resolução ao vivo: se o texto bate com um animal já cadastrado — ou, no caso do Pai, com um touro externo já usado antes —, o sistema mostra a confirmação e grava o vínculo por cadastro, não só o texto. Cada campo também tem um seletor de atalho para escolher direto, sem digitar. Sem vínculo (animal não encontrado), o texto continua sendo salvo do jeito de sempre.</li>
         <li>Clique em <strong>Salvar</strong>.</li>
       </ol>
       <p style={{ color: '#9CA3AF', fontSize: '.78rem', marginBottom: 4 }}>
@@ -104,6 +104,16 @@ export default function SecaoAnimais({ item }) {
         prévia com quantas linhas estão certas e quais têm erro (proprietário ou lote com nome que não bate
         com o cadastro, data em formato errado, sexo/situação/classificação inválidos, etc.) antes de
         importar — linhas com erro são ignoradas, o resto entra normalmente.
+      </p>
+      <p style={{ color: '#374151', fontSize: '.85rem', lineHeight: 1.8, marginBottom: 18 }}>
+        <strong>Pai</strong> e <strong>mãe (brinco)</strong> também são resolvidos por cadastro na importação,
+        mesma ideia do formulário manual: "pai" que bate com um touro já cadastrado ou já usado como externo
+        vira vínculo de verdade; a mãe é procurada pelo brinco entre os animais já existentes <em>e</em> entre
+        os que estão sendo importados na mesma planilha (uma mãe pode estar na linha de cima do próprio
+        arquivo). Quem não bate com nada fica só como texto, do jeito de sempre — nunca cria um touro externo
+        novo automaticamente a partir da planilha (evita lixo em massa se houver erro de digitação em várias
+        linhas). Ao final, o aviso mostra quantos vínculos de pai e de mãe foram resolvidos por cadastro e
+        quantos ficaram só como texto.
       </p>
 
       <h4 style={{ fontSize: '.88rem', fontWeight: 700, color: '#1a1a1a', marginBottom: 8 }}>Genealogia e monta natural com vários touros</h4>
@@ -233,8 +243,8 @@ export default function SecaoAnimais({ item }) {
           title="Animal com histórico não pode ser excluído"
           body='Se o animal já tem pesagem, inseminação ou parto registrado, o botão Excluir não funciona — use "Vender" ou marque como "Morto" para dar baixa nele sem perder o histórico.' />
         <AlertBox type="green" icon="ti-info-circle"
-          title="Pai e mãe são texto livre"
-          body='Não é uma busca automática: se você digitar o brinco da mãe errado ou diferente do cadastro dela, a árvore genealógica simplesmente não vai encontrar o vínculo.' />
+          title="Pai e mãe com resolução ao vivo, mas ainda aceitam texto livre"
+          body='Se o brinco/nome digitado não bate com nenhum animal cadastrado (ou, no caso do Pai, com um touro externo já usado), o sistema mostra que vai salvar só como texto e segue normalmente — a árvore genealógica só encontra o vínculo de verdade quando o texto bate com um cadastro existente no momento de salvar. Renomear o brinco da mãe depois não quebra mais vínculos já resolvidos por cadastro; só quem ficou como texto solto precisa de correção manual, e o sistema avisa quando isso acontece.' />
       </div>
     </div>
   )

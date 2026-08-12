@@ -49,6 +49,12 @@ export default function SecaoRelatorios({ item }) {
           Indicadores</strong> para o detalhe de cada fórmula, inclusive a diferença entre Taxa de Parição
           (÷ expostas) e Eficiência Gestacional (÷ prenhas).
         </p>
+        <p style={{ color: '#374151', fontSize: '.85rem', lineHeight: 1.8, marginBottom: 14 }}>
+          <strong>Taxa de Parição</strong> aparece como "—" bem no início do ciclo, quando ainda não houve
+          nenhum parto mas já existem matrizes gestando dentro da janela normal — não é falha, é cedo demais
+          pra medir. Nesse caso, uma notinha ao lado do "—" mostra quantas matrizes estão gestando agora, pra
+          o vazio nunca parecer um erro silencioso.
+        </p>
       </div>
 
       <div id="relatorios-estacoes" style={{ scrollMarginTop: 90 }}>

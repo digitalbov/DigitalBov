@@ -1,6 +1,6 @@
 ﻿import { useState, useEffect } from 'react'
 import { db } from '../lib/supabase'
-import { calcCategoria, calcCategoriaRebanho, calcTaxaPrenhez, contarExpostas, contarPrenhas, contarMatrizes, calcGestacaoLote, calcTaxaParicao, calcResultadoFinanceiro, calcDesmameMetrics, calcIntervaloPartos, calcGMD, estavaNoRebanho, fmtData, fmtMoeda, pct, ehMatriz, algumErro, CATEGORIAS_VALOR, gruposPorValor, sanidadeRealizada, nomeTouro } from '../lib/helpers'
+import { calcCategoria, calcCategoriaRebanho, calcTaxaPrenhez, contarExpostas, contarPrenhas, contarMatrizesCiclo, ehLotePrenhezAdquirida, calcGestacaoLote, calcTaxaParicao, calcResultadoFinanceiro, calcDesmameMetrics, calcIntervaloPartos, calcGMD, estavaNoRebanho, fmtData, fmtMoeda, pct, ehMatriz, algumErro, CATEGORIAS_VALOR, gruposPorValor, sanidadeRealizada, nomeTouro } from '../lib/helpers'
 import { Loading, Badge, AlertBox, toast, ErroCarregamento } from '../components/UI'
 import { useFazenda } from '../lib/FazendaContext'
 import { useCiclo } from '../lib/CicloContext'
@@ -15,34 +15,83 @@ const NOMES_PDF = ['relatorio-geral','relatorio-reprodutivo','relatorio-financei
 // estação de monta (lotesPorEstacao, abaixo) — sempre as MESMAS funções puras
 // de helpers.js, nunca uma segunda fórmula divergente pro detalhe por estação.
 function calcIndicesDeLotes(lotesArr, animaisRef, filtroPropAtivo) {
+  // Bloco E (2026-08-10) — vaca vendida ainda prenha sai do cálculo de
+  // gestando/perdas não identificadas (nem sucesso nem falha, ver
+  // desfechoReprodutivo). Identificada por situacao='vendido' +
+  // sit_reprodutiva='prenha' no cadastro atual (animaisRef já vem carregado
+  // pelo chamador) — não precisa do embed de inseminações pra isso.
+  const vendidasPrenhasIds = new Set(
+    (animaisRef || []).filter(a => a.situacao === 'vendido' && a.sit_reprodutiva === 'prenha').map(a => a.id)
+  )
   const insemRel  = lotesArr.flatMap(l => l.inseminacoes || []).filter(i => !filtroPropAtivo || i.animal?.proprietario_id === filtroPropAtivo)
   const kpiIns    = contarExpostas(insemRel)
   const kpiPrn    = contarPrenhas(insemRel)
-  const txPrenhez = calcTaxaPrenhez(insemRel)
   const partosArr  = lotesArr.flatMap(l => l.partos  || []).filter(p => !filtroPropAtivo || p.mae?.proprietario_id    === filtroPropAtivo)
   const abortosArr = lotesArr.flatMap(l => l.abortos || []).filter(a => !filtroPropAtivo || a.animal?.proprietario_id === filtroPropAtivo)
+  // Prenhez adquirida na compra (2026-08-11, decisão do usuário) — sai de
+  // Taxa de Prenhez/Aproveitamento/Parição/Eficiência Gestacional (número E
+  // denominador: ela não foi exposta/inseminada NESTA fazenda, incluí-la
+  // mediria o manejo de quem vendeu). NUNCA filtra desmame/GMD/mortalidade
+  // abaixo (kpiIns/partosArr crus) — o terneiro dela nasceu e foi criado
+  // aqui, conta normalmente (ver ehLotePrenhezAdquirida, helpers.js).
+  const lotesReprodutivos = lotesArr.filter(l => !ehLotePrenhezAdquirida(l))
+  const prenhezAdquiridaCount = lotesArr.length - lotesReprodutivos.length
+  const insemReprodutivo = lotesReprodutivos.flatMap(l => l.inseminacoes || []).filter(i => !filtroPropAtivo || i.animal?.proprietario_id === filtroPropAtivo)
+  const kpiInsReprodutivo = contarExpostas(insemReprodutivo)
+  const kpiPrnReprodutivo = contarPrenhas(insemReprodutivo)
+  const txPrenhez = calcTaxaPrenhez(insemReprodutivo)
+  const partosReprodutivosCount = lotesReprodutivos.flatMap(l => l.partos || []).filter(p => !filtroPropAtivo || p.mae?.proprietario_id === filtroPropAtivo).length
   const kpiMortos = partosArr.filter(p => p.bezerro?.situacao === 'morto').length
   const txMortalidade = partosArr.length > 0 ? Math.round(kpiMortos / partosArr.length * 100) : null
   const kpiGestando = lotesArr.reduce((soma, l) => {
     const insLote     = (l.inseminacoes || []).filter(i => !filtroPropAtivo || i.animal?.proprietario_id === filtroPropAtivo)
     const partosLote  = (l.partos       || []).filter(p => !filtroPropAtivo || p.mae?.proprietario_id    === filtroPropAtivo)
     const abortosLote = (l.abortos      || []).filter(a => !filtroPropAtivo || a.animal?.proprietario_id === filtroPropAtivo)
-    return soma + calcGestacaoLote(l.data, contarPrenhas(insLote), partosLote.length, abortosLote.length).gestando
+    const vendidasLote = insLote.filter(i => i.diagnostico === 'P' && vendidasPrenhasIds.has(i.animal_id)).length
+    return soma + calcGestacaoLote(l.data, contarPrenhas(insLote), partosLote.length, abortosLote.length, vendidasLote).gestando
   }, 0)
-  const perdasNaoIdentificadas = Math.max(0, kpiPrn - partosArr.length - abortosArr.length - kpiGestando)
-  const txPerdaGestacional = kpiPrn > 0 ? Math.round((abortosArr.length + perdasNaoIdentificadas) / kpiPrn * 100) : null
-  const primeiraMonta = lotesArr.map(l => l.data).filter(Boolean).sort()[0] || null
-  const matrizesAptas = primeiraMonta ? contarMatrizes(animaisRef, primeiraMonta) : 0
-  const txAproveitamento = matrizesAptas > 0 ? Math.round(kpiIns / matrizesAptas * 100) : null
-  const desmame = calcDesmameMetrics(partosArr, kpiIns)
-  const txParicao    = kpiIns > 0 ? Math.round(partosArr.length / kpiIns * 100) : null
-  const txEficiencia = kpiPrn > 0 ? Math.round(partosArr.length / kpiPrn * 100) : null
+  const vendidasPrenhasCiclo = insemRel.filter(i => i.diagnostico === 'P' && vendidasPrenhasIds.has(i.animal_id)).length
+  // Regra geral (2026-08-12, decisão do usuário): QUALQUER índice de esforço
+  // ou resultado reprodutivo exclui prenhez adquirida — agora inclui Perda
+  // Gestacional/Taxa de Aborto. Funil inteiro (prenhas/partos/abortos/
+  // gestando/perdas não identificadas) recalculado só com lotesReprodutivos,
+  // nunca subtraindo uma contagem do funil CHEIO — evitaria inconsistência
+  // aritmética entre as peças do resíduo (perdasNaoIdentificadas é resíduo:
+  // prenhas − partos − abortos − gestando). abortosArr/perdasNaoIdentificadas
+  // "crus" abaixo continuam servindo o card de exibição (histórico completo,
+  // mesmo padrão de Prenhas/Expostas/Partos — nunca escondidos, só as TAXAS
+  // usam a versão reprodutiva).
+  const abortosReprodutivosCount = lotesReprodutivos.flatMap(l => l.abortos || []).filter(a => !filtroPropAtivo || a.animal?.proprietario_id === filtroPropAtivo).length
+  const kpiGestandoReprodutivo = lotesReprodutivos.reduce((soma, l) => {
+    const insLote     = (l.inseminacoes || []).filter(i => !filtroPropAtivo || i.animal?.proprietario_id === filtroPropAtivo)
+    const partosLote  = (l.partos       || []).filter(p => !filtroPropAtivo || p.mae?.proprietario_id    === filtroPropAtivo)
+    const abortosLote = (l.abortos      || []).filter(a => !filtroPropAtivo || a.animal?.proprietario_id === filtroPropAtivo)
+    const vendidasLote = insLote.filter(i => i.diagnostico === 'P' && vendidasPrenhasIds.has(i.animal_id)).length
+    return soma + calcGestacaoLote(l.data, contarPrenhas(insLote), partosLote.length, abortosLote.length, vendidasLote).gestando
+  }, 0)
+  const perdasNaoIdentificadasReprodutivas = Math.max(0, kpiPrnReprodutivo - partosReprodutivosCount - abortosReprodutivosCount - kpiGestandoReprodutivo - vendidasPrenhasCiclo)
+  const perdasNaoIdentificadas = Math.max(0, kpiPrn - partosArr.length - abortosArr.length - kpiGestando - vendidasPrenhasCiclo)
+  // matrizesAptas (2026-08-11 — corrige a data-âncora única, ver
+  // contarMatrizesCiclo em helpers.js): união das matrizes aptas na data de
+  // CADA lote do ciclo, não só a 1ª monta.
+  const matrizesAptas = contarMatrizesCiclo(animaisRef, lotesArr.map(l => l.data))
+  const txAproveitamento = matrizesAptas > 0 ? Math.round(kpiInsReprodutivo / matrizesAptas * 100) : null
+  const desmame = calcDesmameMetrics(partosArr, kpiIns, vendidasPrenhasCiclo)
+  // kpiPrnEfetivo/kpiInsEfetivo (2026-08-11): kpiPrnReprodutivo/
+  // kpiInsReprodutivo (já sem prenhez adquirida) menos vendidasPrenhasCiclo
+  // — as duas exclusões são independentes e se somam. Usado em Parição/
+  // Eficiência Gestacional/Perda Gestacional/Taxa de Aborto (2026-08-12).
+  const kpiPrnEfetivo = kpiPrnReprodutivo - vendidasPrenhasCiclo
+  const kpiInsEfetivo = kpiInsReprodutivo - vendidasPrenhasCiclo
+  const txParicao    = kpiInsEfetivo > 0 ? Math.round(partosReprodutivosCount / kpiInsEfetivo * 100) : null
+  const txEficiencia = kpiPrnEfetivo > 0 ? Math.round(partosReprodutivosCount / kpiPrnEfetivo * 100) : null
+  const txPerdaGestacional = kpiPrnEfetivo > 0 ? Math.round((abortosReprodutivosCount + perdasNaoIdentificadasReprodutivas) / kpiPrnEfetivo * 100) : null
+  const txAborto = kpiPrnEfetivo > 0 ? Math.round(abortosReprodutivosCount / kpiPrnEfetivo * 100) : null
   const kpiPendentes = insemRel.filter(i => !i.diagnostico).length
   const txPendentes  = kpiIns > 0 ? Math.round(kpiPendentes / kpiIns * 100) : null
   const gmds = partosArr.map(p => p.bezerro?.pesagens).filter(ps => ps?.length >= 2).map(ps => parseFloat(calcGMD(ps))).filter(Number.isFinite)
   const gmdMedio = gmds.length > 0 ? (gmds.reduce((s,v)=>s+v,0)/gmds.length) : null
-  const txAborto = kpiPrn > 0 ? Math.round(abortosArr.length / kpiPrn * 100) : null
-  return { kpiIns, kpiPrn, txPrenhez, partosArr, abortosArr, txMortalidade, txPerdaGestacional, matrizesAptas, txAproveitamento, desmame, txParicao, txEficiencia, kpiPendentes, txPendentes, gmdMedio, txAborto }
+  return { kpiIns, kpiPrn, txPrenhez, partosArr, abortosArr, txMortalidade, txPerdaGestacional, matrizesAptas, txAproveitamento, desmame, txParicao, txEficiencia, kpiPendentes, txPendentes, gmdMedio, txAborto, vendidasPrenhasCiclo, prenhezAdquiridaCount }
 }
 
 export default function Relatorios() {
@@ -183,13 +232,13 @@ export default function Relatorios() {
   // abertura/fechamento, não pela de hoje) — proprietário já é o filtroProp
   // acima, mesmo padrão de pills usado no resto da tela.
   const categoriasConciliacao = [...new Set([
-    ...inventarioAbertura.map(a => calcCategoria(a.data_nascimento, a.sexo, dataAberturaCiclo)),
-    ...inventarioFechamento.map(a => calcCategoria(a.data_nascimento, a.sexo, dataFechamentoCiclo)),
+    ...inventarioAbertura.map(a => calcCategoria(a.data_nascimento, a.sexo, dataAberturaCiclo, a.is_touro)),
+    ...inventarioFechamento.map(a => calcCategoria(a.data_nascimento, a.sexo, dataFechamentoCiclo, a.is_touro)),
   ])].sort()
   const conciliacaoPorCategoria = categoriasConciliacao.map(cat => ({
     cat,
-    abertura:    inventarioAbertura.filter(a => calcCategoria(a.data_nascimento, a.sexo, dataAberturaCiclo) === cat).length,
-    fechamento:  inventarioFechamento.filter(a => calcCategoria(a.data_nascimento, a.sexo, dataFechamentoCiclo) === cat).length,
+    abertura:    inventarioAbertura.filter(a => calcCategoria(a.data_nascimento, a.sexo, dataAberturaCiclo, a.is_touro) === cat).length,
+    fechamento:  inventarioFechamento.filter(a => calcCategoria(a.data_nascimento, a.sexo, dataFechamentoCiclo, a.is_touro) === cat).length,
   }))
   // Evolução do rebanho vs ciclo anterior (item 3d) — mesmo estavaNoRebanho,
   // só que na data de fechamento do ciclo IMEDIATAMENTE anterior ao
@@ -219,7 +268,16 @@ export default function Relatorios() {
   const insemRel  = lotes.flatMap(l => l.inseminacoes || []).filter(i => !filtroProp || i.animal?.proprietario_id === filtroProp)
   const kpiIns    = contarExpostas(insemRel)
   const kpiPrn    = contarPrenhas(insemRel)
-  const txPrenhez = calcTaxaPrenhez(insemRel)
+  // Prenhez adquirida na compra (2026-08-11) — mesma exclusão de
+  // calcIndicesDeLotes, ver comentário lá e em ehLotePrenhezAdquirida
+  // (helpers.js).
+  const lotesReprodutivos = lotes.filter(l => !ehLotePrenhezAdquirida(l))
+  const prenhezAdquiridaCount = lotes.length - lotesReprodutivos.length
+  const insemReprodutivo = lotesReprodutivos.flatMap(l => l.inseminacoes || []).filter(i => !filtroProp || i.animal?.proprietario_id === filtroProp)
+  const kpiInsReprodutivo = contarExpostas(insemReprodutivo)
+  const kpiPrnReprodutivo = contarPrenhas(insemReprodutivo)
+  const txPrenhez = calcTaxaPrenhez(insemReprodutivo)
+  const partosReprodutivosCount = lotesReprodutivos.flatMap(l => l.partos || []).filter(p => !filtroProp || p.mae?.proprietario_id === filtroProp).length
 
   // Fase 8 — índices reprodutivos que faltavam (aproveitamento, desmame,
   // perda gestacional, mortalidade) + correção da taxa de parição — mesma
@@ -236,28 +294,59 @@ export default function Relatorios() {
   const abortosKpiArr = lotes.flatMap(l => l.abortos || []).filter(a => !filtroProp || a.animal?.proprietario_id === filtroProp)
   const kpiMortos = partosKpiArr.filter(p => p.bezerro?.situacao === 'morto').length
   const txMortalidade = partosKpiArr.length > 0 ? Math.round(kpiMortos / partosKpiArr.length * 100) : null
+  // Bloco E — mesma exclusão de calcIndicesDeLotes (Etapa E, abaixo): vaca
+  // vendida ainda prenha não conta como gestando nem como perda.
+  const vendidasPrenhasIds = new Set(
+    animais.filter(a => a.situacao === 'vendido' && a.sit_reprodutiva === 'prenha').map(a => a.id)
+  )
   const kpiGestando = lotes.reduce((soma, l) => {
     const insLote    = (l.inseminacoes || []).filter(i => !filtroProp || i.animal?.proprietario_id === filtroProp)
     const partosLote = (l.partos       || []).filter(p => !filtroProp || p.mae?.proprietario_id    === filtroProp)
     const abortosLote= (l.abortos      || []).filter(a => !filtroProp || a.animal?.proprietario_id === filtroProp)
-    return soma + calcGestacaoLote(l.data, contarPrenhas(insLote), partosLote.length, abortosLote.length).gestando
+    const vendidasLote = insLote.filter(i => i.diagnostico === 'P' && vendidasPrenhasIds.has(i.animal_id)).length
+    return soma + calcGestacaoLote(l.data, contarPrenhas(insLote), partosLote.length, abortosLote.length, vendidasLote).gestando
   }, 0)
-  const perdasNaoIdentificadas = Math.max(0, kpiPrn - partosKpiArr.length - abortosKpiArr.length - kpiGestando)
-  const txPerdaGestacional = kpiPrn > 0 ? Math.round((abortosKpiArr.length + perdasNaoIdentificadas) / kpiPrn * 100) : null
-  const primeiraMontaCiclo = lotes.map(l => l.data).filter(Boolean).sort()[0] || null
+  const vendidasPrenhasCiclo = insemRel.filter(i => i.diagnostico === 'P' && vendidasPrenhasIds.has(i.animal_id)).length
+  // Regra geral (2026-08-12) — ver comentário completo em calcIndicesDeLotes:
+  // Perda Gestacional/Taxa de Aborto agora também excluem prenhez adquirida,
+  // funil recalculado inteiro com lotesReprodutivos (nunca subtraindo do
+  // funil cheio, que fica só pro card de exibição histórico).
+  const abortosReprodutivosCount = lotesReprodutivos.flatMap(l => l.abortos || []).filter(a => !filtroProp || a.animal?.proprietario_id === filtroProp).length
+  const kpiGestandoReprodutivo = lotesReprodutivos.reduce((soma, l) => {
+    const insLote     = (l.inseminacoes || []).filter(i => !filtroProp || i.animal?.proprietario_id === filtroProp)
+    const partosLote  = (l.partos       || []).filter(p => !filtroProp || p.mae?.proprietario_id    === filtroProp)
+    const abortosLote = (l.abortos      || []).filter(a => !filtroProp || a.animal?.proprietario_id === filtroProp)
+    const vendidasLote = insLote.filter(i => i.diagnostico === 'P' && vendidasPrenhasIds.has(i.animal_id)).length
+    return soma + calcGestacaoLote(l.data, contarPrenhas(insLote), partosLote.length, abortosLote.length, vendidasLote).gestando
+  }, 0)
+  const perdasNaoIdentificadasReprodutivas = Math.max(0, kpiPrnReprodutivo - partosReprodutivosCount - abortosReprodutivosCount - kpiGestandoReprodutivo - vendidasPrenhasCiclo)
+  const perdasNaoIdentificadas = Math.max(0, kpiPrn - partosKpiArr.length - abortosKpiArr.length - kpiGestando - vendidasPrenhasCiclo)
   const animaisParaAptas = filtroProp ? animais.filter(a => a.proprietario_id === filtroProp) : animais
-  const matrizesAptasCiclo = primeiraMontaCiclo ? contarMatrizes(animaisParaAptas, primeiraMontaCiclo) : 0
-  const txAproveitamento = matrizesAptasCiclo > 0 ? Math.round(kpiIns / matrizesAptasCiclo * 100) : null
-  const desmameCiclo = calcDesmameMetrics(partosKpiArr, kpiIns)
+  // matrizesAptasCiclo (2026-08-11 — corrige a data-âncora única, ver
+  // contarMatrizesCiclo em helpers.js): união das matrizes aptas na data de
+  // CADA lote do ciclo, não só a 1ª monta.
+  const matrizesAptasCiclo = contarMatrizesCiclo(animaisParaAptas, lotes.map(l => l.data))
+  const txAproveitamento = matrizesAptasCiclo > 0 ? Math.round(kpiInsReprodutivo / matrizesAptasCiclo * 100) : null
+  const desmameCiclo = calcDesmameMetrics(partosKpiArr, kpiIns, vendidasPrenhasCiclo)
+  // kpiPrnEfetivo/kpiInsEfetivo (2026-08-11): kpiPrnReprodutivo/
+  // kpiInsReprodutivo (sem prenhez adquirida) menos vendidasPrenhasCiclo —
+  // Parição/Eficiência Gestacional/Perda Gestacional/Taxa de Aborto (2026-08-12).
+  const kpiPrnEfetivo = kpiPrnReprodutivo - vendidasPrenhasCiclo
+  const kpiInsEfetivo = kpiInsReprodutivo - vendidasPrenhasCiclo
+  const txPerdaGestacional = kpiPrnEfetivo > 0 ? Math.round((abortosReprodutivosCount + perdasNaoIdentificadasReprodutivas) / kpiPrnEfetivo * 100) : null
+  const txAborto = kpiPrnEfetivo > 0 ? Math.round(abortosReprodutivosCount / kpiPrnEfetivo * 100) : null
   // "Taxa de Parição" (decisão Fase 8, item 4): partos ÷ matrizes EXPOSTAS —
   // era o que já se chamava "Taxa de parição (natalidade)" em Reprodutivo.jsx.
   // "Eficiência Gestacional": partos ÷ matrizes PRENHAS — nome novo pra
   // fórmula que ANTES se chamava "Taxa de parição" aqui (mesma chave
   // taxa_paricao em Metas.jsx, só o rótulo muda — ver Opção A).
   // calcTaxaParicao (helpers.js) consolida esta conta com Reprodutivo.jsx/
-  // Metas.jsx, que divergiam no tratamento de "expostas>0 e 0 partos".
-  const txParicaoNova = calcTaxaParicao(kpiIns, partosKpiArr.length, kpiGestando)
-  const txEficienciaGestacional = kpiPrn > 0 ? Math.round(partosKpiArr.length / kpiPrn * 100) : null
+  // Metas.jsx, que divergiam no tratamento de "expostas>0 e 0 partos". Guarda
+  // de "ainda gestando" usa kpiGestandoReprodutivo (2026-08-12) — a prenhez
+  // adquirida ainda gestando não deve segurar o "—" de um índice do qual ela
+  // nem faz parte.
+  const txParicaoNova = calcTaxaParicao(kpiInsReprodutivo, partosReprodutivosCount, kpiGestandoReprodutivo, vendidasPrenhasCiclo)
+  const txEficienciaGestacional = kpiPrnEfetivo > 0 ? Math.round(partosReprodutivosCount / kpiPrnEfetivo * 100) : null
   // % de matrizes expostas ainda sem diagnóstico (nem Prenha nem Vazia).
   const kpiPendentes = insemRel.filter(i => !i.diagnostico).length
   const txPendentes = kpiIns > 0 ? Math.round(kpiPendentes / kpiIns * 100) : null
@@ -302,7 +391,7 @@ export default function Relatorios() {
 
   const catMap = {}
   ativos.forEach(a => {
-    const c = calcCategoria(a.data_nascimento, a.sexo)
+    const c = calcCategoria(a.data_nascimento, a.sexo, undefined, a.is_touro)
     catMap[c] = (catMap[c]||0)+1
   })
 
@@ -371,32 +460,66 @@ export default function Relatorios() {
   // antiga (partos ÷ prenhas) continua existindo, só com nome novo:
   // "Eficiência Gestacional" — nenhuma meta já configurada muda de sentido
   // (mesma chave taxa_paricao em Metas.jsx, só o rótulo muda).
+  // Bloco B (2026-08-10) — Taxa de Parição fica em branco (calcTaxaParicao
+  // devolve null) bem no início do ciclo: zero partos ainda, mas com
+  // matrizes gestando dentro da janela normal — não é falha, é só cedo
+  // demais pra medir. Em vez de trocar por outro índice (perderia o
+  // acompanhamento da mesma métrica ao longo do ciclo, inclusive em PDFs
+  // antigos comparados lado a lado), mantém a Taxa de Parição e anexa uma
+  // nota explicando o "—": quantas matrizes estão gestando agora, então o
+  // número vazio não parece um erro silencioso.
+  const subParicao = (partosKpiArr.length === 0 && kpiGestandoReprodutivo > 0)
+    ? `${kpiGestandoReprodutivo} gestando`
+    : null
+  // Nota de transparência (2026-08-10, requisito do usuário): todo índice do
+  // qual a vendida prenha sai deve dizer quantas saíram e por quê — índice
+  // que muda sem explicação é índice em que ninguém confia.
+  const notaVendidas = vendidasPrenhasCiclo > 0
+    ? `${vendidasPrenhasCiclo} vendida${vendidasPrenhasCiclo===1?'':'s'} prenha${vendidasPrenhasCiclo===1?'':'s'} excluída${vendidasPrenhasCiclo===1?'':'s'} do cálculo — parto/aborto não são observáveis após a venda`
+    : null
+  // notaAdquirida (2026-08-11, ampliada 2026-08-12): mesma transparência,
+  // prenhez adquirida na compra — regra geral do usuário: qualquer índice de
+  // ESFORÇO OU RESULTADO REPRODUTIVO exclui ela (Prenhez/Aproveitamento/
+  // Parição/Eficiência Gestacional/Perda Gestacional/Taxa de Aborto agora
+  // também). Nunca em Desmama/kg/GMD/mortalidade (índices de PRODUÇÃO).
+  const notaAdquirida = prenhezAdquiridaCount > 0
+    ? `${prenhezAdquiridaCount} prenhez${prenhezAdquiridaCount===1?'':'es'} adquirida${prenhezAdquiridaCount===1?'':'s'} na compra excluída${prenhezAdquiridaCount===1?'':'s'} — não foi exposta nesta fazenda`
+    : null
+  const notaVendidaEAdquirida = [notaVendidas, notaAdquirida].filter(Boolean).join(' · ') || null
+  const subParicaoCompleto = [subParicao, notaVendidaEAdquirida].filter(Boolean).join(' · ') || null
+  // notaNovilhasPrecoces (2026-08-12, requisito do usuário): Aproveitamento
+  // acima de 100% é um resultado real (novilhas <24 meses expostas), mas um
+  // número acima de 100% sem explicação nenhuma faz o usuário desconfiar do
+  // sistema inteiro — mesma lógica de qualquer outra nota desta tela.
+  const notaNovilhasPrecoces = (txAproveitamento ?? 0) > 100
+    ? 'Acima de 100%: novilhas com menos de 24 meses foram expostas (novilhas precoces) — resultado esperado, não é erro'
+    : null
+  const notaAproveitamento = [notaAdquirida, notaNovilhasPrecoces].filter(Boolean).join(' · ') || null
   const indicesGerais = [
-    { l:'Taxa de prenhez',    v: txPrenhez!=null?`${txPrenhez}%`:'—',    ok: (txPrenhez??0)>=85 },
-    { l:'Taxa de parição',    v: txParicaoNova!=null?`${txParicaoNova}%`:'—', ok: (txParicaoNova??0)>=75 },
+    { l:'Taxa de prenhez',    v: txPrenhez!=null?`${txPrenhez}%`:'—',    ok: (txPrenhez??0)>=85, sub: notaAdquirida },
+    { l:'Taxa de parição',    v: txParicaoNova!=null?`${txParicaoNova}%`:'—', ok: (txParicaoNova??0)>=75, sub: subParicaoCompleto },
     { l:'Receita bruta',      v:fmtMoeda(rec),                           ok: true },
     { l:'Resultado do ciclo', v:fmtMoeda(resu),                          ok: resu>=0 },
     { l:'Proc. sanidade',     v:`${sanidade.length} (${vencSan} venc.)`, ok: vencSan===0 },
   ]
   // Fase 8 — "Abortos registrados"/"Intervalo de partos" antes hardcoded
   // ('—' e '12,4 meses (est.)'): um relatório de fechamento com número
-  // inventado é pior que não ter o campo. Abortos usa abortosKpiArr
-  // (safra-anchored, mesma fonte de perda gestacional acima). Intervalo usa
-  // partosTodos (todos os ciclos, não só este) e dias (não meses) — mesma
-  // unidade já validada em Metas.jsx, pra não introduzir uma terceira
-  // convenção diferente pro mesmo indicador.
-  const txAborto = kpiPrn > 0 ? Math.round(abortosKpiArr.length / kpiPrn * 100) : null
+  // inventado é pior que não ter o campo. Abortos usa abortosReprodutivosCount
+  // (2026-08-12 — exclui prenhez adquirida, mesma fonte de perda gestacional
+  // acima). Intervalo usa partosTodos (todos os ciclos, não só este) e dias
+  // (não meses) — mesma unidade já validada em Metas.jsx, pra não introduzir
+  // uma terceira convenção diferente pro mesmo indicador.
   const partosTodosFiltrados = filtroProp ? partosTodos.filter(p => p.mae?.proprietario_id === filtroProp) : partosTodos
   const intervaloPartosDias = calcIntervaloPartos(partosTodosFiltrados).media
   const indicesReprodutivos = [
-    { l:'Taxa de prenhez',        v:txPrenhez!=null?`${txPrenhez}%`:'—',              meta:'≥85%', ok:(txPrenhez??0)>=85 },
-    { l:'Taxa de aproveitamento', v:txAproveitamento!=null?`${txAproveitamento}%`:'—', meta:'≥100%', ok:(txAproveitamento??0)>=100 },
-    { l:'Taxa de parição',        v:txParicaoNova!=null?`${txParicaoNova}%`:'—',       meta:'≥75%', ok:(txParicaoNova??0)>=75 },
-    { l:'Eficiência gestacional', v:txEficienciaGestacional!=null?`${txEficienciaGestacional}%`:'—', meta:'≥85%', ok:(txEficienciaGestacional??0)>=85 },
-    { l:'Abortos registrados',    v:txAborto!=null?`${abortosKpiArr.length} (${txAborto}%)`:(abortosKpiArr.length>0?String(abortosKpiArr.length):'—'), meta:'<5%', ok:txAborto==null||txAborto<5 },
-    { l:'Perda gestacional',      v:txPerdaGestacional!=null?`${txPerdaGestacional}%`:'—', meta:'<15%', ok:txPerdaGestacional==null||txPerdaGestacional<15 },
+    { l:'Taxa de prenhez',        v:txPrenhez!=null?`${txPrenhez}%`:'—',              meta:'≥85%', ok:(txPrenhez??0)>=85, sub: notaAdquirida },
+    { l:'Taxa de aproveitamento', v:txAproveitamento!=null?`${txAproveitamento}%`:'—', meta:'≥100%', ok:(txAproveitamento??0)>=100, sub: notaAproveitamento },
+    { l:'Taxa de parição',        v:txParicaoNova!=null?`${txParicaoNova}%`:'—',       meta:'≥75%', ok:(txParicaoNova??0)>=75, sub: subParicaoCompleto },
+    { l:'Eficiência gestacional', v:txEficienciaGestacional!=null?`${txEficienciaGestacional}%`:'—', meta:'≥85%', ok:(txEficienciaGestacional??0)>=85, sub: notaVendidaEAdquirida },
+    { l:'Abortos registrados',    v:txAborto!=null?`${abortosReprodutivosCount} (${txAborto}%)`:(abortosReprodutivosCount>0?String(abortosReprodutivosCount):'—'), meta:'<5%', ok:txAborto==null||txAborto<5, sub: notaVendidaEAdquirida },
+    { l:'Perda gestacional',      v:txPerdaGestacional!=null?`${txPerdaGestacional}%`:'—', meta:'<15%', ok:txPerdaGestacional==null||txPerdaGestacional<15, sub: notaVendidaEAdquirida },
     { l:'Mortalidade de terneiros', v:txMortalidade!=null?`${txMortalidade}%`:'—',     meta:'<5%',  ok:txMortalidade==null||txMortalidade<5 },
-    { l:'Taxa de desmama',        v:desmameCiclo.txDesmama!=null?`${desmameCiclo.txDesmama}%`:'—', meta:'≥90%', ok:(desmameCiclo.txDesmama??0)>=90 },
+    { l:'Taxa de desmama',        v:desmameCiclo.txDesmama!=null?`${desmameCiclo.txDesmama}%`:'—', meta:'≥90%', ok:(desmameCiclo.txDesmama??0)>=90, sub: notaVendidas },
     { l:'Intervalo de partos',    v:intervaloPartosDias!=null?`${intervaloPartosDias} dias`:'—', meta:'≤365d', ok:intervaloPartosDias==null||intervaloPartosDias<=365 },
     { l:'Peso médio ao nascer',   v:desmameCiclo.pesoMedioNascimento!=null?`${desmameCiclo.pesoMedioNascimento.toFixed(1).replace('.',',')} kg`:'—', meta:'—', ok:true },
     { l:'GMD médio da safra',     v:gmdMedioSafra!=null?`${gmdMedioSafra.toFixed(3).replace('.',',')} kg/dia`:'—', meta:'≥0,700', ok:gmdMedioSafra==null||gmdMedioSafra>=0.7 },
@@ -626,7 +749,10 @@ export default function Relatorios() {
                 {indicesGerais.map(k => (
                   <div key={k.l} className="row">
                     <span className="row-label">{k.l}</span>
-                    <span className="row-value" style={{ color: k.ok?'#1E55B0':'#791F1F' }}>{k.v}</span>
+                    <span style={{ display:'flex', alignItems:'center', gap:8 }}>
+                      <span className="row-value" style={{ color: k.ok?'#1E55B0':'#791F1F' }}>{k.v}</span>
+                      {k.sub && <span style={{ fontSize:'.72rem', color:'#9CA3AF' }}>{k.sub}</span>}
+                    </span>
                   </div>
                 ))}
               </div>
@@ -762,7 +888,7 @@ export default function Relatorios() {
 
             {vencSan > 0 && (
               <AlertBox type="amber" title="Procedimentos sanitários vencidos"
-                body={`${vencSan} procedimento(s) com data de reforço vencida. Verifique o módulo Sanidade.`}/>
+                body={`${vencSan} procedimento(s) com data de reforço vencida. Verifique o módulo Manejo Sanitário.`}/>
             )}
             <AlertBox type="green" title="Sistema operacional"
               body={`${ativos.length} animais ativos · ${inativos.length} inativos no histórico · Ciclo ${cicloLocal?.nome} em andamento`}/>
@@ -870,8 +996,9 @@ export default function Relatorios() {
               {indicesReprodutivos.map(k => (
                 <div key={k.l} className="row">
                   <span className="row-label">{k.l}</span>
-                  <span style={{ display:'flex', alignItems:'center', gap:8 }}>
+                  <span style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap', justifyContent:'flex-end' }}>
                     <span className="row-value" style={{ color: k.ok?'#1E55B0':'#791F1F' }}>{k.v}</span>
+                    {k.sub && <span style={{ fontSize:'.72rem', color:'#9CA3AF' }}>{k.sub}</span>}
                     <span style={{ fontSize:'.72rem', color:'#9CA3AF' }}>meta: {k.meta} {k.ok?'✓':'↑'}</span>
                   </span>
                 </div>

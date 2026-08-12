@@ -75,7 +75,7 @@ export const MANUAL_INDICE = [
     ],
   },
   {
-    id: 'sanidade', titulo: 'Sanidade', icone: 'ti-shield-check',
+    id: 'sanidade', titulo: 'Manejo Sanitário', icone: 'ti-shield-check',
     resumo: 'Registro de vacinas, vermifugações e outros procedimentos sanitários, com agenda de retorno.',
   },
   {

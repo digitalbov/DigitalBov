@@ -11,7 +11,7 @@ const FUNCTIONS_URL = import.meta.env.VITE_SUPABASE_URL + '/functions/v1/dynamic
 
 const MODULOS = [
   ['propriedade','Propriedade'], ['animais','Animais'], ['feiras','Feiras e Premiações'],
-  ['reprodutivo','Gestão Reprodutiva'], ['rebanho','Rebanho'], ['sanidade','Sanidade'],
+  ['reprodutivo','Gestão Reprodutiva'], ['rebanho','Rebanho'], ['sanidade','Manejo Sanitário'],
   ['pesagens','Pesagens'], ['estoque','Estoque'], ['financeiro','Financeiro'],
   ['relatorios','Relatórios'], ['metas','Metas'], ['veterinario','Veterinário'],
 ]

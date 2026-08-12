@@ -11,9 +11,18 @@ import { PdfWriter } from './pdfWriter'
 // reconstruir cards/grids/barra-de-progresso a partir do HTML renderizado.
 const AZUL = [30, 85, 176], VERMELHO = [121, 31, 31], AMBAR = [186, 117, 23], VERDE = [39, 80, 10]
 
-function linhaIndice(writer, { l, v, meta, ok }) {
-  const valor = meta ? `${v}   meta: ${meta} ${ok ? '✓' : '↑'}` : v
-  writer.linha(l, valor, { corValor: ok ? AZUL : VERMELHO })
+function linhaIndice(writer, { l, v, meta, ok, sub }) {
+  // Bug corrigido (2026-08-10): valor+meta iam concatenados numa string só,
+  // right-aligned sem checar largura — colidia com o rótulo em índices de
+  // nome longo (ex: "Matrizes pendentes de diagnóstico"). writer.linha agora
+  // desenha meta numa 2ª linha própria (ver pdfWriter.js), nunca sobrepõe.
+  // sub (opcional, Bloco B — taxa de parição sem partos ainda): nota curta
+  // embaixo do valor, mesma ideia de metaTexto, cor neutra.
+  const metaTexto = [
+    meta ? `meta: ${meta} ${ok ? '✓' : '↑'}` : null,
+    sub || null,
+  ].filter(Boolean).join('  ·  ')
+  writer.linha(l, v, { corValor: ok ? AZUL : VERMELHO, metaTexto: metaTexto || null })
 }
 
 function subtitulo(cicloNome) {
@@ -92,7 +101,7 @@ export function gerarPDFRelatorioGeral(dados) {
 
   if (vencSan > 0) {
     writer.alertBox('amber', 'Procedimentos sanitários vencidos',
-      `${vencSan} procedimento(s) com data de reforço vencida. Verifique o módulo Sanidade.`)
+      `${vencSan} procedimento(s) com data de reforço vencida. Verifique o módulo Manejo Sanitário.`)
   }
   writer.alertBox('green', 'Sistema operacional',
     `${ativos} animais ativos · ${inativos} inativos no histórico · Ciclo ${cicloNome} em andamento`)

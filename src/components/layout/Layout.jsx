@@ -18,7 +18,7 @@ const PAGE_TITLES = {
   '/animais':      { title: 'Cadastro de Animais',   sub: 'Registro individual do rebanho' },
   '/reprodutivo':  { title: 'Gestão Reprodutiva',    sub: 'Inseminação, diagnósticos e partos' },
   '/rebanho':      { title: 'Controle de Rebanho',   sub: 'Estatísticas e índices zootécnicos' },
-  '/sanidade':     { title: 'Sanidade',              sub: 'Vacinas, vermifugações e exames' },
+  '/sanidade':     { title: 'Manejo Sanitário',       sub: 'Vacinas, vermifugações e exames' },
   '/pesagens':     { title: 'Pesagens & Desempenho', sub: 'Pesos e GMD por animal' },
   '/estoque':      { title: 'Estoque',               sub: 'Medicamentos, vacinas e sêmen' },
   '/financeiro':   { title: 'Gestão Financeira',     sub: 'Receitas, despesas e resultados' },
@@ -134,7 +134,7 @@ export default function Layout({ user, perfil }) {
         <div style={faixaStyle('#D1FAE5', '#065F46', '#A7F3D0')}>
           <span>
             <i className="ti ti-calendar-event" style={{ marginRight:6 }} />
-            O ciclo financeiro <strong>{cicloAtual.nome}</strong> iniciou em <strong>{fmtData(cicloAtual.inicio)}</strong>. Você poderá acessar o ciclo anterior no seletor de ciclo no menu lateral ou no seletor interno de cada módulo.
+            O ciclo financeiro <strong>{cicloAtual.nome}</strong> iniciou em <strong>{fmtData(cicloAtual.inicio)}</strong>. Você poderá acessar o ciclo anterior no seletor de ciclo, na faixa superior da tela.
           </span>
         </div>
       )}
@@ -155,7 +155,7 @@ export default function Layout({ user, perfil }) {
         {cicloAtual && proximoCiclo && (
           <div style={{ fontSize:'.88rem', color:'#374151', lineHeight:1.7 }}>
             <p>Um ciclo financeiro pecuário inicia em 01/07 e encerra em 30/06 do ano seguinte.</p>
-            <p>Após o encerramento você terá um período de <strong>{CARENCIA_DIAS} dias</strong> para fazer lançamentos e ajustes. O ciclo encerrado fica disponível para consulta e pode ser selecionado no botão seletor "Ciclo" disponível no menu lateral ou no interior de cada menu.</p>
+            <p>Após o encerramento você terá um período de <strong>{CARENCIA_DIAS} dias</strong> para fazer lançamentos e ajustes. O ciclo encerrado fica disponível para consulta e pode ser selecionado no botão seletor "Ciclo", na faixa superior da tela.</p>
             <p>Os lançamentos realizados com data igual ou posterior à <strong>{fmtData(proximoCiclo.inicio)}</strong> serão contabilizados no novo ciclo financeiro <strong>{proximoCiclo.nome}</strong>.</p>
           </div>
         )}

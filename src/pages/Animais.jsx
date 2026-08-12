@@ -1,11 +1,12 @@
 ﻿import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { usePermissoes } from '../lib/PermissoesContext'
-import { db } from '../lib/supabase'
-import { calcCategoria, calcCategoriaRebanho, idadeFormatada, fmtData, pct, catCor, sitCor, repCor, sortBrinco, dataNaoFutura, algumErro, statusReprodutivoExibicao, statusReprodutivoDetalhado, statusReprodutivoCiclo, STATUS_CICLO_ANIMAL, desfechoReprodutivo, FALHA_MOTIVO_LABEL, PERDA_PRESUMIDA_DIAS_APOS_PREVISTO, paiEhMontaNaturalIndefinida, capitalizarPrimeira, capitalizarNome, sanidadeRealizada, calcDesempenhoVidaFemea, agruparPesoPorData, calcGMD, classificarDesfechosPorSafra, CORES_DESFECHO, ROTULOS_DESFECHO, calcHistoricoTouro, AMOSTRA_MINIMA_TOURO, nomePai, nomeTouro, resumoFeirasAnimal, statusFeiraParticipacao } from '../lib/helpers'
+import { db, apenasColunasReais } from '../lib/supabase'
+import { calcCategoria, calcCategoriaRebanho, idadeFormatada, fmtData, pct, catCor, sitCor, repCor, sortBrinco, dataNaoFutura, algumErro, statusReprodutivoExibicao, statusReprodutivoVendida, statusReprodutivoDetalhado, statusReprodutivoCiclo, STATUS_CICLO_ANIMAL, desfechoReprodutivo, FALHA_MOTIVO_LABEL, PERDA_PRESUMIDA_DIAS_APOS_PREVISTO, paiEhMontaNaturalIndefinida, capitalizarPrimeira, capitalizarNome, sanidadeRealizada, calcDesempenhoVidaFemea, agruparPesoPorData, calcGMD, classificarDesfechosPorSafra, CORES_DESFECHO, ROTULOS_DESFECHO, calcHistoricoTouro, AMOSTRA_MINIMA_TOURO, nomePai, nomeTouro, resolverTouroDigitado, resumoFeirasAnimal, statusFeiraParticipacao } from '../lib/helpers'
 import { hojeISO } from '../lib/hoje'
 import { confirmarPerdaPresumida } from '../lib/perdaGestacionalPresumida'
 import { Loading, EmptyState, Modal, Field, MicButton, Badge, toast, BotaoPDF, ErroCarregamento, Confirm, AlertBox } from '../components/UI'
+import { SeletorTouro, ResolucaoTouro } from '../components/SeletorTouro'
 import { baixarModeloAnimais, lerPlanilhaAnimais, validarLinhas } from '../lib/importacaoAnimais'
 import GraficoEvolucaoPeso from '../components/GraficoEvolucaoPeso'
 import { BarChart, Bar, Cell, LabelList, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
@@ -148,7 +149,7 @@ function NodoCard({ animal, nome, tipo, destaque, onSelect, onClickTouro }) {
             {animal.brinco}
           </div>
           <div style={{ fontSize: '.63rem', color: destaque ? 'rgba(255,255,255,.65)' : '#6B7280', marginTop: 2 }}>
-            {calcCategoria(animal.data_nascimento, animal.sexo)}
+            {calcCategoria(animal.data_nascimento, animal.sexo, undefined, animal.is_touro)}
           </div>
           {hasClick && (
             <div style={{ fontSize: '.58rem', color: '#9CA3AF', marginTop: 3 }}>▶ ver ficha</div>
@@ -178,16 +179,19 @@ function GenRowLabel({ children, color = '#9CA3AF' }) {
 }
 
 function ArvoreGenealogica({ animal, animais, onSelect, onClickPai }) {
-  // Mãe: busca por brinco (prioridade) ou por id
+  // Mãe: busca por id (prioridade — imune a rename de brinco, mesmo padrão
+  // já usado em nomePai/nomeTouro) ou por texto só quando não há id (dado
+  // digitado à mão, sem vínculo — ver verificarReferenciasDesatualizadas em
+  // Animais.jsx).
   const mae = animais.find(x =>
-    (animal.mae_brinco && x.brinco === animal.mae_brinco) ||
-    (animal.mae_id && !animal.mae_brinco && x.id === animal.mae_id)
+    (animal.mae_id && x.id === animal.mae_id) ||
+    (!animal.mae_id && animal.mae_brinco && x.brinco === animal.mae_brinco)
   ) || null
 
   // Avós maternos
   const avoMae = mae ? animais.find(x =>
-    (mae.mae_brinco && x.brinco === mae.mae_brinco) ||
-    (mae.mae_id && !mae.mae_brinco && x.id === mae.mae_id)
+    (mae.mae_id && x.id === mae.mae_id) ||
+    (!mae.mae_id && mae.mae_brinco && x.brinco === mae.mae_brinco)
   ) || null : null
   // Touro (nomePai — "Nome (Brinco)" quando cadastrado, ver helpers.js —
   // um dos 4 pontos genealógicos/documentais aprovados, Tarefa B.4). Só
@@ -348,6 +352,10 @@ export default function Animais() {
   const [lotes,           setLotes]           = useState([])
   const [partosTodos,     setPartosTodos]     = useState([])
   const [ciclos,          setCiclos]          = useState([])
+  // Touros externos (emprestado/sêmen de IA) — Item 5: mesmo seletor com
+  // resolução ao vivo já usado em Reprodutivo.jsx (SeletorTouro/ResolucaoTouro,
+  // extraídos pra components/SeletorTouro.jsx), reaproveitado aqui pro campo "Pai".
+  const [tourosExternos,  setTourosExternos]  = useState([])
   const [loading,         setLoading]         = useState(true)
   const [loadError,       setLoadError]       = useState(false)
   const [filtSit,         setFiltSit]         = useState('ativo')
@@ -358,6 +366,18 @@ export default function Animais() {
   const [modal,           setModal]           = useState(false)
   const [editData,        setEditData]        = useState(null)
   const [saving,          setSaving]          = useState(false)
+  // Duplicidade de brinco no salvamento (mesmo padrão de brincoDupCreate/
+  // brincoDupEdit em Reprodutivo.jsx — debounce 400ms contra db.animais.
+  // byBrinco, bloqueia o botão, não só avisa). Independe do que a constraint
+  // do banco disser — mensagem amigável em vez do erro cru do Postgres.
+  const [brincoDup,       setBrincoDup]       = useState(null)
+  // Aviso pós-salvamento quando o brinco muda: registros que referenciam o
+  // brinco ANTIGO só por texto (sem id — pai/mae_brinco digitados à mão, ou
+  // lote de monta legado) não são corrigidos sozinhos (ver decisão: avisar,
+  // não propagar — propagar texto por texto arriscaria "corrigir" o vínculo
+  // do animal errado se dois animais já tiveram esse brinco em momentos
+  // diferentes do histórico).
+  const [avisoBrincoRef,  setAvisoBrincoRef]  = useState(null)
   // Timeline
   const [timeline,        setTimeline]        = useState([])
   const [timelineLoading, setTimelineLoading] = useState(false)
@@ -438,6 +458,20 @@ export default function Animais() {
     detalheRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }, [location.state, animais])
 
+  // Duplicidade de brinco — mesmo debounce de Reprodutivo.jsx (brincoDupCreate/
+  // brincoDupEdit), reaproveitado aqui: cadastro OU rename, cobre os dois.
+  // Exclui o próprio animal sendo editado — senão o brinco atual dele sempre
+  // "bateria" como duplicado consigo mesmo.
+  useEffect(() => {
+    const brinco = (editData?.brinco || '').trim()
+    if (!modal || !brinco) { setBrincoDup(null); return }
+    const t = setTimeout(async () => {
+      const { data } = await db.animais.byBrinco(brinco)
+      setBrincoDup(data && data.id !== editData.id ? data : null)
+    }, 400)
+    return () => clearTimeout(t)
+  }, [modal, editData?.brinco, editData?.id])
+
   // Carrega timeline e notas quando muda o animal selecionado
   useEffect(() => {
     if (!selected) { setTimeline([]); setNotas(''); setReprodutivoBruto({ partos: [], inseminacoes: [], abortos: [] }); setPartoComoFilho(null); return }
@@ -515,14 +549,16 @@ export default function Animais() {
         db.lotes.list(),
         db.partos.listAll(),
         db.ciclos.list(),
+        db.tourosExternos.listPorFazenda(),
       ])
       if (algumErro('[Animais]', results)) { setLoadError(true); return }
-      const [ra, rp, rl, rpt, rc] = results
+      const [ra, rp, rl, rpt, rc, rte] = results
       setAnimais(ra.data || [])
       setProps(rp.data   || [])
       setLotes(rl.data   || [])
       setPartosTodos(rpt.data || [])
       setCiclos(rc.data || [])
+      setTourosExternos(rte.data || [])
     } catch (e) {
       console.error('[Animais] erro ao carregar:', e)
       setLoadError(true)
@@ -808,7 +844,7 @@ export default function Animais() {
     if (filtRep      && a.sit_reprodutiva !== filtRep)  return false
     if (filtLote     && a.lote_id         !== filtLote) return false
     if (search   && !a.brinco.toLowerCase().includes(search.toLowerCase()) &&
-        !calcCategoria(a.data_nascimento, a.sexo).toLowerCase().includes(search.toLowerCase())) return false
+        !calcCategoria(a.data_nascimento, a.sexo, undefined, a.is_touro).toLowerCase().includes(search.toLowerCase())) return false
     return true
   }))
 
@@ -878,16 +914,87 @@ export default function Animais() {
     return out
   }
 
+  // Aviso pós-rename de brinco (decisão: avisar, nunca propagar — ver
+  // avisoBrincoRef acima). animais.mae_brinco é o ÚNICO campo do sistema que
+  // guarda BRINCO como texto de referência — `pai`/lotes_inseminacao.touro/
+  // lote_touros.nome guardam o NOME do touro, não o brinco (placeholder
+  // "Nome do touro", ver Field abaixo), então um rename de brinco não os
+  // afeta; já quando o vínculo é por id (pai_animal_id/touro_animal_id), a
+  // exibição deriva do embed ao vivo (nomePai/nomeTouro, helpers.js) e nunca
+  // fica desatualizada. Só entra aqui quem tem mae_brinco batendo com o
+  // brinco ANTIGO e SEM mae_id — exatamente o caso em que não há id nenhum
+  // pra derivar (digitado à mão em Animais.jsx, ou importação de planilha).
+  const verificarReferenciasDesatualizadas = (brincoAntigo, animalId) => {
+    const filhosSoTexto = animais.filter(x => x.id !== animalId && x.mae_brinco === brincoAntigo && !x.mae_id)
+    if (filhosSoTexto.length > 0) setAvisoBrincoRef({ brincoAntigo, filhos: filhosSoTexto })
+  }
+
+  // Item 5 — touros cadastrados (sexo=M + is_touro), mesma lista `animais` já
+  // carregada, mesmo filtro de tourosCadastrados em Reprodutivo.jsx, sem
+  // query nova. Exclui o próprio animal em edição (não pode ser pai de si
+  // mesmo).
+  const tourosCadastrados = animais
+    .filter(a => a.sexo === 'M' && a.is_touro && a.id !== editData?.id)
+    .sort((a, b) => a.brinco.localeCompare(b.brinco, undefined, { numeric: true }))
+
+  // Candidatas a mãe — fêmeas, excluindo o próprio animal em edição. Sem
+  // tabela externa equivalente a touros_externos: mãe só pode ser um animal
+  // já cadastrado no sistema, então a resolução é busca direta por brinco,
+  // nunca find-or-create.
+  const maesCandidatas = animais
+    .filter(a => a.sexo === 'F' && a.id !== editData?.id)
+    .sort((a, b) => a.brinco.localeCompare(b.brinco, undefined, { numeric: true }))
+
+  // Resolve o vínculo por id do PAI a partir do texto digitado — mesmo
+  // mecanismo de resolverVinculoTouro em Reprodutivo.jsx (não a mesma
+  // função, porque tourosCadastrados/tourosExternos vêm de estados
+  // diferentes nesta tela, mas a MESMA lógica: cadastro/externo_exato usam o
+  // id que ResolucaoTouro já mostrou na tela, sem round-trip; só 'novo'
+  // precisa de rede). Monta natural indefinida nunca tenta resolver.
+  const resolverVinculoPai = async (nome) => {
+    if (!nome || paiEhMontaNaturalIndefinida(nome)) return { pai_animal_id: null, pai_externo_id: null }
+    const r = resolverTouroDigitado(nome, tourosCadastrados, tourosExternos)
+    if (r?.tipo === 'cadastro') return { pai_animal_id: r.touro.id, pai_externo_id: null }
+    if (r?.tipo === 'externo_exato') return { pai_animal_id: null, pai_externo_id: r.touro.id }
+    const { data, error } = await db.tourosExternos.findOrCreate(nome)
+    if (error) return { pai_animal_id: null, pai_externo_id: null, erro: error }
+    return { pai_animal_id: null, pai_externo_id: data?.id || null }
+  }
+
+  // Resolve mae_id a partir do brinco digitado — sempre recalculado do texto
+  // atual (nunca confia no mae_id antigo de editData: se o usuário mudou o
+  // texto, o id tem que acompanhar, senão é o mesmo bug do brinco que não
+  // propaga, só que ao contrário).
+  const resolverMaeId = (brinco) => {
+    if (!brinco) return null
+    const m = maesCandidatas.find(a => a.brinco?.toUpperCase() === brinco.trim().toUpperCase())
+    return m?.id || null
+  }
+
   const salvar = async () => {
     if (!podeEditarAnimais) return
-    let payload = { ...editData }
-    delete payload.proprietario
-    delete payload.lote
+    if (brincoDup) { toast('Brinco já usado por outro animal — escolha outro.', 'error'); return }
+    // editData vem de openEdit ({ ...a }, a linha carregada por db.animais.list
+    // — que embute proprietario/lote/pai_animal/pai_externo, ver supabase.js).
+    // Descartar essas chaves ANTES de validar/enviar (apenasColunasReais,
+    // única fonte de "isso é coluna de verdade?", mesma ideia da restauração
+    // de backup) — nunca mais um delete por embed aqui: o dia em que um
+    // embed novo entrar no select, ele já sai filtrado sozinho.
+    let payload = await apenasColunasReais('animais', editData)
     payload = limparVazios(payload)
     payload.raca    = capitalizarNome(payload.raca)
     payload.pelagem = capitalizarNome(payload.pelagem)
     payload.nome    = capitalizarNome(payload.nome)
     payload.pai     = paiEhMontaNaturalIndefinida(payload.pai) ? payload.pai : capitalizarNome(payload.pai)
+    // Item 5 — resolve os vínculos por id a partir do texto atual (Pai/Mãe),
+    // sempre recalculado, nunca herdado de editData: cadastro/externo_exato
+    // usam o id que a tela já mostrou (ResolucaoTouro/resolução da mãe), sem
+    // round-trip; só um pai NOVO precisa de rede (find-or-create).
+    const vinculoPai = await resolverVinculoPai(payload.pai)
+    if (vinculoPai.erro) { toast(`Erro ao vincular o pai "${payload.pai}": ${vinculoPai.erro.message}`, 'error'); return }
+    payload.pai_animal_id  = vinculoPai.pai_animal_id
+    payload.pai_externo_id = vinculoPai.pai_externo_id
+    payload.mae_id = resolverMaeId(payload.mae_brinco)
     if (!payload.brinco)          { toast('Preencha o brinco.', 'error'); return }
     if (!payload.sexo)            { toast('Selecione o sexo.', 'error'); return }
     if (!payload.proprietario_id) { toast('Selecione o proprietário.', 'error'); return }
@@ -898,15 +1005,29 @@ export default function Animais() {
     if (payload.sisbov && payload.sisbov.length !== 15) {
       toast(`SISBOV com ${payload.sisbov.length} dígito${payload.sisbov.length!==1?'s':''} — o padrão brasileiro tem 15. Salvando mesmo assim.`, 'warning')
     }
+    // Brinco antigo (antes do update), pra checar depois quem referenciava
+    // ele só por texto — captura ANTES do save, com o valor ainda carregado
+    // em `animais` (a lista só reflete o novo brinco depois do loadAll()).
+    const brincoAntigo = editData.id ? animais.find(x => x.id === editData.id)?.brinco : null
     setSaving(true)
     const { data: animalSalvo, error } = editData.id
       ? await db.animais.update(editData.id, payload)
       : await db.animais.insert(payload)
     setSaving(false)
-    if (error) { toast('Erro ao salvar: ' + error.message, 'error'); return }
+    if (error) {
+      // Corrida rara (debounce ainda não tinha rodado, ou duas abas salvando
+      // o mesmo brinco quase ao mesmo tempo) — a constraint real do banco é
+      // animais_fazenda_id_brinco_key (UNIQUE por fazenda_id+brinco,
+      // confirmado ao vivo), não por conta inteira. Traduz o erro cru do
+      // Postgres pra mensagem amigável em vez de expor o código 23505.
+      const duplicado = error.code === '23505' && /brinco/i.test(error.message || '')
+      toast(duplicado ? 'Já existe um animal com esse brinco nesta fazenda — escolha outro.' : 'Erro ao salvar: ' + error.message, 'error')
+      return
+    }
     toast(editData.id ? 'Animal atualizado!' : 'Animal cadastrado!')
     setModal(false)
     if (editData.id && animalSalvo) setSelected(animalSalvo)
+    if (brincoAntigo && brincoAntigo !== payload.brinco) verificarReferenciasDesatualizadas(brincoAntigo, editData.id)
     loadAll()
   }
 
@@ -925,8 +1046,10 @@ export default function Animais() {
     if (!file) return
     try {
       const linhas = await lerPlanilhaAnimais(file)
-      const { validos, erros } = validarLinhas(linhas, props, lotes)
-      setPreviewImport({ validos, erros })
+      // tourosCadastrados/tourosExternos já carregados no estado da tela
+      // (Item 5) — resolve "pai" contra quem já existe, sem rede extra.
+      const { validos, erros, paiResolvidos, paiTexto } = validarLinhas(linhas, props, lotes, tourosCadastrados, tourosExternos)
+      setPreviewImport({ validos, erros, paiResolvidos, paiTexto })
       setModalImport(true)
     } catch (err) {
       toast('Erro ao ler a planilha: ' + err.message, 'error')
@@ -939,14 +1062,45 @@ export default function Animais() {
     if (!previewImport?.validos?.length) return
     setImportando(true)
     let ok = 0, falhas = 0
+    const inseridos = []
     for (const payload of previewImport.validos) {
-      const { error } = await db.animais.insert(payload)
-      if (error) falhas++; else ok++
+      const { data, error } = await db.animais.insert(payload)
+      if (error) { falhas++ } else { ok++; inseridos.push(data) }
+    }
+    // Segunda passada — mae_brinco -> mae_id, agora que TODAS as linhas deste
+    // arquivo já existem no banco (mesmo princípio das camadas de
+    // lancamentos_financeiros na restauração de backup: insere tudo primeiro,
+    // resolve depois quem dependia de uma linha irmã do mesmo lote). Mapa
+    // combina quem já existia antes da importação com quem acabou de entrar.
+    const brincoParaId = new Map()
+    animais.forEach(a => { if (a.brinco) brincoParaId.set(a.brinco.toUpperCase(), a.id) })
+    inseridos.forEach(a => { if (a.brinco) brincoParaId.set(a.brinco.toUpperCase(), a.id) })
+    let maeResolvidos = 0, maeTexto = 0
+    for (const a of inseridos) {
+      if (!a.mae_brinco) continue
+      const maeId = brincoParaId.get(a.mae_brinco.toUpperCase())
+      if (maeId && maeId !== a.id) {
+        const { error } = await db.animais.update(a.id, { mae_id: maeId })
+        if (!error) { maeResolvidos++; continue }
+      }
+      maeTexto++
     }
     setImportando(false)
     setModalImport(false)
     setPreviewImport(null)
-    toast(`Importação concluída: ${ok} animais cadastrados` + (falhas ? `, ${falhas} falharam` : ''))
+    // Silêncio aqui é o que gera dado incompleto que ninguém percebe — sempre
+    // informa quantos vínculos foram resolvidos por cadastro e quantos
+    // ficaram só como texto (sem correspondência encontrada).
+    const partes = [`${ok} animais cadastrados`]
+    if (falhas) partes.push(`${falhas} falharam`)
+    const vinculos = []
+    if (previewImport.paiResolvidos || previewImport.paiTexto) {
+      vinculos.push(`pai: ${previewImport.paiResolvidos} por cadastro, ${previewImport.paiTexto} só texto`)
+    }
+    if (maeResolvidos || maeTexto) {
+      vinculos.push(`mãe: ${maeResolvidos} por cadastro, ${maeTexto} só texto`)
+    }
+    toast(`Importação concluída: ${partes.join(', ')}.` + (vinculos.length ? ` Vínculos — ${vinculos.join('; ')}.` : ''))
     loadAll()
   }
 
@@ -964,6 +1118,12 @@ export default function Animais() {
     // usando a.sit_reprodutiva real (statusExib nunca é gravado no banco).
     const statusExib = statusReprodutivoExibicao(a, partosTodos)
     const rc  = repCor[statusExib] || repCor.nao_se_aplica
+    // Bloco E — vaca vendida ainda prenha: rótulo com a data da venda no
+    // lugar de "Prenha" pura, cor própria (roxa, mesma de STATUS_CICLO_ANIMAL.
+    // vendida_prenha) — só no texto exibido, statusExib/rc continuam intactos
+    // pra quem mais os usa (repCor é indexado pelo valor cru).
+    const vendidaLabel = statusReprodutivoVendida(a)
+    const rcExib = vendidaLabel ? { bg: '#F3E8FF', text: '#5B2A9E' } : rc
     const filhos = animais.filter(x => x.mae_brinco === a.brinco)
 
     // Desempenho reprodutivo NA VIDA (Fase 13) — só pra fêmeas com algum
@@ -991,7 +1151,7 @@ export default function Animais() {
       ? (reprodutivoBruto.partos || []).filter(p => p.data_parto >= dataMontaAtual)
       : []
     const perdaDetalhe = dataMontaAtual
-      ? statusReprodutivoDetalhado({ id: a.id, sit_reprodutiva: a.sit_reprodutiva }, partosDestaGestacao, dataMontaAtual)
+      ? statusReprodutivoDetalhado({ id: a.id, sit_reprodutiva: a.sit_reprodutiva, situacao: a.situacao, data_baixa: a.data_baixa }, partosDestaGestacao, dataMontaAtual)
       : null
 
     // Item 5 — "Falhada": desfecho consolidado (desfechoReprodutivo,
@@ -1011,7 +1171,7 @@ export default function Animais() {
           inseminacoes: insComEstacao.filter(i => i.lote.estacao_monta_id === ultimaEstacaoIdAnimal),
           partos:  (reprodutivoBruto.partos  || []).filter(p => p.lote?.estacao_monta_id === ultimaEstacaoIdAnimal),
           abortos: (reprodutivoBruto.abortos || []).filter(ab => ab.lote?.estacao_monta_id === ultimaEstacaoIdAnimal),
-        })
+        }, undefined, null, a)
       : null
     const falhouUltimaEstacaoAnimal = desfechoUltimaEstacaoAnimal?.resultado === 'falhou' ? desfechoUltimaEstacaoAnimal : null
 
@@ -1118,7 +1278,7 @@ export default function Animais() {
                     style={{ background: cc.bg, color: cc.text }}>{cat}</Badge>
                   <Badge style={{ background: sc.bg, color: sc.text }}>{a.situacao}</Badge>
                   {a.sexo === 'F' && (
-                    <Badge style={{ background: rc.bg, color: rc.text }}>{statusExib?.replace('_', ' ')}</Badge>
+                    <Badge style={{ background: rcExib.bg, color: rcExib.text }}>{vendidaLabel || statusExib?.replace('_', ' ')}</Badge>
                   )}
                 </div>
                 <div style={{ fontSize: '.82rem', color: '#6B7280', marginTop: 5 }}>
@@ -1237,7 +1397,7 @@ export default function Animais() {
                   <div className="row">
                     <span className="row-label">Situação atual</span>
                     <span className="row-value">
-                      <Badge style={{ background: rc.bg, color: rc.text }}>{statusExib?.replace('_', ' ')}</Badge>
+                      <Badge style={{ background: rcExib.bg, color: rcExib.text }}>{vendidaLabel || statusExib?.replace('_', ' ')}</Badge>
                     </span>
                   </div>
 
@@ -1603,12 +1763,12 @@ export default function Animais() {
                 <div className="card" style={{ marginBottom: 12 }}>
                   <div className="card-title"><i className="ti ti-users" /> Filhos cadastrados ({filhos.length})</div>
                   {filhos.map(f => {
-                    const fc = catCor[calcCategoria(f.data_nascimento, f.sexo)] || catCor.Vaca
+                    const fc = catCor[calcCategoria(f.data_nascimento, f.sexo, undefined, f.is_touro)] || catCor.Vaca
                     return (
                       <div key={f.id} className="row" style={{ cursor: 'pointer' }}
                         onClick={() => setSelected(f)}>
                         <span className="row-label">
-                          <b>{f.brinco}</b> · {f.sexo === 'F' ? '♀' : '♂'} · {calcCategoria(f.data_nascimento, f.sexo)}
+                          <b>{f.brinco}</b> · {f.sexo === 'F' ? '♀' : '♂'} · {calcCategoria(f.data_nascimento, f.sexo, undefined, f.is_touro)}
                         </span>
                         <Badge style={{ background: fc.bg, color: fc.text }}>{f.situacao}</Badge>
                       </div>
@@ -1821,6 +1981,9 @@ export default function Animais() {
                     const sc  = sitCor[a.situacao]      || sitCor.ativo
                     const statusExib = statusReprodutivoExibicao(a, partosTodos)
                     const rc  = repCor[statusExib] || repCor.nao_se_aplica
+                    // Coluna estreita — versão compacta ("Vendida prenha · dd/mm/aa").
+                    const vendidaLabel = statusReprodutivoVendida(a, { compacto: true })
+                    const rcExib = vendidaLabel ? { bg: '#F3E8FF', text: '#5B2A9E' } : rc
                     const ina = a.situacao !== 'ativo'
                     return (
                       <tr key={a.id} style={{ opacity: ina ? .45 : 1, cursor: ina ? 'default' : 'pointer' }}
@@ -1841,7 +2004,7 @@ export default function Animais() {
                         <td style={{ color: '#6B7280' }}>{idadeFormatada(a.data_nascimento)}</td>
                         <td style={{ fontSize: '.8rem' }}>{a.proprietario?.nome?.split(' ')[0] || '—'}</td>
                         <td>{a.sexo === 'F'
-                          ? <Badge style={{ background: rc.bg, color: rc.text }}>{statusExib?.replace('_', ' ')}</Badge>
+                          ? <Badge style={{ background: rcExib.bg, color: rcExib.text }}>{vendidaLabel || statusExib?.replace('_', ' ')}</Badge>
                           : <Badge style={{ background: '#F3F4F6', color: '#9CA3AF' }}>—</Badge>}
                         </td>
                         <td><Badge style={{ background: sc.bg, color: sc.text }}>{a.situacao}</Badge></td>
@@ -1913,6 +2076,11 @@ export default function Animais() {
             <div className="grid-form">
               <Field label="Brinco" required>
                 <input value={editData.brinco} onChange={e => setEditData(p => ({ ...p, brinco: e.target.value }))} placeholder="ex: 21" />
+                {brincoDup && (
+                  <div style={{ fontSize:'.72rem', color:'#DC2626', marginTop:4 }}>
+                    <i className="ti ti-alert-circle" style={{ fontSize:11 }} /> Já usado por outro animal ({brincoDup.situacao}) — escolha outro.
+                  </div>
+                )}
               </Field>
               <Field label="SISBOV" hint={editData.sisbov && editData.sisbov.length !== 15 ? `${editData.sisbov.length} dígitos (padrão: 15)` : undefined}>
                 <input value={editData.sisbov || ''} inputMode="numeric" placeholder="15 dígitos"
@@ -1961,11 +2129,56 @@ export default function Animais() {
               <Field label="Pelagem">
                 <input value={editData.pelagem || ''} onChange={e => setEditData(p => ({ ...p, pelagem: e.target.value }))} />
               </Field>
+              {/* Item 5 — mesmo padrão de "Touro" em Reprodutivo.jsx: campo de
+                  texto livre + seletor de atalho + resolução ao vivo (qual
+                  touro cadastrado/externo vai ser vinculado por id). Nunca
+                  substitui a digitação livre — escolher no seletor é
+                  exatamente a mesma coisa que digitar o nome à mão. */}
               <Field label="Pai">
-                <input value={editData.pai || ''} onChange={e => setEditData(p => ({ ...p, pai: e.target.value }))} placeholder="Nome do touro" />
+                <div style={{ display:'flex', gap:6 }}>
+                  <input value={editData.pai || ''} onChange={e => setEditData(p => ({ ...p, pai: e.target.value }))}
+                    placeholder="Nome do touro" style={{ flex:1 }} />
+                  <SeletorTouro tourosCadastrados={tourosCadastrados} tourosExternos={tourosExternos}
+                    onSelect={nome => setEditData(p => ({ ...p, pai: nome }))} />
+                </div>
+                {/* Paternidade indefinida (bezerro de lote com vários touros,
+                    ver paiEhMontaNaturalIndefinida) não é um nome de touro pra
+                    resolver — mostrar ResolucaoTouro aqui ofereceria "criar um
+                    touro externo" com esse texto, errado. resolverVinculoPai
+                    já blinda isso no salvar; aqui é só a exibição. */}
+                {!paiEhMontaNaturalIndefinida(editData.pai) && (
+                  <ResolucaoTouro texto={editData.pai} tourosCadastrados={tourosCadastrados} tourosExternos={tourosExternos}
+                    onEscolherAproximado={nome => setEditData(p => ({ ...p, pai: nome }))} />
+                )}
               </Field>
+              {/* Mesmo desenho do campo Pai acima, adaptado: sem tabela
+                  externa equivalente a touros_externos (mãe só pode ser
+                  animal já cadastrado), então a resolução é uma busca direta
+                  por brinco — nunca cria nada novo. */}
               <Field label="Mãe — brinco">
-                <input value={editData.mae_brinco || ''} onChange={e => setEditData(p => ({ ...p, mae_brinco: e.target.value }))} placeholder="ex: 03" />
+                <div style={{ display:'flex', gap:6 }}>
+                  <input value={editData.mae_brinco || ''} onChange={e => setEditData(p => ({ ...p, mae_brinco: e.target.value }))}
+                    placeholder="ex: 03" style={{ flex:1 }} />
+                  {maesCandidatas.length > 0 && (
+                    <select value="" onChange={e => { if (e.target.value) setEditData(p => ({ ...p, mae_brinco: e.target.value })) }} style={{ maxWidth:170 }}>
+                      <option value="">Selecionar…</option>
+                      {maesCandidatas.map(m => <option key={m.id} value={m.brinco}>{m.brinco}{m.nome ? ` — ${m.nome}` : ''}</option>)}
+                    </select>
+                  )}
+                </div>
+                {editData.mae_brinco?.trim() && (() => {
+                  const maeId = resolverMaeId(editData.mae_brinco)
+                  const base = { fontSize:'.75rem', marginTop:5, padding:'5px 9px', borderRadius:7 }
+                  return maeId ? (
+                    <div style={{ ...base, background:'#E8F0FC', color:'#1E55B0' }}>
+                      <i className="ti ti-home" style={{ fontSize:11 }} /> Mãe cadastrada — vínculo por id será usado.
+                    </div>
+                  ) : (
+                    <div style={{ ...base, background:'#F9FAFB', color:'#6B7280' }}>
+                      <i className="ti ti-alert-circle" style={{ fontSize:11 }} /> Nenhum animal com esse brinco — fica só como texto, sem vínculo por id.
+                    </div>
+                  )
+                })()}
               </Field>
               <Field label="Proprietário" required>
                 <select value={editData.proprietario_id || ''} onChange={e => setEditData(p => ({ ...p, proprietario_id: e.target.value }))}>
@@ -2001,7 +2214,7 @@ export default function Animais() {
             </div>
 
             <div className="modal-actions" style={{ marginTop: 4, paddingTop: 14, borderTop: '.5px solid #E5E7EB' }}>
-              <button className="btn btn-primary" onClick={salvar} disabled={saving}>
+              <button className="btn btn-primary" onClick={salvar} disabled={saving || !!brincoDup}>
                 {saving
                   ? <><div className="spinner" style={{ width: 14, height: 14 }} /> Salvando...</>
                   : <><i className="ti ti-check" />{editData.id ? 'Salvar' : 'Cadastrar'}</>
@@ -2055,6 +2268,35 @@ export default function Animais() {
         message={`Excluir definitivamente ${selecionados.length} animal(is) selecionado(s)? Esta ação não pode ser desfeita.`}
         danger
       />
+      {/* Aviso pós-rename de brinco — informativo, não bloqueia nada (o
+          animal já foi salvo). Lista quem precisa de correção manual porque
+          não tem mae_id pra derivar sozinho (ver verificarReferenciasDesatualizadas). */}
+      <Modal open={!!avisoBrincoRef} onClose={() => setAvisoBrincoRef(null)} title="Brinco alterado — genealogia por texto não acompanhou" width={480}>
+        {avisoBrincoRef && (
+          <div style={{ fontSize:'.85rem', color:'#374151', lineHeight:1.7 }}>
+            <p>
+              O brinco antigo (<strong>{avisoBrincoRef.brincoAntigo}</strong>) ainda está gravado como "Mãe — brinco"
+              em {avisoBrincoRef.filhos.length} animal{avisoBrincoRef.filhos.length===1?'':'is'}, sem vínculo por id
+              pra corrigir sozinho — a árvore genealógica deles vai mostrar "Brinco {avisoBrincoRef.brincoAntigo}
+              (desconhecido)" até você corrigir manualmente:
+            </p>
+            <ul style={{ paddingLeft:20, marginTop:8, marginBottom:8 }}>
+              {avisoBrincoRef.filhos.slice(0, 10).map(f => (
+                <li key={f.id}>Brinco <strong>{f.brinco}</strong></li>
+              ))}
+            </ul>
+            {avisoBrincoRef.filhos.length > 10 && (
+              <p style={{ color:'#9CA3AF', fontSize:'.78rem' }}>e mais {avisoBrincoRef.filhos.length - 10}.</p>
+            )}
+            <p style={{ color:'#9CA3AF', fontSize:'.78rem' }}>
+              Para corrigir, abra cada um e atualize o campo "Mãe — brinco" manualmente.
+            </p>
+          </div>
+        )}
+        <div style={{ display:'flex', marginTop:14 }}>
+          <button className="btn btn-secondary" onClick={() => setAvisoBrincoRef(null)}>Fechar</button>
+        </div>
+      </Modal>
     </>
   )
 }

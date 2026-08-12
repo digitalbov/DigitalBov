@@ -335,7 +335,7 @@ export default function Estoque() {
     // vínculo com LANÇAMENTO financeiro (abaixo), que pode ser revertido
     // pelos dois lados.
     if (m.procedimento_id) {
-      toast('Esta baixa veio de um registro de Sanidade — para revertê-la, exclua o procedimento correspondente na tela Sanidade.', 'error')
+      toast('Esta baixa veio de um registro de Manejo Sanitário — para revertê-la, exclua o procedimento correspondente na tela Manejo Sanitário.', 'error')
       return
     }
     // Movimentação vinculada a um lançamento (caminhos 2-5, Bloco D10) — pode
@@ -599,7 +599,7 @@ export default function Estoque() {
                             {m.tipo === 'E' ? '+' : '-'}{parseFloat(m.quantidade).toFixed(1)} {m.item?.unidade}
                           </td>
                           <td style={{ color: '#9CA3AF', fontSize: '.78rem' }}>
-                            {m.procedimento_id && <Badge color="purple">Sanidade</Badge>}
+                            {m.procedimento_id && <Badge color="purple">Manejo Sanitário</Badge>}
                             {m.lancamento_id && (m.tipo === 'E' ? <Badge color="red">Despesa</Badge> : <Badge color="green">Receita</Badge>)}
                             {' '}{m.motivo}
                           </td>

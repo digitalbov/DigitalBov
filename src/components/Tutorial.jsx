@@ -62,7 +62,7 @@ const TOPICOS = [
     ]
   },
   {
-    icon: '💉', titulo: 'Sanidade',
+    icon: '💉', titulo: 'Manejo Sanitário',
     itens: [
       ['🩺', 'Procedimentos', 'Registre vacinas, vermífugos e outros procedimentos sanitários.'],
       ['🔔', 'Alertas', 'Acompanhe alertas de próximas aplicações e vencimentos.'],

@@ -14,7 +14,7 @@ export async function coletarContexto() {
   const animais = (animaisRaw || []).map(a => ({
     brinco: a.brinco,
     sexo: a.sexo === 'F' ? 'Fêmea' : 'Macho',
-    categoria: calcCategoria(a.data_nascimento, a.sexo),
+    categoria: calcCategoria(a.data_nascimento, a.sexo, undefined, a.is_touro),
     sit_reprodutiva: a.sit_reprodutiva,
     proprietario: a.proprietario?.nome,
     lote: a.lote?.nome

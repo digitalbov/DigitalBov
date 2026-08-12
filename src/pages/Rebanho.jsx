@@ -285,7 +285,7 @@ export function Rebanho() {
 
   const catMap = {}
   ativos.forEach(a => {
-    const c = calcCategoria(a.data_nascimento, a.sexo)
+    const c = calcCategoria(a.data_nascimento, a.sexo, undefined, a.is_touro)
     catMap[c] = (catMap[c] || 0) + 1
   })
   const catData = Object.entries(catMap).map(([name, value]) => ({ name, value }))

@@ -1559,7 +1559,7 @@ export default function Financeiro() {
           <div style={{marginTop:14}}>
             <AlertBox type="purple" icon="ti-info-circle"
               title="Sobre os ciclos financeiros"
-              body="Cada ciclo corresponde a um ano pecuário (jul–jun). Um novo ciclo é criado automaticamente ao virar 01/07, encerrando o anterior. Os lançamentos de cada ciclo ficam preservados e podem ser consultados trocando o ciclo no menu lateral."/>
+              body="Cada ciclo financeiro corresponde a um ano pecuário (jul–jun). Troque de ciclo no seletor da faixa superior para consultar os lançamentos de um período anterior."/>
           </div>
         </div>
       )}

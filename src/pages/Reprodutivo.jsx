@@ -6,9 +6,9 @@ import { useFazenda } from '../lib/FazendaContext'
 import { useConta } from '../lib/ContaContext'
 import { useCiclo, statusCiclo } from '../lib/CicloContext'
 import {
-  fmtData, pct, contarMatrizes, contarExpostas, contarPrenhas, calcTaxaPrenhez, calcCategoriaRebanho, algumErro,
+  fmtData, pct, contarMatrizes, contarMatrizesCiclo, ehLotePrenhezAdquirida, contarExpostas, contarPrenhas, calcTaxaPrenhez, calcCategoriaRebanho, algumErro,
   GESTACAO_MAX_DIAS, GESTACAO_ANGUS_DIAS, PERDA_PRESUMIDA_DIAS_APOS_PREVISTO, APTO_AO_DESMAME_DIAS, calcGestacaoLote, calcTaxaParicao, calcDesmameMetrics,
-  calcIntervaloPartos, statusReprodutivoExibicao, statusReprodutivoDetalhado, desfechoReprodutivo, tentativaMaisRecentePendente, FALHA_MOTIVO_LABEL,
+  calcIntervaloPartos, statusReprodutivoExibicao, statusReprodutivoVendida, statusReprodutivoDetalhado, desfechoReprodutivo, tentativaMaisRecentePendente, FALHA_MOTIVO_LABEL,
   dataNaoFutura, resolverPaiDerivado, resolverPaiIdDerivado, mesesDeVida, capitalizarPrimeira, capitalizarNome, numeroPositivo, loteEncerrado,
   nomeTouro, resolverTouroDigitado,
 } from '../lib/helpers'
@@ -18,6 +18,7 @@ import { derivarDatasGestacao, criarPrenhezAdquirida, PRENHEZ_ADQUIRIDA_LABEL } 
 import { confirmarPerdaPresumida } from '../lib/perdaGestacionalPresumida'
 import { useSubmitGuard } from '../lib/useSubmitGuard'
 import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, AlertBox, BotaoPDF, ErroCarregamento, BadgeSomenteLeitura, Confirm } from '../components/UI'
+import { SeletorTouro, ResolucaoTouro } from '../components/SeletorTouro'
 import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer
@@ -41,6 +42,29 @@ function CardResultadoSafra({ titulo, sm, andamento, previsao, tipo }) {
   // Rótulo condicional ao tipo do lote (IA/natural) — em contexto consolidado
   // (tipo indefinido, mistura os dois), usa o rótulo genérico "Expostas".
   const rotuloExpostas = tipo === 'ia' ? 'Inseminadas' : tipo === 'natural' ? 'Expostas (monta natural)' : 'Expostas'
+  // Nota de transparência (2026-08-10): vendida ainda prenha sai do cálculo
+  // de Perda gestacional/Taxa de Parição/desmame (parto/aborto não são
+  // observáveis depois da venda) — todo índice do qual ela sai precisa dizer
+  // quantas saíram, senão o número muda sem explicação.
+  const notaVendidas = sm.vendidasPrenhas > 0
+    ? `${sm.vendidasPrenhas} vendida${sm.vendidasPrenhas===1?'':'s'} prenha${sm.vendidasPrenhas===1?'':'s'} excluída${sm.vendidasPrenhas===1?'':'s'} do cálculo`
+    : null
+  // notaAdquirida (2026-08-11, regra geral 2026-08-12): prenhez adquirida na
+  // compra sai de todo índice de esforço/resultado reprodutivo —
+  // Aproveitamento/Prenhez/Parição/Perda gestacional (não foi
+  // exposta/conduzida nesta fazenda) — nunca de desmame/mortalidade (o
+  // terneiro dela conta normalmente).
+  const notaAdquirida = sm.prenhezAdquirida > 0
+    ? `${sm.prenhezAdquirida} prenhez${sm.prenhezAdquirida===1?'':'es'} adquirida${sm.prenhezAdquirida===1?'':'s'} na compra excluída${sm.prenhezAdquirida===1?'':'s'}`
+    : null
+  const notaVendidaEAdquirida = [notaVendidas, notaAdquirida].filter(Boolean).join(' · ') || null
+  // notaNovilhas (2026-08-12, requisito do usuário): Aproveitamento acima de
+  // 100% é resultado real (novilhas <24 meses expostas), mas sem explicação
+  // nenhuma faz o usuário desconfiar do sistema inteiro.
+  const notaNovilhas = (sm.txAproveitamento ?? 0) > 100
+    ? 'Acima de 100%: novilhas com menos de 24 meses foram expostas (novilhas precoces) — resultado esperado, não é erro'
+    : null
+  const notaAproveitamento = [notaAdquirida, notaNovilhas].filter(Boolean).join(' · ') || null
   return (
     <div className="card" style={{ marginBottom:14 }}>
       <div className="card-title"><i className="ti ti-report-analytics" /> {titulo}</div>
@@ -54,28 +78,28 @@ function CardResultadoSafra({ titulo, sm, andamento, previsao, tipo }) {
       )}
       <div className="grid-4" style={{ marginTop:10 }}>
         {[
-          ['Matrizes aptas',               sm.matrizesAptas,                                                '#374151'],
-          ['Taxa de aproveitamento',       sm.txAproveitamento!=null?`${sm.txAproveitamento}%`:'—',         '#2B6CD9', 'Matrizes expostas (distintas) ÷ matrizes aptas. Acima de 100% indica que fêmeas com menos de 24 meses foram expostas (novilhas precoces) — não é um erro.'],
+          ['Matrizes aptas',               sm.matrizesAptas,                                                '#374151', 'União das matrizes aptas (>24 meses, presentes na fazenda) na data de CADA lote desta safra — não só a 1ª monta.'],
+          ['Taxa de aproveitamento',       sm.txAproveitamento!=null?`${sm.txAproveitamento}%`:'—',         '#2B6CD9', 'Matrizes expostas (distintas, exclui prenhez adquirida) ÷ matrizes aptas. Acima de 100% indica que fêmeas com menos de 24 meses foram expostas (novilhas precoces) — não é um erro.', notaAproveitamento],
           [rotuloExpostas,                 sm.total,                                                        '#111'   ],
           ['Prenhas',                      sm.prenhas,                                                      '#1E55B0'],
-          ['Taxa de prenhez',              sm.txPrenhez!=null?`${sm.txPrenhez}%`:'—',                      '#1E55B0', 'Matrizes distintas com diagnóstico P ÷ matrizes distintas expostas (não conta a mesma vaca 2x se ela entrou na IATF e no repasse).'],
+          ['Taxa de prenhez',              sm.txPrenhez!=null?`${sm.txPrenhez}%`:'—',                      '#1E55B0', 'Matrizes distintas com diagnóstico P ÷ matrizes distintas expostas (não conta a mesma vaca 2x se ela entrou na IATF e no repasse; exclui prenhez adquirida).', notaAdquirida],
           ['Gestando',                     sm.gestando,                                                      '#92620A', 'Prenhas cuja monta ainda está dentro da janela normal de gestação e sem parto/aborto registrado — não contam como perda.'],
           ['Abortos',                      sm.nAbortos,                                                     '#791F1F'],
           ['Perdas não identificadas',     sm.perdasNaoIdentificadas,                                       '#791F1F', 'Prenhas que já passaram da janela de gestação sem parto nem aborto registrado — só entram aqui depois que a gestação deveria ter terminado.'],
-          ['Perda gestacional',            sm.perdaGestacional!=null?`${sm.perdaGestacional}%`:'—',        '#791F1F', 'Abortos + perdas não identificadas ÷ prenhas. Prenhas ainda gestando não entram nesse cálculo.'],
+          ['Perda gestacional',            sm.perdaGestacional!=null?`${sm.perdaGestacional}%`:'—',        '#791F1F', 'Abortos + perdas não identificadas ÷ prenhas. Prenhas ainda gestando não entram nesse cálculo.', notaVendidaEAdquirida],
           ['Partos',                       sm.nascimentos,                                                  '#0C447C'],
-          ['Taxa de Parição',              sm.txNatalidade!=null?`${sm.txNatalidade}%`:'—',                '#0C447C', 'Partos realizados até agora ÷ matrizes expostas (padrão do setor) — tende a ser baixa enquanto a safra está em andamento. Não confundir com "Eficiência Gestacional" (partos ÷ prenhas, ver aba Índices) — Fase 8 padronizou os nomes: os dois eram chamados de forma ambígua antes disso.'],
+          ['Taxa de Parição',              sm.txNatalidade!=null?`${sm.txNatalidade}%`:'—',                '#0C447C', 'Partos realizados até agora ÷ matrizes expostas (padrão do setor) — tende a ser baixa enquanto a safra está em andamento. Não confundir com "Eficiência Gestacional" (partos ÷ prenhas, ver aba Índices) — Fase 8 padronizou os nomes: os dois eram chamados de forma ambígua antes disso.', notaVendidaEAdquirida],
           ['Peso médio ao nascer',         sm.pesoMedioNascimento!=null?`${sm.pesoMedioNascimento.toFixed(1).replace('.',',')} kg`:'—', '#0C447C', 'Média das pesagens tipo "nascimento" dos bezerros desta safra.'],
           ['Mortalidade de terneiros',     sm.mortalidadeBezerros!=null?`${sm.mortalidadeBezerros}%`:'—',  '#791F1F'],
           ['Desmamados',                   sm.desmamados,                                                   '#166534'],
-          ['Taxa de desmama',              sm.txDesmama!=null?`${sm.txDesmama}%`:'—',                      '#166534'],
+          ['Taxa de desmama',              sm.txDesmama!=null?`${sm.txDesmama}%`:'—',                      '#166534', undefined, notaVendidas],
           // Peso agora é opcional no desmame — estes 3 índices só entram com
           // quem tem peso registrado (real ou, na falta dele, o peso da
           // venda); o "X de Y com peso" deixa isso visível em vez de o
           // número parecer completo quando na verdade é parcial.
           ['Peso médio ao desmame',        sm.pesoMedioDesmame!=null?`${sm.pesoMedioDesmame} kg`:'—',       '#166534', undefined, sm.desmamados>0?`${sm.comPesoDesmame} de ${sm.desmamados} com peso`:null],
           ['P205 médio',                   sm.p205Medio!=null?`${sm.p205Medio} kg`:'—',                    '#166534', undefined, sm.desmamados>0?`${sm.comPesoP205} de ${sm.desmamados} com peso`:null],
-          ['Kg desmamado / matriz exposta',sm.kgPorMatrizExposta!=null?`${sm.kgPorMatrizExposta} kg`:'—',   '#166534', undefined, sm.desmamados>0?`${sm.comPesoDesmame} de ${sm.desmamados} com peso`:null],
+          ['Kg desmamado / matriz exposta',sm.kgPorMatrizExposta!=null?`${sm.kgPorMatrizExposta} kg`:'—',   '#166534', undefined, [sm.desmamados>0?`${sm.comPesoDesmame} de ${sm.desmamados} com peso`:null, notaVendidas].filter(Boolean).join(' · ') || null],
         ].map(([l,v,c,tip,sub]) => (
           <div key={l} title={tip} style={{ background:'white',border:'.5px solid #E5E7EB',borderRadius:10,padding:'10px 12px',textAlign:'center', cursor:tip?'help':'default' }}>
             <div style={{ fontSize:'1.15rem',fontWeight:600,color:c }}>{v}</div>
@@ -91,6 +115,8 @@ function CardResultadoSafra({ titulo, sm, andamento, previsao, tipo }) {
         Perdas não identificadas = prenhas − partos − abortos − gestando (só as que já deveriam ter parido e não pariram nem abortaram).
         Mortalidade de terneiros = terneiros com situação "morto" entre os partos desta safra ÷ total de partos.
         Taxa de desmama e kg/matriz exposta usam as matrizes expostas (distintas) como base, não os nascidos — referência de mercado para kg/matriz exposta: acima de 160 kg.
+        Vaca vendida ainda prenha continua contando em Prenhas/Taxa de prenhez (isso já aconteceu antes da venda), mas sai de Perda gestacional/Taxa de Parição/desmame — parto e aborto não são observáveis depois que ela deixa a fazenda.
+        Prenhez adquirida na compra sai de Taxa de Prenhez/Aproveitamento/Parição/Perda gestacional (ela não foi exposta/conduzida nesta fazenda), mas o terneiro dela conta normalmente em desmame/mortalidade — nasceu e foi criado aqui.
       </div>
     </div>
   )
@@ -116,97 +142,6 @@ function PainelFiltroAnimais({ lotesSistema, proprietarios, categorias, filtroLo
         <option value="">Todas as categorias</option>
         {categorias.map(c => <option key={c} value={c}>{c}</option>)}
       </select>
-    </div>
-  )
-}
-
-// Seletor de atalho pra touro (Tarefa B) — usado tanto no campo "Touro" da
-// IA quanto no "novo touro" da monta natural, nunca duas implementações. Dois
-// optgroups visualmente distintos (ícone + rótulo, sem precisar de texto
-// explicativo): "🐮 Touros da fazenda" (cadastrados, brinco — nome no
-// rótulo) e "🔗 Touros externos já usados" (touros_externos — emprestado ou
-// sêmen, reoferecido pra reuso sem depender de grafia). Só PREENCHE o campo
-// de texto ao lado (onSelect(nome)) — nunca substitui a digitação livre, e
-// nunca guarda nenhum id: escolher aqui é EXATAMENTE a mesma coisa que
-// digitar aquele texto à mão. A resolução (pra qual touro esse texto aponta)
-// é sempre recalculada depois, ao vivo, por resolverTouroDigitado — nunca
-// capturada no momento da escolha (ver ResolucaoTouro, abaixo).
-function SeletorTouro({ tourosCadastrados, tourosExternos, onSelect }) {
-  if (tourosCadastrados.length === 0 && tourosExternos.length === 0) return null
-  return (
-    <select value="" onChange={e => {
-      if (!e.target.value) return
-      const [tipo, id] = e.target.value.split(':')
-      if (tipo === 'animal') {
-        const t = tourosCadastrados.find(x => x.id === id)
-        if (t) onSelect(t.brinco)
-      } else {
-        const t = tourosExternos.find(x => x.id === id)
-        if (t) onSelect(t.nome)
-      }
-    }} style={{ maxWidth:170 }}>
-      <option value="">Selecionar…</option>
-      {tourosCadastrados.length > 0 && (
-        <optgroup label="🐮 Touros da fazenda">
-          {tourosCadastrados.map(t => <option key={t.id} value={`animal:${t.id}`}>{t.brinco}{t.nome ? ` — ${t.nome}` : ''}</option>)}
-        </optgroup>
-      )}
-      {tourosExternos.length > 0 && (
-        <optgroup label="🔗 Touros externos já usados">
-          {tourosExternos.map(t => <option key={t.id} value={`externo:${t.id}`}>{t.nome}</option>)}
-        </optgroup>
-      )}
-    </select>
-  )
-}
-
-// Bloco de confirmação AO VIVO — "qual touro vai ser usado" — sempre visível
-// (nunca some), sempre recalculado do texto atual (resolverTouroDigitado,
-// helpers.js), nunca de um estado de vínculo guardado à parte. Informativo,
-// não alerta: os 3 casos normais (cadastrado, externo já usado, externo
-// novo) usam tom neutro/confirmação — só a ambiguidade rara (brinco de
-// cadastrado igual ao nome de um externo) usa âmbar, porque essa sim precisa
-// chamar atenção (nunca fica silenciosa).
-function ResolucaoTouro({ texto, tourosCadastrados, tourosExternos, onEscolherAproximado }) {
-  const r = resolverTouroDigitado(texto, tourosCadastrados, tourosExternos)
-  if (!r) return null
-  const base = { fontSize:'.75rem', marginTop:5, padding:'5px 9px', borderRadius:7, display:'flex', flexDirection:'column', gap:3 }
-  if (r.tipo === 'cadastro') {
-    return (
-      <div style={{ ...base, background:'#E8F0FC', color:'#1E55B0' }}>
-        <span><i className="ti ti-home" style={{ fontSize:11 }} /> Touro cadastrado: <strong>{nomeTouro({ touro_animal: r.touro })}</strong></span>
-        {r.ambiguoExterno && (
-          <span style={{ color:'#92620A' }}>
-            <i className="ti ti-alert-triangle" style={{ fontSize:11 }} /> Também existe um touro EXTERNO chamado "{r.ambiguoExterno.nome}" — o cadastrado tem prioridade e é esse que vai ser usado.
-          </span>
-        )}
-      </div>
-    )
-  }
-  if (r.tipo === 'externo_exato') {
-    return (
-      <div style={{ ...base, background:'#F3E8FF', color:'#5B2A9E' }}>
-        <i className="ti ti-link" style={{ fontSize:11 }} /> Touro externo já cadastrado: <strong>{r.touro.nome}</strong>
-      </div>
-    )
-  }
-  // tipo 'novo' — caminho normal, nunca vermelho/alerta.
-  return (
-    <div style={{ ...base, background:'#F9FAFB', color:'#6B7280' }}>
-      <span><i className="ti ti-circle-plus" style={{ fontSize:11 }} /> Será criado um touro externo novo: <strong>{(texto||'').trim()}</strong></span>
-      {r.aproximados.length > 0 && (
-        <span>
-          Parecido com: {r.aproximados.map((a, i) => (
-            <span key={a.id}>
-              {i > 0 && ', '}
-              <button type="button" onClick={() => onEscolherAproximado(a.nome)}
-                style={{ background:'none', border:'none', padding:0, color:'#2B6CD9', textDecoration:'underline', cursor:'pointer', fontSize:'.75rem' }}>
-                {a.nome}
-              </button>
-            </span>
-          ))}
-        </span>
-      )}
     </div>
   )
 }
@@ -303,7 +238,7 @@ export default function Reprodutivo() {
   // avisa. Atualizado no fim do próprio efeito, sem precisar de um 2º efeito
   // (evita depender de ordem de execução entre efeitos).
   const ultimoCicloLocalIdRef = useRef(cicloLocal?.id ?? null)
-  const [pendenciasCicloAnterior, setPendenciasCicloAnterior] = useState(null) // { fingerprint, prenhaPendente, criaAoPe, criaAoPeApta } | null
+  const [pendenciasCicloAnterior, setPendenciasCicloAnterior] = useState(null) // { prenhaPendente, criaAoPe, criaAoPeApta } | null
   const [balaoCicloAnteriorAberto, setBalaoCicloAnteriorAberto] = useState(false)
   const balaoTimeoutRef = useRef(null)
 
@@ -325,11 +260,15 @@ export default function Reprodutivo() {
       const todosPartosLote = lotes.flatMap(l => l.partos   || [])
       const todosAbortosLote = lotes.flatMap(l => l.abortos || [])
       const animalIds = [...new Set(todasIns.map(i => i.animal_id).filter(Boolean))]
+      // Bloco E — animal (situacao/data_baixa) por id, pra desfechoReprodutivo
+      // não contar vaca vendida ainda prenha como pendência: ela já saiu da
+      // fazenda, não tem desfecho pra avisar.
+      const animalPorId = new Map(todasIns.filter(i => i.animal_id).map(i => [i.animal_id, i.animal]))
       const hoje = hojeISO()
       const prenhaPendente = [], criaAoPe = [], criaAoPeApta = []
       animalIds.forEach(animalId => {
         const desf = desfechoReprodutivo(animalId,
-          { inseminacoes: todasIns, partos: todosPartosLote, abortos: todosAbortosLote }, hoje, todosPartosLote)
+          { inseminacoes: todasIns, partos: todosPartosLote, abortos: todosAbortosLote }, hoje, todosPartosLote, animalPorId.get(animalId))
         if (desf.resultado === 'em_aberto') prenhaPendente.push(animalId)
         if (desf.comCriaAoPe) {
           criaAoPe.push(animalId)
@@ -346,24 +285,14 @@ export default function Reprodutivo() {
         setBalaoCicloAnteriorAberto(false)
         return
       }
-      // Fingerprint = QUEM está pendente e por quê — muda só quando a
-      // pendência de verdade muda (alguém novo, ou alguém resolvido), nunca
-      // por causa de reabrir a tela sem nada ter mudado.
-      const fingerprint = [
-        ...prenhaPendente.map(id => `P:${id}`),
-        ...criaAoPe.map(id => `C:${id}${criaAoPeApta.includes(id) ? '+apta' : ''}`),
-      ].sort().join('|')
-      setPendenciasCicloAnterior({ fingerprint, prenhaPendente, criaAoPe, criaAoPeApta })
-      const chave = `pendenciasCicloAnterior:${fazendaAtual?.id}:${cicloAnterior.id}`
-      let jaVisto = null
-      try { jaVisto = localStorage.getItem(chave) } catch { /* localStorage indisponível — segue sem persistir */ }
-      if (jaVisto !== fingerprint) {
-        setBalaoCicloAnteriorAberto(true)
-        // ~15s e some sozinho (sem fechar manualmente) — mas já marca como
-        // visto: reabrir a tela depois não repete o mesmo aviso.
-        balaoTimeoutRef.current = setTimeout(() => setBalaoCicloAnteriorAberto(false), 15000)
-        try { localStorage.setItem(chave, fingerprint) } catch { /* segue sem persistir */ }
-      }
+      // Decisão do usuário (2026-08-10): mostra SEMPRE que houver pendência,
+      // não só na primeira vez — é informação que precisa ser vista toda
+      // vez, não um aviso "descartável". Removido o fingerprint/localStorage
+      // que suprimia repetição; balão continua fechável e some sozinho
+      // depois de 15s, só o "não repetir" saiu.
+      setPendenciasCicloAnterior({ prenhaPendente, criaAoPe, criaAoPeApta })
+      setBalaoCicloAnteriorAberto(true)
+      balaoTimeoutRef.current = setTimeout(() => setBalaoCicloAnteriorAberto(false), 15000)
     })
     return () => {
       cancelado = true
@@ -371,8 +300,8 @@ export default function Reprodutivo() {
     }
   }, [cicloAnterior?.id])
 
-  // Fecha manualmente — já marcado como visto no momento em que apareceu
-  // (acima), então só precisa esconder.
+  // Fecha manualmente — só esconde; sem "marcar como visto" (removido), o
+  // balão volta a aparecer normalmente da próxima vez que a condição bater.
   const fecharBalaoCicloAnterior = () => {
     if (balaoTimeoutRef.current) clearTimeout(balaoTimeoutRef.current)
     setBalaoCicloAnteriorAberto(false)
@@ -1356,7 +1285,7 @@ export default function Reprodutivo() {
   // diagnóstico em lote (etapa C), que chama isto N vezes em sequência e só
   // recarrega uma vez no final (evita N reloads inúteis pra 1 ação do usuário).
   // guardDiag com chave por lote+animal: clique duplo na MESMA linha (Prenha/
-  // Vazia/Marcar Falhada) é travado, mas linhas diferentes continuam
+  // Vazia) é travado, mas linhas diferentes continuam
   // independentes — mesmo upsert sendo idempotente, evitava N requests + N
   // loadAll piscando a tela a cada clique repetido.
   const salvarDiag = (loteId, animalId, diag, dataDiagnostico, recarregar = true) => guardDiag(async () => {
@@ -2274,8 +2203,9 @@ export default function Reprodutivo() {
   // por descuido — já foi avaliado. matrizesAptas/txAproveitamento aqui são
   // ancorados em lote.data (POR LOTE, de propósito: cada lote pode ter sua
   // própria janela de elegibilidade). Metas.jsx calcula matrizesAptas 1x por
-  // CICLO (ancorado em primeiraMontaCiclo), como denominador comum aos 3 modos
-  // IA/Natural/Consolidado — decisão de produto, não a mesma conta. Se os lotes
+  // CICLO (contarMatrizesCiclo, helpers.js — união das aptas na data de CADA
+  // lote, 2026-08-11), como denominador comum aos 3 modos IA/Natural/
+  // Consolidado — decisão de produto, não a mesma conta. Se os lotes
   // de um ciclo têm datas diferentes, plugar esta função por lote em Metas
   // mudaria o denominador da taxa de aproveitamento em silêncio. O resto da
   // lógica (calcGestacaoLote/calcDesmameMetrics/calcTaxaParicao) já é
@@ -2301,19 +2231,25 @@ export default function Reprodutivo() {
     // era chamado "Taxa de parição" aqui (partos ÷ prenhas) virou "Eficiência
     // Gestacional" ("Ef. Gestacional" na tabela de índices). A variável
     // continua txParicao por conveniência (não renomeada), só o RÓTULO mudou.
-    const txParicao   = prenhas > 0 ? Math.round(nascimentos / prenhas * 100) : 0
     const abortosLoteAll = lote.abortos || []
     const abortosLote = propId ? abortosLoteAll.filter(a => a.animal?.proprietario_id === propId) : abortosLoteAll
     const nAbortos = abortosLote.length
     // Perda gestacional: só conta o que já é (ou já deveria ser) um desfecho
     // conhecido — prenhas ainda dentro da janela de gestação não são perda.
     // calcGestacaoLote é a fórmula única, compartilhada com Metas.jsx.
-    const { gestando, perdasNaoIdentificadas, perdaGestacional } = calcGestacaoLote(lote.data, prenhas, nascimentos, nAbortos)
+    // Bloco E — vaca vendida ainda prenha (ins.animal.situacao, embed já
+    // carregado) sai do cálculo: nem gestando, nem perda.
+    const vendidasLote = ins.filter(i => i.diagnostico === 'P' && i.animal?.situacao === 'vendido').length
+    // txParicao ("Eficiência Gestacional") — denominador SEM as vendidas
+    // prenhas (2026-08-10): parto não é observável depois da venda, mesma
+    // exclusão de calcGestacaoLote/calcTaxaParicao (helpers.js).
+    const txParicao   = (prenhas - vendidasLote) > 0 ? Math.round(nascimentos / (prenhas - vendidasLote) * 100) : 0
+    const { gestando, perdasNaoIdentificadas, perdaGestacional } = calcGestacaoLote(lote.data, prenhas, nascimentos, nAbortos, vendidasLote)
     // "Taxa de Parição" oficial (Fase 8) — denominador = matrizes expostas
     // distintas. calcTaxaParicao é a fórmula única (helpers.js), consolidando
     // 4 reimplementações que divergiam no caso "expostas>0 e 0 partos" — ver
     // comentário na função.
-    const txNatalidade = calcTaxaParicao(total, nascimentos, gestando)
+    const txNatalidade = calcTaxaParicao(total, nascimentos, gestando, vendidasLote)
     const mortosBezerros    = partosLote.filter(p => p.bezerro?.situacao === 'morto').length
     const mortalidadeBezerros = nascimentos > 0 ? Math.round(mortosBezerros / nascimentos * 100) : null
     // Machos/fêmeas nascidos — cards do resumo do lote. semSexo conta bezerros
@@ -2339,7 +2275,7 @@ export default function Reprodutivo() {
     const pesoMedioNascimento = pesosNascimento.length
       ? Math.round((pesosNascimento.reduce((s, v) => s + v, 0) / pesosNascimento.length) * 10) / 10
       : null
-    const desm = calcDesmameMetrics(partosLote, total)
+    const desm = calcDesmameMetrics(partosLote, total, vendidasLote)
     const partoPrev = lote.data
       ? new Date(new Date(lote.data).setMonth(new Date(lote.data).getMonth() + 9)).toLocaleDateString('pt-BR')
       : '—'
@@ -2347,7 +2283,7 @@ export default function Reprodutivo() {
       total, totalInseminacoes, prenhas, vazias, pendentes, txPrenhez, nascimentos, txParicao,
       txNatalidade, pesoMedioNascimento, gestando, nAbortos, perdasNaoIdentificadas, perdaGestacional,
       mortalidadeBezerros, matrizesAptas, txAproveitamento, ...desm,
-      partoPrev, machosNascidos, femeasNascidas, semSexoNascidos,
+      partoPrev, machosNascidos, femeasNascidas, semSexoNascidos, vendidasPrenhas: vendidasLote,
     }
   }
 
@@ -2363,6 +2299,17 @@ export default function Reprodutivo() {
   // Todo este bloco só depende de todosLotes/todosPartos/cicloLocal/animais/
   // sortCol/sortAsc — memoizado para não recalcular a cada render (ex: digitar
   // num campo de outro modal não deve re-somar/re-ordenar todo o histórico).
+  //
+  // ARMADILHA (2026-08-12, causou bug real em produção): qualquer `const`
+  // nova declarada aqui dentro que precise ser lida no JSX abaixo (fora
+  // deste useMemo) tem que ser adicionada em DOIS lugares — o `return {...}`
+  // no fim deste callback E o `const {...} = idx` logo depois do useMemo.
+  // Esquecer um dos dois não dá erro de build (Vite/esbuild não checa
+  // identificador indefinido em todo o programa) — só quebra em runtime
+  // quando aquele trecho da tela renderiza ("X is not defined"). Foi
+  // exatamente assim que kpiGestandoReprodutivo escapou e derrubou a aba
+  // Índices inteira. `npm run lint` (no-undef) pega isso agora — rode antes
+  // de qualquer entrega.
   const idx = useMemo(() => {
     const lotesCicloAtual = todosLotes.filter(l => l.ciclo_id === cicloLocal?.id)
     // Filtro por proprietário: restringe inseminações/partos/abortos aos animais
@@ -2377,6 +2324,23 @@ export default function Reprodutivo() {
     // (IATF + repasses) e a mesma vaca não pode ser contada mais de uma vez.
     const kpiIns  = contarExpostas(insCicloAtual)
     const kpiPrn  = contarPrenhas(insCicloAtual)
+    // Prenhez adquirida na compra (2026-08-11, decisão do usuário) — sai de
+    // Taxa de Prenhez/Aproveitamento/Parição (número E denominador: não foi
+    // exposta/inseminada NESTA fazenda). NUNCA filtra desmame/mortalidade/
+    // kpiPartosArr abaixo (o terneiro dela nasceu e foi criado aqui, conta
+    // normalmente — ver ehLotePrenhezAdquirida, helpers.js).
+    const lotesCicloReprodutivos = lotesCicloAtual.filter(l => !ehLotePrenhezAdquirida(l))
+    const kpiPrenhezAdquiridaCount = lotesCicloAtual.length - lotesCicloReprodutivos.length
+    const insCicloReprodutivoBruto = lotesCicloReprodutivos.flatMap(l => l.inseminacoes || [])
+    const insCicloReprodutivo = filtroPropIdx
+      ? insCicloReprodutivoBruto.filter(i => i.animal?.proprietario_id === filtroPropIdx)
+      : insCicloReprodutivoBruto
+    const kpiInsReprodutivo = contarExpostas(insCicloReprodutivo)
+    const kpiPrnReprodutivo = contarPrenhas(insCicloReprodutivo)
+    const kpiPartosReprodutivoBruto = lotesCicloReprodutivos.flatMap(l => l.partos || [])
+    const kpiPartosReprodutivo = (filtroPropIdx
+      ? kpiPartosReprodutivoBruto.filter(p => p.mae?.proprietario_id === filtroPropIdx)
+      : kpiPartosReprodutivoBruto).length
     const kpiPartosArrBruto = lotesCicloAtual.flatMap(l => l.partos || [])
     const kpiPartosArr = filtroPropIdx
       ? kpiPartosArrBruto.filter(p => p.mae?.proprietario_id === filtroPropIdx)
@@ -2388,22 +2352,49 @@ export default function Reprodutivo() {
     const kpiAbortos = (filtroPropIdx
       ? kpiAbortosArrBruto.filter(a => a.animal?.proprietario_id === filtroPropIdx)
       : kpiAbortosArrBruto).length
+    const kpiAbortosReprodutivo = (filtroPropIdx
+      ? lotesCicloReprodutivos.flatMap(l => l.abortos || []).filter(a => a.animal?.proprietario_id === filtroPropIdx)
+      : lotesCicloReprodutivos.flatMap(l => l.abortos || [])).length
     // Gestando precisa da data da MONTA de cada lote (varia entre IATF/repasses
     // do mesmo ciclo), então é somado por lote via calcLoteMetrics — não dá pra
     // derivar isso só dos totais agregados acima. O restante do funil (prenhas/
     // partos/abortos deduplicados) continua vindo dos totais já calculados.
     const kpiGestando = lotesCicloAtual.reduce((soma, l) => soma + calcLoteMetrics(l, filtroPropIdx || null).gestando, 0)
-    const kpiPerdasNaoIdentificadas = Math.max(0, kpiPrn - kpiPartos - kpiAbortos - kpiGestando)
-    const kpiPerdaGestacional = kpiPrn > 0 ? Math.round((kpiAbortos + kpiPerdasNaoIdentificadas) / kpiPrn * 100) : null
-    const primeiraMontaCiclo = lotesCicloAtual.map(l => l.data).filter(Boolean).sort()[0] || null
+    // kpiVendidasPrenhas (2026-08-10): vendida ainda prenha sai do numerador
+    // E do denominador dos índices que dependem de um evento pós-venda
+    // (parto/aborto/desmame) — ver calcGestacaoLote/calcTaxaParicao/
+    // calcDesmameMetrics em helpers.js. Sem subtrair aqui também, ela sobrava
+    // como "perda não identificada" (kpiPrn - partos - abortos - gestando não
+    // fecha sozinho: gestando já a exclui, então a diferença "sobra" como
+    // perda que ela não é).
+    const kpiVendidasPrenhas = lotesCicloAtual.reduce((soma, l) => soma + calcLoteMetrics(l, filtroPropIdx || null).vendidasPrenhas, 0)
+    // Regra geral (2026-08-12, decisão do usuário): Perda Gestacional também
+    // exclui prenhez adquirida — funil recalculado inteiro com
+    // lotesCicloReprodutivos (nunca subtraindo do funil cheio: o resíduo
+    // "perdas não identificadas" só fecha se todas as peças vierem da mesma
+    // população). kpiPerdasNaoIdentificadas/kpiAbortos "crus" continuam
+    // servindo o grid de exibição histórico (mesmo padrão de Prenhas/
+    // Expostas/Partos — nunca escondidos, só a TAXA usa a versão reprodutiva).
+    const kpiGestandoReprodutivo = lotesCicloReprodutivos.reduce((soma, l) => soma + calcLoteMetrics(l, filtroPropIdx || null).gestando, 0)
+    const kpiPerdasNaoIdentificadasReprodutivas = Math.max(0, kpiPrnReprodutivo - kpiPartosReprodutivo - kpiAbortosReprodutivo - kpiGestandoReprodutivo - kpiVendidasPrenhas)
+    const kpiPerdasNaoIdentificadas = Math.max(0, kpiPrn - kpiPartos - kpiAbortos - kpiGestando - kpiVendidasPrenhas)
+    const kpiPrnEfetivo = kpiPrnReprodutivo - kpiVendidasPrenhas
+    const kpiPerdaGestacional = kpiPrnEfetivo > 0 ? Math.round((kpiAbortosReprodutivo + kpiPerdasNaoIdentificadasReprodutivas) / kpiPrnEfetivo * 100) : null
     // HISTÓRICO: todosAnimaisHistorico (qualquer situação) — mesmo motivo do
     // matrizesAptas em calcLoteMetrics, ver comentário lá.
     const animaisParaAptas = filtroPropIdx ? todosAnimaisHistorico.filter(a => a.proprietario_id === filtroPropIdx) : todosAnimaisHistorico
-    const kpiMatrizesAptas = primeiraMontaCiclo ? contarMatrizes(animaisParaAptas, primeiraMontaCiclo) : 0
-    // Sem teto em 100%: uma taxa de aproveitamento acima de 100% é esperada e
-    // correta quando novilhas com menos de 24 meses (fora da definição de "matriz
-    // apta") são expostas à reprodução — não é um erro de cálculo.
-    const kpiTxAproveitamento = kpiMatrizesAptas > 0 ? Math.round(kpiIns / kpiMatrizesAptas * 100) : null
+    // kpiMatrizesAptas (2026-08-11 — corrige a data-âncora única, ver
+    // contarMatrizesCiclo em helpers.js): união das matrizes aptas na data
+    // de CADA lote do ciclo, não a 1ª monta só. Bug real encontrado ao vivo:
+    // uma matriz comprada depois da 1ª monta mas exposta num lote/repasse
+    // posterior do MESMO ciclo entrava no numerador sem nunca entrar no
+    // denominador — Taxa de Aproveitamento passava de 100% por isso.
+    const kpiMatrizesAptas = contarMatrizesCiclo(animaisParaAptas, lotesCicloAtual.map(l => l.data))
+    // Sem teto em 100%: uma taxa de aproveitamento acima de 100% ainda é
+    // esperada e correta quando novilhas com menos de 24 meses (fora da
+    // definição de "matriz apta") são expostas à reprodução — não é um erro
+    // de cálculo, mesmo depois da correção da data-âncora acima.
+    const kpiTxAproveitamento = kpiMatrizesAptas > 0 ? Math.round(kpiInsReprodutivo / kpiMatrizesAptas * 100) : null
     // Peso médio ao nascer (consolidado do ciclo) — mesma base de kpiPartosArr.
     const kpiPesosNascimento = kpiPartosArr
       .flatMap(p => p.bezerro?.pesagens || [])
@@ -2412,7 +2403,7 @@ export default function Reprodutivo() {
     const kpiPesoMedioNascimento = kpiPesosNascimento.length
       ? Math.round((kpiPesosNascimento.reduce((s, v) => s + v, 0) / kpiPesosNascimento.length) * 10) / 10
       : null
-    const kpiDesmame = calcDesmameMetrics(kpiPartosArr, kpiIns)
+    const kpiDesmame = calcDesmameMetrics(kpiPartosArr, kpiIns, kpiVendidasPrenhas)
     const previsaoSafraCiclo = (() => {
       const emAndamento = lotesCicloAtual.filter(l => safraEmAndamento(l, cicloLocal))
       if (emAndamento.length === 0) return null
@@ -2516,7 +2507,8 @@ export default function Reprodutivo() {
     return {
       lotesCicloAtual, kpiInsTotal, kpiIns, kpiPrn, kpiPartos, kpiMortalidade, kpiAbortos, kpiGestando,
       kpiPerdasNaoIdentificadas, kpiPerdaGestacional, kpiMatrizesAptas, kpiTxAproveitamento, kpiPesoMedioNascimento,
-      kpiDesmame, previsaoSafraCiclo, kpiIntervalo,
+      kpiDesmame, previsaoSafraCiclo, kpiIntervalo, kpiVendidasPrenhas,
+      kpiInsReprodutivo, kpiPrnReprodutivo, kpiPartosReprodutivo, kpiPrenhezAdquiridaCount, kpiGestandoReprodutivo,
       barData, lineData, pieData, tabelaLotes, tourosRanking, legadoTotalIns, legadoQtdLotes,
     }
   }, [todosLotes, todosPartos, cicloLocal, animais, todosAnimaisHistorico, sortCol, sortAsc, filtroPropIdx])
@@ -2527,7 +2519,8 @@ export default function Reprodutivo() {
   const {
     lotesCicloAtual, kpiInsTotal, kpiIns, kpiPrn, kpiPartos, kpiMortalidade, kpiAbortos, kpiGestando,
     kpiPerdasNaoIdentificadas, kpiPerdaGestacional, kpiMatrizesAptas, kpiTxAproveitamento, kpiPesoMedioNascimento,
-    kpiDesmame, previsaoSafraCiclo, kpiIntervalo,
+    kpiDesmame, previsaoSafraCiclo, kpiIntervalo, kpiVendidasPrenhas,
+    kpiInsReprodutivo, kpiPrnReprodutivo, kpiPartosReprodutivo, kpiPrenhezAdquiridaCount, kpiGestandoReprodutivo,
     barData, lineData, pieData, tabelaLotes, tourosRanking, legadoTotalIns, legadoQtdLotes,
   } = idx
 
@@ -3086,6 +3079,10 @@ export default function Reprodutivo() {
                 { id: ins.animal_id, sit_reprodutiva: ins.animal?.sit_reprodutiva },
                 selLote.partos
               )
+              // Bloco E — "Prenha (atual)" fica enganoso se ela foi vendida
+              // ainda prenha (não está mais na fazenda) — mesmo rótulo com
+              // data usado em todo lugar que exibe esse status.
+              const vendidaAtual = statusReprodutivoVendida({ sit_reprodutiva: situacaoAtual, situacao: ins.animal?.situacao, data_baixa: ins.animal?.data_baixa })
               // Linha do tempo por vaca (Fase 10 — etapa A): objeto estruturado
               // com a etapa atual desta vaca NESTE lote (helpers.js). "Atrasada"
               // não vem do helper (não fazia parte dos campos pedidos) — é só a
@@ -3107,7 +3104,8 @@ export default function Reprodutivo() {
               // para" ao lado de "Aborto registrado" — as duas juntas, o que
               // não faz sentido: não há mais parto previsto depois de um aborto.
               const detalheVaca = statusReprodutivoDetalhado(
-                { id: ins.animal_id, sit_reprodutiva: (d === 'P' && !abortoReg) ? 'prenha' : 'vazia' },
+                { id: ins.animal_id, sit_reprodutiva: (d === 'P' && !abortoReg) ? 'prenha' : 'vazia',
+                  situacao: ins.animal?.situacao, data_baixa: ins.animal?.data_baixa },
                 selLote.partos, selLote.data
               )
               const partoAtrasado = detalheVaca.etapa === 'prenha_sem_parto'
@@ -3120,17 +3118,8 @@ export default function Reprodutivo() {
               // de graça de desfechoReprodutivo (helpers.js), a MESMA função
               // usada nos filtros de venda e na ficha do animal.
               const desfechoVaca = desfechoReprodutivo(ins.animal_id,
-                { inseminacoes: insEstacaoSel, partos: partosEstacaoSel, abortos: abortosEstacaoSel })
+                { inseminacoes: insEstacaoSel, partos: partosEstacaoSel, abortos: abortosEstacaoSel }, undefined, null, ins.animal)
               const falhouEstacaoVaca = desfechoVaca.resultado === 'falhou'
-              // Botão "Marcar Falhada" só aparece na linha ainda Pendente (sem
-              // diagnóstico neste lote) de uma vaca que não tem NENHUM 'P' em
-              // nenhum lote da estação — clicar chama exatamente salvarDiag(...,'V',...),
-              // a MESMA gravação do botão "Vazia" logo abaixo (sem coluna nova,
-              // sem estado que possa divergir do que é exibido). Resulta
-              // sempre no motivo "não emprenhou" (os outros dois motivos têm
-              // seus próprios fluxos: Registrar aborto / Confirmar perda).
-              const podeMarcarFalhada = !d && !diagBloqueado
-                && !insEstacaoSel.some(i => i.animal_id === ins.animal_id && i.diagnostico === 'P')
               return (
                 <div key={ins.id} style={{
                   display:'flex', alignItems:'center', justifyContent:'space-between',
@@ -3145,8 +3134,8 @@ export default function Reprodutivo() {
                     <div>
                       <span style={{ fontWeight:500, minWidth:50, display:'inline-block' }}>{br}</span>
                       {situacaoAtual && (
-                        <Badge color={situacaoAtual === 'prenha' ? 'blue' : situacaoAtual === 'Com cria ao pé' ? 'purple' : 'gray'} style={{ marginLeft:6 }}>
-                          {situacaoAtual === 'prenha' ? 'Prenha (atual)' : situacaoAtual === 'vazia' ? 'Vazia (atual)' : situacaoAtual === 'Com cria ao pé' ? 'Com cria ao pé' : situacaoAtual}
+                        <Badge color={vendidaAtual ? 'purple' : situacaoAtual === 'prenha' ? 'blue' : situacaoAtual === 'Com cria ao pé' ? 'purple' : 'gray'} style={{ marginLeft:6 }}>
+                          {vendidaAtual || (situacaoAtual === 'prenha' ? 'Prenha (atual)' : situacaoAtual === 'vazia' ? 'Vazia (atual)' : situacaoAtual === 'Com cria ao pé' ? 'Com cria ao pé' : situacaoAtual)}
                         </Badge>
                       )}
                       {detalheVaca.etapa === 'pariu_morto' && (
@@ -3284,7 +3273,12 @@ export default function Reprodutivo() {
                         todosStale) por isso o clique já dispara loadTodos()
                         se preciso, pro valor pré-preenchido não aparecer em
                         branco. */}
-                    {podeEditarReprod && d === 'P' && !abortoReg && !partoReg && (() => {
+                    {/* Bloco E — condição passa a considerar a situação do
+                        animal, não só o diagnóstico da linha: vaca vendida
+                        (qualquer situação diferente de 'ativo') não tem mais
+                        como registrar nascimento/aborto aqui, ela não está
+                        mais na fazenda. */}
+                    {podeEditarReprod && d === 'P' && !abortoReg && !partoReg && ins.animal?.situacao === 'ativo' && (() => {
                       const nd = formNascDireto[ins.animal_id] || {}
                       const ocupado = registrandoNascId === ins.animal_id
                       return (
@@ -3316,30 +3310,11 @@ export default function Reprodutivo() {
                         </div>
                       )
                     })()}
-                    {podeEditarReprodCiclo && d === 'P' && !abortoReg && !partoReg && (
+                    {podeEditarReprodCiclo && d === 'P' && !abortoReg && !partoReg && ins.animal?.situacao === 'ativo' && (
                       <button className="btn btn-secondary btn-xs"
                         onClick={() => abrirRegistrarAborto(ins, selLote)}
                         style={{ fontSize:'.72rem', color:'#791F1F' }}>
                         <i className="ti ti-alert-circle" /> Registrar aborto
-                      </button>
-                    )}
-                    {/* Item 5 — "Marcar Falhada": atalho pra fechar o desfecho
-                        desta vaca ANTES do fim da estação, quando ela nunca vai
-                        mais voltar a ser testada (ex: repasse encerrado sem
-                        diagnóstico). Grava exatamente o mesmo que o botão
-                        "Vazia" logo abaixo (salvarDiag ...,'V',...) — não existe
-                        um estado "falhada" separado no banco, então o rótulo é
-                        só um atalho com nome mais claro pro caso de uso, nunca
-                        diverge do que fica exibido (falhouEstacaoVaca deriva
-                        sempre dos mesmos diagnósticos). Só aparece quando ainda
-                        não há diagnóstico nesta linha E a vaca não tem nenhum
-                        'P' em outro lote da estação (senão marcar Vazia aqui
-                        contradiria uma gestação já confirmada em outro lote). */}
-                    {podeEditarReprodCiclo && podeMarcarFalhada && (
-                      <button className="btn btn-secondary btn-xs"
-                        onClick={() => salvarDiag(selLote.id, ins.animal_id, 'V', dataAcaoLote)}
-                        style={{ fontSize:'.72rem', color:'#791F1F' }}>
-                        <i className="ti ti-circle-x" /> Marcar Falhada
                       </button>
                     )}
                     {/* Fase 10.1 — desmame na sequência da linha (mesmo padrão de
@@ -3740,16 +3715,18 @@ export default function Reprodutivo() {
                   txAproveitamento:    kpiTxAproveitamento,
                   total:               kpiIns,
                   prenhas:             kpiPrn,
-                  txPrenhez:           kpiIns > 0 ? Math.round(kpiPrn / kpiIns * 100) : null,
+                  txPrenhez:           kpiInsReprodutivo > 0 ? Math.round(kpiPrnReprodutivo / kpiInsReprodutivo * 100) : null,
                   gestando:            kpiGestando,
                   nAbortos:            kpiAbortos,
                   perdasNaoIdentificadas: kpiPerdasNaoIdentificadas,
                   perdaGestacional:    kpiPerdaGestacional,
                   nascimentos:         kpiPartos,
-                  txNatalidade:        calcTaxaParicao(kpiIns, kpiPartos, kpiGestando),
+                  txNatalidade:        calcTaxaParicao(kpiInsReprodutivo, kpiPartosReprodutivo, kpiGestandoReprodutivo, kpiVendidasPrenhas),
                   pesoMedioNascimento: kpiPesoMedioNascimento,
                   mortalidadeBezerros: kpiMortalidade,
                   ...kpiDesmame,
+                  vendidasPrenhas:     kpiVendidasPrenhas,
+                  prenhezAdquirida:    kpiPrenhezAdquiridaCount,
                 }}
                 andamento={kpiGestando > 0}
                 previsao={previsaoSafraCiclo}
