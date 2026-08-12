@@ -16,31 +16,35 @@ export const MODULOS_GERENCIAVEIS = [
 // Ordem/agrupamento/rótulos/ícones — única fonte pro menu lateral E pra tela
 // de módulos em cards. `condicao:'comparativo'` = precisa de 2+ fazendas;
 // `adminOnly` = só ehAdmin; `tipo:'modal'` = abre o Tutorial em vez de navegar.
+// `descricao` (2026-08-17): só usada pelos cards de Modulos.jsx (a sidebar
+// não mostra descrição) — mas fica aqui, não em Modulos.jsx, porque é um
+// FATO sobre o módulo (o que ele faz), igual label/ícone, não um detalhe de
+// desenho do card.
 export const NAV = [
   { section: 'PRINCIPAL' },
-  { path: '/',             icon: 'ti-layout-dashboard', label: 'Painel' },
-  { path: '/metas',        icon: 'ti-target',           label: 'Metas e Indicadores' },
-  { path: '/rebanho',      icon: 'ti-chart-line',       label: 'Controle de Rebanho' },
-  { path: '/calendario',   icon: 'ti-calendar-event',   label: 'Calendário' },
-  { path: '/comparativo',  icon: 'ti-chart-bar',        label: 'Comparativo de Fazendas', condicao: 'comparativo' },
-  { path: '/relatorios',   icon: 'ti-file-text',        label: 'Relatório de Fechamento' },
-  { path: '/assistente',  icon: 'ti-message-chatbot',  label: 'Assistente IA', destaque: true },
+  { path: '/',             icon: 'ti-layout-dashboard', label: 'Painel', descricao: 'Visão geral da fazenda, hoje' },
+  { path: '/metas',        icon: 'ti-target',           label: 'Metas e Indicadores', descricao: 'Acompanhe metas e desempenho zootécnico' },
+  { path: '/rebanho',      icon: 'ti-chart-line',       label: 'Controle de Rebanho', descricao: 'Composição, índices e valor do rebanho' },
+  { path: '/calendario',   icon: 'ti-calendar-event',   label: 'Calendário', descricao: 'Partos, vacinas e vencimentos em um só lugar' },
+  { path: '/comparativo',  icon: 'ti-chart-bar',        label: 'Comparativo de Fazendas', descricao: 'Compare o desempenho entre fazendas', condicao: 'comparativo' },
+  { path: '/relatorios',   icon: 'ti-file-text',        label: 'Relatório de Fechamento', descricao: 'Gere o relatório completo do ciclo' },
+  { path: '/assistente',  icon: 'ti-message-chatbot',  label: 'Assistente IA', descricao: 'Pergunte sobre rebanho, finanças e estoque', destaque: true },
 
   { section: 'GESTÃO OPERACIONAL' },
-  { path: '/propriedade', icon: 'ti-home-2',           label: 'Propriedades' },
-  { path: '/animais',     icon: 'ti-clipboard-list',   label: 'Cadastro de Animais' },
-  { path: '/feiras',      icon: 'ti-trophy',           label: 'Feiras e Premiações' },
-  { path: '/reprodutivo', icon: 'ti-activity',         label: 'Gestão Reprodutiva' },
-  { path: '/sanidade',    icon: 'ti-shield-check',     label: 'Manejo Sanitário' },
-  { path: '/pesagens',    icon: 'ti-weight',           label: 'Pesagens' },
-  { path: '/estoque',     icon: 'ti-box',              label: 'Estoque' },
-  { path: '/financeiro',  icon: 'ti-cash',             label: 'Gestão Financeira' },
-  { path: '/veterinario', icon: 'ti-stethoscope',      label: 'Veterinário' },
+  { path: '/propriedade', icon: 'ti-home-2',           label: 'Propriedades', descricao: 'Fazenda, piquetes e lotes' },
+  { path: '/animais',     icon: 'ti-clipboard-list',   label: 'Cadastro de Animais', descricao: 'Ficha completa de cada animal do rebanho' },
+  { path: '/feiras',      icon: 'ti-trophy',           label: 'Feiras e Premiações', descricao: 'Participações e resultados em feiras' },
+  { path: '/reprodutivo', icon: 'ti-activity',         label: 'Gestão Reprodutiva', descricao: 'Estações, inseminações, partos e diagnósticos' },
+  { path: '/sanidade',    icon: 'ti-shield-check',     label: 'Manejo Sanitário', descricao: 'Vacinas, vermífugos e procedimentos' },
+  { path: '/pesagens',    icon: 'ti-weight',           label: 'Pesagens', descricao: 'Peso, GMD e desmame por animal' },
+  { path: '/estoque',     icon: 'ti-box',              label: 'Estoque', descricao: 'Medicamentos, vacinas e sêmen' },
+  { path: '/financeiro',  icon: 'ti-cash',             label: 'Gestão Financeira', descricao: 'Receitas, despesas e resultado do ciclo' },
+  { path: '/veterinario', icon: 'ti-stethoscope',      label: 'Veterinário', descricao: 'Financeiro, clientes e atestados' },
 
   { section: 'SISTEMA' },
-  { path: '/usuarios', icon: 'ti-users',           label: 'Configurações de Usuários', adminOnly: true },
-  { path: '/backup',   icon: 'ti-database-export', label: 'Backup e Dados' },
-  { tipo: 'modal',     icon: 'ti-school',          label: 'Tutorial', adminOnly: true },
+  { path: '/usuarios', icon: 'ti-users',           label: 'Configurações de Usuários', descricao: 'Permissões e acesso da equipe', adminOnly: true },
+  { path: '/backup',   icon: 'ti-database-export', label: 'Backup e Dados', descricao: 'Exporte e restaure os dados do sistema' },
+  { tipo: 'modal',     icon: 'ti-school',          label: 'Tutorial', descricao: 'Um guia passo a passo pelo sistema', adminOnly: true },
 ]
 
 // Mesma regra de sempre: admin vê tudo (exceto Comparativo, que depende de

@@ -573,44 +573,13 @@ tbody tr:hover td { background: #EAF0FB; transition: background 0.15s; }
 }
 
 /* ── Módulos (tela inicial em cards) ──────────────────────────────
-   Regras base abaixo hoje são inatingíveis na prática: a tela /modulos é
-   mobile-only (Modulos.jsx se redireciona pro Painel fora de max-width:768px,
-   ver useIsMobile) — ficam como fallback documentado caso essa decisão de
-   roteamento mude no futuro. O desenho de verdade é 100% o bloco dentro de
-   @media (max-width:768px) mais abaixo (grade de 4 colunas sem gap). */
-.modulos-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 16px;
-}
-.modulo-card {
-  display: flex; flex-direction: column; align-items: center; gap: 10px;
-  background: white; border: .5px solid var(--gray-200); border-radius: var(--radius-xl);
-  padding: 22px 14px; cursor: pointer; position: relative;
-  font-family: var(--font-sans); text-align: center;
-  box-shadow: var(--shadow-sm);
-  transition: transform .15s, box-shadow .15s, border-color .15s;
-}
-.modulo-card:hover {
-  transform: translateY(-3px);
-  box-shadow: var(--shadow-lg);
-  border-color: var(--brand-green-pale);
-}
-.modulo-card-icon {
-  width: 52px; height: 52px; border-radius: var(--radius-lg);
-  display: flex; align-items: center; justify-content: center;
-  background: linear-gradient(160deg, #2B6CD9 0%, #5B3FBE 55%, #7B2FBE 100%);
-  color: white; font-size: 24px; flex-shrink: 0;
-}
-.modulo-card-label {
-  font-size: .83rem; font-weight: 600; color: var(--gray-700); line-height: 1.35;
-}
-.modulo-card-badge {
-  position: absolute; top: 10px; right: 10px;
-  font-size: .62rem; font-weight: 700; letter-spacing: .03em;
-  background: rgba(123,47,190,.12); color: var(--db-purple);
-  border-radius: 6px; padding: 2px 6px;
-}
+   A tela /modulos é mobile-only (Modulos.jsx se redireciona pro Painel
+   fora de max-width:768px, ver useIsMobile) — o desenho de verdade (cards
+   escuros/coloridos, .modulo-card-v2) mora inteiro dentro do bloco
+   @media (max-width:768px) mais abaixo. .modulos-grid fica definido aqui
+   fora só pelo valor de display:grid em si (nunca é alcançado com um
+   grid-template-columns diferente do que o bloco mobile define). */
+.modulos-grid { display: grid; }
 
 /* ── Hamburger button (hidden on desktop) ────────────────────────── */
 .hamburger-btn {
@@ -757,38 +726,66 @@ tbody tr:hover td { background: #EAF0FB; transition: background 0.15s; }
   /* Piquetes grid: 1 column on mobile */
   .piq-grid { grid-template-columns: 1fr; }
 
-  /* Módulos: grade de 4 colunas encostadas (sem gap) — a separação vem de
-     bordas finas, não de espaço em branco (mesmo ".5px solid var(--gray-200)"
-     já usado em cards/tabelas no resto do sistema). border-right+border-bottom
-     em cada card evita bordas dobradas nas divisas internas (a borda de baixo
-     de um card É a borda de cima do próximo, sem desenhar duas linhas
-     coladas); border-top+border-left só na grade fecha as duas bordas
-     externas que nenhum card "empresta" pro vizinho. Sem hover (tela de
-     toque) — :active dá o feedback de toque em troca. */
-  .modulos-grid {
-    grid-template-columns: repeat(4, 1fr);
-    gap: 0;
-    border-top: 1px solid var(--gray-200);
-    border-left: 1px solid var(--gray-200);
-    border-radius: var(--radius-lg); overflow: hidden; /* só arredonda o contorno externo do bloco */
+  /* Módulos: visual escuro/colorido (referência aprovada 2026-08-17).
+     Cores por card vêm dos tokens de marca já definidos em :root (--db-*) —
+     nenhuma paleta nova. color-mix() escurece o mesmo tom pro pé do
+     gradiente, em vez de cadastrar um segundo hex "escuro" por cor à mão. */
+  .page-body-modulos { background: var(--db-navy); padding: 4px 16px calc(72px + env(safe-area-inset-bottom)); }
+  body.modulos-tema-escuro { background: var(--db-navy); }
+
+  .modulos-header-dark { display: flex; align-items: center; padding: 8px 0 2px; }
+  .modulos-menu-btn {
+    width: 40px; height: 40px; border-radius: var(--radius-md);
+    background: rgba(255,255,255,.08); border: none; color: white;
+    display: flex; align-items: center; justify-content: center; font-size: 19px;
   }
-  .modulo-card {
-    flex-direction: column; justify-content: center; align-items: center;
-    gap: 6px; padding: 10px 4px; min-height: 92px;
-    border: none; border-right: 1px solid var(--gray-200); border-bottom: 1px solid var(--gray-200);
-    border-radius: 0; box-shadow: none;
+  .modulos-menu-btn:active { background: rgba(255,255,255,.16); }
+
+  .modulos-greeting { padding: 16px 2px 22px; }
+  .modulos-greeting-hi { font-size: 1.5rem; font-weight: 700; color: white; }
+  .modulos-greeting-name { color: var(--db-cyan); }
+  .modulos-greeting-sub { font-size: .82rem; color: #8B93A6; margin-top: 3px; }
+
+  .modulos-secao { margin-bottom: 22px; }
+  .modulos-secao-label {
+    font-size: .68rem; font-weight: 700; color: #6B7690; letter-spacing: .07em;
+    text-transform: uppercase; margin-bottom: 10px;
   }
-  .modulo-card:hover { transform: none; box-shadow: none; border-color: var(--gray-200); }
-  .modulo-card:active { background: var(--gray-50); }
-  .modulo-card-icon { width: 34px; height: 34px; font-size: 16px; border-radius: var(--radius-md); }
-  /* px fixo, não rem: este bloco já roda com html{font-size:14px} (ver acima),
-     um rem pequeno aqui ficaria menor ainda do que parece na regra. Quebra
-     livre em até 3 linhas (sem truncar, sem reticências) — os nomes de módulo
-     são frases de 2-3 palavras, então a quebra cai nos espaços naturais
-     ("Gestão" / "Reprodutiva"); a grade absorve o card mais alto de cada
-     linha sozinha (comportamento padrão de grid), sem qualquer cálculo aqui. */
-  .modulo-card-label { font-size: 10px; line-height: 1.25; }
-  .modulo-card-badge { top: 3px; right: 3px; font-size: 9px; padding: 1px 4px; }
+
+  .modulos-grid { grid-template-columns: repeat(2, 1fr); gap: 12px; }
+
+  .modulo-card-v2 {
+    position: relative; overflow: hidden; display: flex; flex-direction: column;
+    justify-content: flex-end; aspect-ratio: 3 / 4; min-height: 180px;
+    border: none; border-radius: var(--radius-xl); padding: 14px; text-align: left;
+    background: linear-gradient(160deg, var(--card-color) 0%, color-mix(in srgb, var(--card-color) 60%, black) 100%);
+  }
+  .modulo-card-v2:active { filter: brightness(.92); }
+  /* Ícone gigante em marca d'água — a "imagem insinuada ao fundo" da
+     referência, sem foto nenhuma: mesmo ícone do badge, gigante e apagado,
+     sangrando pra fora do card (cortado pelo overflow:hidden do card). */
+  .modulo-card-v2-marca {
+    position: absolute; right: -20px; bottom: -26px; z-index: 0;
+    font-size: 128px; line-height: 1; color: rgba(255,255,255,.13); pointer-events: none;
+  }
+  .modulo-card-v2-icone {
+    position: relative; z-index: 1; align-self: flex-start; margin-bottom: auto;
+    width: 36px; height: 36px; border-radius: var(--radius-md);
+    background: rgba(255,255,255,.92); border: 1px solid rgba(255,255,255,.6);
+    color: var(--card-color); display: flex; align-items: center; justify-content: center; font-size: 17px;
+  }
+  .modulo-card-v2-corpo { position: relative; z-index: 1; margin-top: 14px; padding-right: 26px; }
+  .modulo-card-v2-nome { color: white; font-weight: 700; font-size: 13.5px; line-height: 1.25; margin-bottom: 4px; }
+  .modulo-card-v2-desc {
+    color: rgba(255,255,255,.72); font-size: 10.5px; line-height: 1.35;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  }
+  .modulo-card-v2-seta {
+    position: absolute; right: 10px; bottom: 10px; z-index: 1;
+    width: 26px; height: 26px; border-radius: 50%;
+    background: rgba(255,255,255,.92); color: var(--card-color);
+    display: flex; align-items: center; justify-content: center; font-size: 12px;
+  }
 
   /* Filtros: painel vira bottom sheet (sobe de baixo, rodapé fixo) em vez
      de dropdown ancorado — mesmo conteúdo, só a casca muda. */
