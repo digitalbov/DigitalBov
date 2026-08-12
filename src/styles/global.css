@@ -734,12 +734,18 @@ tbody tr:hover td { background: #EAF0FB; transition: background 0.15s; }
   body.modulos-tema-escuro { background: var(--db-navy); }
 
   .modulos-header-dark { display: flex; align-items: center; padding: 8px 0 2px; }
+  /* Contraste reforçado (2026-08-18): a versão anterior (8% branco, sem
+     borda) era fraca demais contra o fundo quase-preto — fácil de
+     confundir com "não apareceu". Fundo mais opaco + borda visível
+     garantem que o botão tenha silhueta própria mesmo se o ícone (fonte
+     carregada via link dinâmico em TablerLink, App.jsx) ainda não tiver
+     carregado no 1º paint. */
   .modulos-menu-btn {
     width: 40px; height: 40px; border-radius: var(--radius-md);
-    background: rgba(255,255,255,.08); border: none; color: white;
-    display: flex; align-items: center; justify-content: center; font-size: 19px;
+    background: rgba(255,255,255,.14); border: 1px solid rgba(255,255,255,.22);
+    color: white; display: flex; align-items: center; justify-content: center; font-size: 20px;
   }
-  .modulos-menu-btn:active { background: rgba(255,255,255,.16); }
+  .modulos-menu-btn:active { background: rgba(255,255,255,.24); }
 
   .modulos-greeting { padding: 16px 2px 22px; }
   .modulos-greeting-hi { font-size: 1.5rem; font-weight: 700; color: white; }
