@@ -573,12 +573,11 @@ tbody tr:hover td { background: #EAF0FB; transition: background 0.15s; }
 }
 
 /* ── Módulos (tela inicial em cards) ──────────────────────────────
-   auto-fill + minmax em vez de breakpoints fixos: o número de colunas cai
-   sozinho conforme a largura disponível (~4 em desktop largo, 3/2 em telas
-   intermediárias), sem precisar inventar um breakpoint novo pra cada
-   tamanho — só o mobile (max-width:768px, mesmo breakpoint já usado no
-   resto do sistema) força 1 coluna, porque nessa largura o auto-fill ainda
-   deixaria 2 cards apertados lado a lado. */
+   Regras base abaixo hoje são inatingíveis na prática: a tela /modulos é
+   mobile-only (Modulos.jsx se redireciona pro Painel fora de max-width:768px,
+   ver useIsMobile) — ficam como fallback documentado caso essa decisão de
+   roteamento mude no futuro. O desenho de verdade é 100% o bloco dentro de
+   @media (max-width:768px) mais abaixo (grade de 4 colunas sem gap). */
 .modulos-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
@@ -758,11 +757,38 @@ tbody tr:hover td { background: #EAF0FB; transition: background 0.15s; }
   /* Piquetes grid: 1 column on mobile */
   .piq-grid { grid-template-columns: 1fr; }
 
-  /* Módulos: 1 card por linha no celular — auto-fill sozinho ainda deixaria
-     2 cards espremidos nessa largura. */
-  .modulos-grid { grid-template-columns: 1fr; }
-  .modulo-card  { flex-direction: row; justify-content: flex-start; text-align: left; padding: 14px 16px; }
-  .modulo-card-icon { width: 42px; height: 42px; font-size: 19px; }
+  /* Módulos: grade de 4 colunas encostadas (sem gap) — a separação vem de
+     bordas finas, não de espaço em branco (mesmo ".5px solid var(--gray-200)"
+     já usado em cards/tabelas no resto do sistema). border-right+border-bottom
+     em cada card evita bordas dobradas nas divisas internas (a borda de baixo
+     de um card É a borda de cima do próximo, sem desenhar duas linhas
+     coladas); border-top+border-left só na grade fecha as duas bordas
+     externas que nenhum card "empresta" pro vizinho. Sem hover (tela de
+     toque) — :active dá o feedback de toque em troca. */
+  .modulos-grid {
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0;
+    border-top: 1px solid var(--gray-200);
+    border-left: 1px solid var(--gray-200);
+    border-radius: var(--radius-lg); overflow: hidden; /* só arredonda o contorno externo do bloco */
+  }
+  .modulo-card {
+    flex-direction: column; justify-content: center; align-items: center;
+    gap: 6px; padding: 10px 4px; min-height: 92px;
+    border: none; border-right: 1px solid var(--gray-200); border-bottom: 1px solid var(--gray-200);
+    border-radius: 0; box-shadow: none;
+  }
+  .modulo-card:hover { transform: none; box-shadow: none; border-color: var(--gray-200); }
+  .modulo-card:active { background: var(--gray-50); }
+  .modulo-card-icon { width: 34px; height: 34px; font-size: 16px; border-radius: var(--radius-md); }
+  /* px fixo, não rem: este bloco já roda com html{font-size:14px} (ver acima),
+     um rem pequeno aqui ficaria menor ainda do que parece na regra. Quebra
+     livre em até 3 linhas (sem truncar, sem reticências) — os nomes de módulo
+     são frases de 2-3 palavras, então a quebra cai nos espaços naturais
+     ("Gestão" / "Reprodutiva"); a grade absorve o card mais alto de cada
+     linha sozinha (comportamento padrão de grid), sem qualquer cálculo aqui. */
+  .modulo-card-label { font-size: 10px; line-height: 1.25; }
+  .modulo-card-badge { top: 3px; right: 3px; font-size: 9px; padding: 1px 4px; }
 
   /* Filtros: painel vira bottom sheet (sobe de baixo, rodapé fixo) em vez
      de dropdown ancorado — mesmo conteúdo, só a casca muda. */
