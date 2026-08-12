@@ -2,7 +2,7 @@
 import { useNavigate, useLocation } from 'react-router-dom'
 import { usePermissoes } from '../lib/PermissoesContext'
 import { db, apenasColunasReais } from '../lib/supabase'
-import { calcCategoria, calcCategoriaRebanho, idadeFormatada, fmtData, pct, catCor, sitCor, repCor, sortBrinco, dataNaoFutura, algumErro, statusReprodutivoExibicao, statusReprodutivoVendida, statusReprodutivoDetalhado, statusReprodutivoCiclo, STATUS_CICLO_ANIMAL, desfechoReprodutivo, FALHA_MOTIVO_LABEL, PERDA_PRESUMIDA_DIAS_APOS_PREVISTO, paiEhMontaNaturalIndefinida, capitalizarPrimeira, capitalizarNome, sanidadeRealizada, calcDesempenhoVidaFemea, agruparPesoPorData, calcGMD, classificarDesfechosPorSafra, CORES_DESFECHO, ROTULOS_DESFECHO, calcHistoricoTouro, AMOSTRA_MINIMA_TOURO, nomePai, nomeTouro, resolverTouroDigitado, resumoFeirasAnimal, statusFeiraParticipacao } from '../lib/helpers'
+import { calcCategoria, calcCategoriaRebanho, idadeFormatada, fmtData, pct, catCor, sitCor, repCor, sortBrinco, dataNaoFutura, algumErro, statusReprodutivoExibicao, statusReprodutivoVendida, statusReprodutivoDetalhado, statusReprodutivoCiclo, STATUS_CICLO_ANIMAL, desfechoReprodutivo, FALHA_MOTIVO_LABEL, PERDA_PRESUMIDA_DIAS_APOS_PREVISTO, paiEhMontaNaturalIndefinida, capitalizarPrimeira, capitalizarNome, sanidadeRealizada, calcDesempenhoVidaFemea, agruparPesoPorData, calcGMD, classificarDesfechosPorSafra, CORES_DESFECHO, ROTULOS_DESFECHO, calcHistoricoTouro, AMOSTRA_MINIMA_TOURO, nomePai, nomeTouro, paiSemVinculo, touroSemVinculo, resolverTouroDigitado, resumoFeirasAnimal, statusFeiraParticipacao } from '../lib/helpers'
 import { hojeISO } from '../lib/hoje'
 import { confirmarPerdaPresumida } from '../lib/perdaGestacionalPresumida'
 import { Loading, EmptyState, Modal, Field, MicButton, Badge, toast, BotaoPDF, ErroCarregamento, Confirm, AlertBox } from '../components/UI'
@@ -95,7 +95,7 @@ function TimelineCard({ timeline, loading }) {
 
 // ── Genealogia ────────────────────────────────────────────────────
 
-function NodoCard({ animal, nome, tipo, destaque, onSelect, onClickTouro }) {
+function NodoCard({ animal, nome, tipo, destaque, onSelect, onClickTouro, semVinculo }) {
   const isTouro   = tipo === 'touro'
   const isUnknown = tipo === 'unknown'
   const isMale    = animal?.sexo === 'M'
@@ -131,8 +131,13 @@ function NodoCard({ animal, nome, tipo, destaque, onSelect, onClickTouro }) {
       {isTouro ? (
         <>
           <div style={{ fontSize: 18, color: '#60A5FA' }}>♂</div>
-          <div style={{ fontWeight: 600, fontSize: '.82rem', lineHeight: 1.3, marginTop: 2 }}>{nome}</div>
-          <div style={{ fontSize: '.63rem', color: '#9CA3AF', marginTop: 2 }}>{hasClickTouro ? '▶ ver lote' : 'Touro'}</div>
+          <div style={{ fontWeight: 600, fontSize: '.82rem', lineHeight: 1.3, marginTop: 2 }}
+            title={semVinculo ? 'Sem vínculo por id — texto congelado no momento do lançamento; um rename do touro cadastrado não atualiza este nome.' : undefined}>
+            {nome}
+          </div>
+          <div style={{ fontSize: '.63rem', color: semVinculo ? '#BA7517' : '#9CA3AF', marginTop: 2 }}>
+            {hasClickTouro ? '▶ ver lote' : semVinculo ? '⚠ sem vínculo' : 'Touro'}
+          </div>
         </>
       ) : isUnknown ? (
         <>
@@ -261,7 +266,7 @@ function ArvoreGenealogica({ animal, animais, onSelect, onClickPai }) {
             <>
               <GenRowLabel>Avós maternos</GenRowLabel>
               <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
-                {avoPaiMae && <NodoCard tipo="touro" nome={avoPaiMae} />}
+                {avoPaiMae && <NodoCard tipo="touro" nome={avoPaiMae} semVinculo={paiSemVinculo(mae)} />}
                 {avoMae    && <NodoCard tipo="animal" animal={avoMae} onSelect={onSelect} />}
               </div>
               <GenStem />
@@ -273,7 +278,7 @@ function ArvoreGenealogica({ animal, animais, onSelect, onClickPai }) {
             <>
               <GenRowLabel>Pais</GenRowLabel>
               <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
-                {hasPai      && <NodoCard tipo="touro"   nome={nomePai(animal, { comBrinco: true })} onClickTouro={onClickPai} />}
+                {hasPai      && <NodoCard tipo="touro"   nome={nomePai(animal, { comBrinco: true })} onClickTouro={onClickPai} semVinculo={paiSemVinculo(animal)} />}
                 {hasMae      && <NodoCard tipo="animal"  animal={mae} onSelect={onSelect} />}
                 {hasMaeSoText && <NodoCard tipo="unknown" nome={`Brinco ${animal.mae_brinco}`} />}
               </div>
@@ -1230,6 +1235,11 @@ export default function Animais() {
     // acompanha sempre que houver nome.
     const paiClicavel = paiEhMontaNaturalIndefinida(a.pai) && partoComoFilho?.lote_inseminacao_id
     const paiTexto = nomePai(a, { comBrinco: true })
+    // Aviso de texto congelado (2026-08-12) — sem pai_animal_id/pai_externo_id,
+    // esse nome nunca acompanha um rename futuro do touro cadastrado (ver
+    // paiSemVinculo, helpers.js) — mesmo raciocínio já usado no aviso de
+    // brinco sem vínculo.
+    const paiAvisoSemVinculo = paiSemVinculo(a)
     const paiValor = paiClicavel
       ? <button type="button" onClick={() => navigate('/reprodutivo', {
             state: { abrirLoteId: partoComoFilho.lote_inseminacao_id, cicloId: partoComoFilho.lote?.ciclo_id }
@@ -1237,7 +1247,11 @@ export default function Animais() {
           style={{ background:'none', border:'none', padding:0, color:'#2B6CD9', textDecoration:'underline', cursor:'pointer', fontSize:'.82rem', textAlign:'left' }}>
           {paiTexto} <i className="ti ti-external-link" style={{ fontSize:11 }} />
         </button>
-      : paiTexto
+      : paiAvisoSemVinculo
+        ? <span title="Sem vínculo por id — texto congelado no momento do lançamento; um rename do touro cadastrado não atualiza este nome.">
+            {paiTexto} <i className="ti ti-alert-circle" style={{ fontSize: 11, color: '#BA7517' }} />
+          </span>
+        : paiTexto
 
     return (
       <div>

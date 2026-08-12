@@ -5,6 +5,7 @@ import BottomNav from './BottomNav'
 import SeletoresTopo from './SeletoresTopo'
 import { Loading, Modal } from '../UI'
 import ErrorBoundary from '../ErrorBoundary'
+import AvisosLogin from '../AvisosLogin'
 import { hoje as hojeAgora, hojeISO, getDataSimulada, setDataSimulada, limparDataSimulada } from '../../lib/hoje'
 import { fmtData } from '../../lib/helpers'
 import { useCiclo, calcularCicloEsperado, CARENCIA_DIAS } from '../../lib/CicloContext'
@@ -99,6 +100,12 @@ export default function Layout({ user, perfil }) {
 
   return (
     <div className="app-shell">
+      {/* Parte 3 (2026-08-13) — avisos de pendência (diagnóstico/parto/desmame
+          atrasados), uma vez por login. Vive fora do fluxo de banners abaixo
+          de propósito: é modal, não faixa fixa, e decide sozinho (timeout de
+          4s + checagem de interação) se deve aparecer ou não. */}
+      <AvisosLogin />
+
       {/* Aviso persistente de modo simulação — ferramenta de TESTE, para nunca
           esquecer que a data usada pelo app não é a real. Fica visível em toda
           página porque Layout envolve todas as rotas. */}

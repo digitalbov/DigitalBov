@@ -7,10 +7,10 @@ import { useConta } from '../lib/ContaContext'
 import { useCiclo, statusCiclo } from '../lib/CicloContext'
 import {
   fmtData, pct, contarMatrizes, contarMatrizesCiclo, ehLotePrenhezAdquirida, contarExpostas, contarPrenhas, calcTaxaPrenhez, calcCategoriaRebanho, algumErro,
-  GESTACAO_MAX_DIAS, GESTACAO_ANGUS_DIAS, PERDA_PRESUMIDA_DIAS_APOS_PREVISTO, APTO_AO_DESMAME_DIAS, calcGestacaoLote, calcTaxaParicao, calcDesmameMetrics,
+  GESTACAO_MAX_DIAS, GESTACAO_ANGUS_DIAS, PERDA_PRESUMIDA_DIAS_APOS_PREVISTO, APTO_AO_DESMAME_DIAS, DESMAME_NATURAL_DIAS, calcGestacaoLote, calcTaxaParicao, calcDesmameMetrics,
   calcIntervaloPartos, statusReprodutivoExibicao, statusReprodutivoVendida, statusReprodutivoDetalhado, desfechoReprodutivo, tentativaMaisRecentePendente, FALHA_MOTIVO_LABEL,
   dataNaoFutura, resolverPaiDerivado, resolverPaiIdDerivado, mesesDeVida, capitalizarPrimeira, capitalizarNome, numeroPositivo, loteEncerrado,
-  nomeTouro, resolverTouroDigitado,
+  nomeTouro, touroSemVinculo, resolverTouroDigitado,
 } from '../lib/helpers'
 import { hoje as hojeAgora, hojeISO } from '../lib/hoje'
 import { registrarDesmame, desfazerDesmame } from '../lib/reprodutivoDesmame'
@@ -2054,8 +2054,23 @@ export default function Reprodutivo() {
   // Corrige lançamento por engano (ver desfazerDesmame em
   // reprodutivoDesmame.js). Confirmação via <Confirm> do app — avisa que isso
   // também muda os indicadores.
+  // Bloqueio (2026-08-12, decisão do usuário): terneiro que já saiu da
+  // fazenda (vendido ou morto) não pode ter o desmame desfeito — voltaria a
+  // "com cria ao pé"/"ainda não desmamado" pra um animal que fisicamente não
+  // está mais aqui, dado inconsistente. NÃO é sobre "desmame veio de uma
+  // venda": venda nunca grava data_desmame (confirmado lendo
+  // registrar_venda_animais — só grava situacao/data_baixa/pesagem tipo
+  // 'venda'; calcDesmameMetrics só usa esse peso como equivalente quando
+  // data_desmame JÁ estava preenchido antes). O bloqueio certo é mais simples
+  // e mais amplo: bezerro.situacao !== 'ativo', não importa se o desmame foi
+  // lançado antes ou depois dele sair.
   const desfazerDesmameLote = (p) => {
     if (!podeEditarReprod) return
+    if (p.bezerro?.situacao && p.bezerro.situacao !== 'ativo') {
+      const motivo = p.bezerro.situacao === 'vendido' ? 'vendido' : p.bezerro.situacao === 'morto' ? 'morto' : 'baixado'
+      toast(`Não é possível desfazer: o terneiro já foi ${motivo} e não está mais na fazenda — desfazer o desmame deixaria o cadastro inconsistente (fora da fazenda, mas marcado como ainda não desmamado).`, 'error')
+      return
+    }
     setConfirmDesfazerDesmameLote(p)
   }
 
@@ -2787,6 +2802,10 @@ export default function Reprodutivo() {
             </button>
             <span style={{ fontWeight:500, display:'flex', alignItems:'center', gap:6 }}>
               Lote {selLote.numero} — {nomeTouro(selLote)} · {fmtData(selLote.data)}
+              {touroSemVinculo(selLote) && (
+                <i className="ti ti-alert-circle" style={{ fontSize:13, color:'#BA7517' }}
+                  title="Sem vínculo por id — texto congelado no momento do lançamento; um rename do touro cadastrado não atualiza este nome." />
+              )}
               <Badge color={selLote.tipo === 'natural' ? 'purple' : 'blue'}>{selLote.tipo === 'natural' ? 'Natural' : 'IA'}</Badge>
             </span>
             {podeEditarReprodCiclo && (
@@ -2814,8 +2833,8 @@ export default function Reprodutivo() {
           {selLote.lote_touros?.length > 0 && (
             <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap', marginBottom:14 }}>
               <span style={{ fontSize:'.78rem', color:'#6B7280' }}>Touros deste lote:</span>
-              <Badge color="purple">{nomeTouro(selLote)}</Badge>
-              {selLote.lote_touros.map(t => <Badge key={t.id} color="purple">{nomeTouro(t)}</Badge>)}
+              <Badge color="purple">{nomeTouro(selLote)}{touroSemVinculo(selLote) ? ' ⚠' : ''}</Badge>
+              {selLote.lote_touros.map(t => <Badge key={t.id} color="purple">{nomeTouro(t)}{touroSemVinculo(t) ? ' ⚠' : ''}</Badge>)}
               <span style={{ fontSize:'.72rem', color:'#92620A' }}>
                 <i className="ti ti-alert-triangle" style={{ fontSize:11 }} /> Vários touros — paternidade indefinida nos bezerros deste lote.
               </span>
@@ -3166,14 +3185,30 @@ export default function Reprodutivo() {
                           )}
                         </div>
                       )}
-                      {detalheVaca.etapa === 'desmamado' && (
+                      {detalheVaca.etapa === 'desmamado' && detalheVaca.desmameNatural && (
+                        // Desmame natural presumido (2026-08-12) — 100% derivado
+                        // (dataDesmameEfetiva, helpers.js), nada gravado: nunca tem
+                        // "Desfazer" (não existe registro nenhum pra desfazer) — se
+                        // um desmame real acontecer depois, "Registrar desmame"
+                        // continua disponível logo abaixo e a data registrada tem
+                        // prioridade sobre esta, sozinho, sem ação extra.
+                        <div style={{ fontSize:'.72rem', color:'#BA7517', marginTop:2, fontWeight:600 }}>
+                          <i className="ti ti-clock" style={{ fontSize:11 }} /> Desmame natural (presumido) em {fmtData(detalheVaca.dataDesmame)} — {DESMAME_NATURAL_DIAS} dias sem desmame registrado
+                        </div>
+                      )}
+                      {detalheVaca.etapa === 'desmamado' && !detalheVaca.desmameNatural && (
                         <div style={{ fontSize:'.72rem', color:'#6B7280', marginTop:2, fontWeight:600, display:'flex', alignItems:'center', gap:4 }}>
                           <span><i className="ti ti-circle-check" style={{ fontSize:11 }} /> Desmamado em {fmtData(detalheVaca.dataDesmame)}{detalheVaca.pesoDesmame ? ` · ${detalheVaca.pesoDesmame}kg` : ''}</span>
                           {podeEditarReprod && partoReg && (
-                            <button className="btn-icon" title="Desfazer desmame" disabled={salvandoDesmameId === partoReg.id}
-                              onClick={() => desfazerDesmameLote(partoReg)}>
-                              <i className="ti ti-x" style={{ fontSize:12 }} />
-                            </button>
+                            partoReg.bezerro?.situacao && partoReg.bezerro.situacao !== 'ativo' ? (
+                              <i className="ti ti-lock" style={{ fontSize:12, color:'#9CA3AF' }}
+                                title={`Terneiro ${partoReg.bezerro.situacao} — desfazer desmame bloqueado (deixaria o cadastro inconsistente).`} />
+                            ) : (
+                              <button className="btn-icon" title="Desfazer desmame" disabled={salvandoDesmameId === partoReg.id}
+                                onClick={() => desfazerDesmameLote(partoReg)}>
+                                <i className="ti ti-x" style={{ fontSize:12 }} />
+                              </button>
+                            )
                           )}
                         </div>
                       )}
@@ -3323,8 +3358,13 @@ export default function Reprodutivo() {
                         'lactante' já exclui morto/natimorto — ver statusReprodutivoDetalhado,
                         helpers.js). Peso é opcional (Fase B) — o botão fica
                         disponível com ou sem peso digitado; sem peso, registra
-                        só a data (ver comentário em salvarDesmame). */}
-                    {podeEditarReprod && detalheVaca.etapa === 'lactante' && partoReg && (() => {
+                        só a data (ver comentário em salvarDesmame).
+                        detalheVaca.desmameNatural (2026-08-12) — mesmo formulário
+                        continua disponível quando o desmame é só presumido (não
+                        existe registro real ainda): o usuário pode registrar o
+                        desmame de verdade a qualquer momento, com data/peso reais,
+                        que passam a ter prioridade sobre o presumido sozinhos. */}
+                    {podeEditarReprod && (detalheVaca.etapa === 'lactante' || detalheVaca.desmameNatural) && partoReg && (() => {
                       const fd = formDesmame[partoReg.id] || {}
                       const ocupado = salvandoDesmameId === partoReg.id
                       return (

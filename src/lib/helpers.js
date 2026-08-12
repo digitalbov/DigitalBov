@@ -482,7 +482,13 @@ export function calcTaxaParicao(expostas, partos, gestando = 0, vendidas = 0) {
 // exposta, mesma exclusão de calcTaxaParicao/calcGestacaoLote.
 export function calcDesmameMetrics(partosArr, totalInseminadas, vendidas = 0) {
   const totalEfetivo = totalInseminadas - vendidas
-  const desmamados = (partosArr || []).filter(p => p.bezerro?.data_desmame).length
+  // desmamados (2026-08-12) — conta real E presumido (dataDesmameEfetiva,
+  // acima): desmame natural entra na CONTAGEM/Taxa de Desmama igual a um
+  // desmame real. O bloco de peso abaixo continua exigindo data_desmame
+  // REAL (nunca a efetiva) — presumido nunca tem pesagem de verdade, então
+  // cai sozinho na mesma regra de "desmame sem peso" já existente (fora do
+  // numerador E do denominador de peso, nunca vira zero).
+  const desmamados = (partosArr || []).filter(p => dataDesmameEfetiva(p.bezerro)).length
   // Guardado por desmamados > 0, não só por totalInseminadas > 0: sem nenhum
   // desmame registrado ainda, "0%"/"0 kg" pareceriam resultado real (ruim) em
   // vez de "ainda não há desmames" — a safra pode estar só em andamento.
@@ -917,12 +923,38 @@ export const repCor = {
   Falhada: { bg: '#FCEBEB', text: '#791F1F' },
 }
 
+// ── Desmame natural presumido (2026-08-12, decisão do usuário — D2) — 100%
+// DERIVADO, nunca grava nada, mesmo padrão de loteEncerrado/perda gestacional
+// presumida: recalculado ao vivo a cada leitura, nunca uma foto congelada.
+// Vaca com cria ao pé há mais de DESMAME_NATURAL_DIAS (365) sem desmame
+// REAL registrado é tratada como desmamada nesse dia — sem aviso, sem
+// gravação, sem cron/job nenhum rodando: simplesmente o próximo componente
+// que ler o status já enxerga a data certa (nascimento + 365), porque é
+// recalculada, nunca "quando o sistema percebeu".
+// Se um desmame REAL for registrado depois (a qualquer momento — o
+// formulário continua disponível mesmo com o presumido já mostrando, ver
+// Reprodutivo.jsx), data_desmame passa a existir de verdade e tem
+// prioridade automática aqui, sem nenhuma ação extra — não tem "desfazer" o
+// presumido porque nunca existiu registro nenhum pra desfazer.
+export const DESMAME_NATURAL_DIAS = 365
+export function dataDesmameEfetiva(bezerro, hoje = hojeAgora()) {
+  if (!bezerro) return null
+  if (bezerro.data_desmame) return bezerro.data_desmame
+  if (!bezerro.data_nascimento) return null
+  const d = new Date(bezerro.data_nascimento + 'T12:00:00')
+  d.setDate(d.getDate() + DESMAME_NATURAL_DIAS)
+  return d <= hoje ? d.toISOString().slice(0, 10) : null
+}
+export function ehDesmameNaturalPresumido(bezerro, hoje = hojeAgora()) {
+  return !bezerro?.data_desmame && !!dataDesmameEfetiva(bezerro, hoje)
+}
+
 // ── Predicado ÚNICO de "cria ao pé" — usado por statusReprodutivoExibicao,
 // statusReprodutivoDetalhado e desfechoReprodutivo (helpers.js), pra nunca
 // ter 3 cópias divergentes do mesmo critério. Um parto conta como "cria ao
 // pé" quando: não foi natimorto, o bezerro está VIVO E ATIVO no rebanho
 // (situacao === 'ativo' — positivo, não "!== 'morto'") e ainda não foi
-// desmamado (data_desmame vazio).
+// desmamado (nem real, nem presumido — ver dataDesmameEfetiva acima).
 //
 // Checagem POSITIVA (situacao === 'ativo'), não negativa (situacao !==
 // 'morto'): achado ao vivo — um bezerro VENDIDO ainda mamando (situacao
@@ -932,13 +964,16 @@ export const repCor = {
 // "Com cria ao pé"/"lactante" PARA SEMPRE, mesmo já fora do rebanho. A
 // checagem positiva fecha isso: só 'ativo' conta.
 //
-// `parto` precisa ter natimorto e bezerro.{situacao,data_desmame} (ex:
-// db.partos.listAll(), selLote.partos no detalhe do lote, ou o parto mais
-// recente vindo de todosPartos em desfechoReprodutivo).
+// `parto` precisa ter natimorto e bezerro.{situacao,data_desmame,
+// data_nascimento} (ex: db.partos.listAll(), selLote.partos no detalhe do
+// lote, ou o parto mais recente vindo de todosPartos em desfechoReprodutivo)
+// — data_nascimento é a adição desta rodada (2026-08-12), precisa vir nos
+// embeds pra dataDesmameEfetiva funcionar; sem ela, cai como null e o
+// comportamento é idêntico ao de antes (nunca presume).
 export function bezerroAindaComCriaAoPe(parto) {
   if (!parto || parto.natimorto) return false
   const b = parto.bezerro
-  return !!b && b.situacao === 'ativo' && !b.data_desmame
+  return !!b && b.situacao === 'ativo' && !dataDesmameEfetiva(b)
 }
 
 // ── Situação reprodutiva de EXIBIÇÃO (não é um valor do banco) ────────────────
@@ -1132,6 +1167,141 @@ export const FALHA_MOTIVO_LABEL = {
   perda_gestacional: 'perda gestacional',
 }
 
+// ── Avisos de pendência no login (Parte 3, 2026-08-13) ──────────────────────
+// Nenhum critério novo — reaproveita exatamente o que o balão de pendências
+// do ciclo anterior (Reprodutivo.jsx) já usa: desfechoReprodutivo (resultado
+// 'em_aberto' = prenha sem desfecho) e bezerroAindaComCriaAoPe/
+// APTO_AO_DESMAME_DIAS (cria ao pé). A única coisa nova aqui é o RECORTE por
+// dias-de-atraso (pendência "há muito tempo", não qualquer pendência) e a
+// varredura sem escopo de ciclo — o balão olha só o ciclo anterior; login
+// precisa olhar tudo (listPendenciasLogin já limita a 2 anos pra trás).
+export const DIAGNOSTICO_IA_PENDENTE_DIAS = 45
+export const DIAGNOSTICO_NATURAL_PENDENTE_DIAS = 180
+export const PARTO_PENDENTE_DIAS_APOS_PREVISTO = 45
+export const CRIA_AO_PE_PENDENTE_DIAS = 240
+
+// `lotes` = db.lotesInseminacao.listPendenciasLogin() (cada lote com
+// id/data/tipo/estacao/ciclo/inseminacoes/partos/abortos). `dispensadosPorTipo`
+// = Map<tipo_aviso, Set<lote_id>> (de db.avisosDispensados.list()) — um lote
+// já dispensado nunca contribui de novo pro mesmo tipo, mas continua contando
+// pros OUTROS 3 tipos (dispensa é só daquele tipo, ver migration). Devolve só
+// as seções com pendência de verdade DEPOIS de tirar os dispensados — uma
+// seção inteira some da lista assim que a última pendência dela é dispensada,
+// sem precisar de nenhuma lógica extra no chamador.
+export function calcularPendenciasLogin(lotes, dispensadosPorTipo, hoje = hojeAgora()) {
+  const hojeStr = hojeISO_local(hoje)
+  const diasDesde = (dataStr) => dataStr ? Math.floor((hoje - new Date(dataStr + 'T12:00:00')) / 86400000) : null
+  const naoDispensado = (tipo, loteId) => !dispensadosPorTipo?.get(tipo)?.has(loteId)
+
+  const porCicloAgrupar = (loteIds, mapaLotePorId) => {
+    const grupos = new Map() // cicloNome -> Set(estacaoNome)
+    loteIds.forEach(id => {
+      const l = mapaLotePorId.get(id)
+      const cicloNome = l?.ciclo?.nome || 'sem ciclo'
+      const estacaoNome = l?.estacao?.nome || `Lote ${l?.numero ?? ''}`.trim()
+      if (!grupos.has(cicloNome)) grupos.set(cicloNome, new Set())
+      grupos.get(cicloNome).add(estacaoNome)
+    })
+    return [...grupos.entries()].map(([cicloNome, estacoes]) => ({ cicloNome, estacoes: [...estacoes] }))
+  }
+
+  const mapaLotePorId = new Map((lotes || []).map(l => [l.id, l]))
+
+  // 1/2 — Diagnóstico pendente (IA e monta natural, limiares diferentes).
+  const loteIdsDiagInsem = [], loteIdsDiagNatural = []
+  ;(lotes || []).forEach(l => {
+    const temPendente = (l.inseminacoes || []).some(i => !i.diagnostico)
+    if (!temPendente) return
+    const dias = diasDesde(l.data)
+    if (l.tipo === 'natural') {
+      if (dias !== null && dias > DIAGNOSTICO_NATURAL_PENDENTE_DIAS && naoDispensado('diagnostico_natural', l.id)) loteIdsDiagNatural.push(l.id)
+    } else {
+      if (dias !== null && dias > DIAGNOSTICO_IA_PENDENTE_DIAS && naoDispensado('diagnostico_insem', l.id)) loteIdsDiagInsem.push(l.id)
+    }
+  })
+
+  // 3/4 — Partos pendentes e cria ao pé pendente de desmame: por ANIMAL,
+  // pool de todas as inseminações/partos/abortos (mesmo raciocínio do balão
+  // do ciclo anterior — a "tentativa mais recente" de uma vaca pode estar
+  // num lote diferente do que gerou a pendência anterior dela).
+  const todasIns = (lotes || []).flatMap(l => (l.inseminacoes || []).map(i => ({ ...i, lote: { id: l.id, data: l.data } })))
+  const todosPartosLote = (lotes || []).flatMap(l => (l.partos || []).map(p => ({ ...p, loteId: l.id })))
+  const todosAbortosLote = (lotes || []).flatMap(l => l.abortos || [])
+  const animalIds = [...new Set(todasIns.map(i => i.animal_id).filter(Boolean))]
+  const animalPorId = new Map(todasIns.filter(i => i.animal_id).map(i => [i.animal_id, i.animal]))
+
+  const loteIdsParto = [], loteIdsDesmame = []
+  animalIds.forEach(animalId => {
+    const desf = desfechoReprodutivo(animalId,
+      { inseminacoes: todasIns, partos: todosPartosLote, abortos: todosAbortosLote }, hojeStr, todosPartosLote, animalPorId.get(animalId))
+
+    if (desf.resultado === 'em_aberto' && desf.dataPrevistaParto) {
+      const diasAtraso = diasDesde(desf.dataPrevistaParto)
+      if (diasAtraso !== null && diasAtraso > PARTO_PENDENTE_DIAS_APOS_PREVISTO) {
+        // Lote da prenhez mais recente (mesma seleção que desfechoReprodutivo
+        // faz internamente) — só pra atribuir a pendência a um lote estável.
+        const prenhezesAnimal = todasIns.filter(i => i.animal_id === animalId && i.diagnostico === 'P' && i.lote?.data)
+        const ultimaPrenhez = prenhezesAnimal.reduce((max, i) => (!max || i.lote.data > max.lote.data) ? i : max, null)
+        if (ultimaPrenhez?.lote?.id && naoDispensado('parto_pendente', ultimaPrenhez.lote.id)) loteIdsParto.push(ultimaPrenhez.lote.id)
+      }
+    }
+
+    if (desf.comCriaAoPe) {
+      const parto = todosPartosLote.find(p => p.mae_id === animalId && p.bezerro_id === desf.bezerroAtualId)
+      const dias = diasDesde(parto?.bezerro?.data_nascimento)
+      if (dias !== null && dias >= CRIA_AO_PE_PENDENTE_DIAS && parto?.loteId && naoDispensado('desmame_pendente', parto.loteId)) loteIdsDesmame.push(parto.loteId)
+    }
+  })
+
+  const secoes = []
+  if (loteIdsDiagInsem.length > 0) secoes.push({ tipo: 'diagnostico_insem', loteIds: loteIdsDiagInsem, porCiclo: porCicloAgrupar(loteIdsDiagInsem, mapaLotePorId) })
+  if (loteIdsDiagNatural.length > 0) secoes.push({ tipo: 'diagnostico_natural', loteIds: loteIdsDiagNatural, porCiclo: porCicloAgrupar(loteIdsDiagNatural, mapaLotePorId) })
+  if (loteIdsParto.length > 0) secoes.push({ tipo: 'parto_pendente', loteIds: [...new Set(loteIdsParto)], porCiclo: porCicloAgrupar([...new Set(loteIdsParto)], mapaLotePorId) })
+  if (loteIdsDesmame.length > 0) secoes.push({ tipo: 'desmame_pendente', loteIds: [...new Set(loteIdsDesmame)], porCiclo: porCicloAgrupar([...new Set(loteIdsDesmame)], mapaLotePorId) })
+  return secoes
+}
+// hojeISO() (hoje.js) já formata a data GLOBAL simulada/real — esta variante
+// local só formata um Date JÁ ESCOLHIDO (o `hoje` recebido por parâmetro),
+// sem reconsultar localStorage/permissão de simulação de novo; evita que
+// calcularPendenciasLogin desalinhe do `hoje` que o chamador decidiu usar.
+function hojeISO_local(d) {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const dia = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${dia}`
+}
+
+export const TITULO_AVISO_LOGIN = {
+  diagnostico_insem:   'Diagnóstico de inseminação pendente',
+  diagnostico_natural: 'Diagnóstico de monta natural pendente',
+  parto_pendente:      'Parto pendente',
+  desmame_pendente:    'Desmame pendente',
+}
+
+// Texto EXATO pedido pelo usuário (Parte 3), só com estação(ões)/ciclo
+// preenchidos — nunca conta de vacas/lotes no texto (o pedido original não
+// tinha número nenhum no template, só "estação(ões) de monta XXX do ciclo
+// XXXX/XXXX"). Mais de um grupo (ciclo, estações) na mesma seção — raro, mas
+// possível — vira uma frase por grupo, juntas.
+export function textoAvisoLogin(secao) {
+  const porGrupo = (frase) => secao.porCiclo
+    .map(g => `${frase} da(s) estação(ões) de monta ${g.estacoes.join(', ')} do ciclo ${g.cicloNome}.`)
+    .join(' ')
+  if (secao.tipo === 'diagnostico_insem') return porGrupo('Há vacas inseminadas pendentes de diagnóstico')
+  if (secao.tipo === 'diagnostico_natural') return porGrupo('Há vacas de monta natural pendentes de diagnóstico')
+  if (secao.tipo === 'parto_pendente') {
+    return secao.porCiclo
+      .map(g => `Existem vacas prenhas pendentes de parto da(s) estação(ões) de monta ${g.estacoes.join(', ')} do ciclo ${g.cicloNome}.`)
+      .join(' ')
+  }
+  if (secao.tipo === 'desmame_pendente') {
+    return secao.porCiclo
+      .map(g => `Existem vacas com cria ao pé pendentes de desmame da(s) estação(ões) de monta ${g.estacoes.join(', ')} do ciclo ${g.cicloNome}.`)
+      .join(' ') + ` Aos ${DESMAME_NATURAL_DIAS} dias, os animais serão desmamados automaticamente como desmame natural.`
+  }
+  return ''
+}
+
 // ── Linha do tempo por vaca dentro de um lote (Fase 10 — Reprodutivo.jsx,
 // detalhe do lote) — NÃO mexe em statusReprodutivoExibicao (intocada,
 // continua exatamente como usada hoje); esta é mais rica: devolve um objeto
@@ -1140,9 +1310,13 @@ export const FALHA_MOTIVO_LABEL = {
 //
 // `partos` = partos DESTE lote (ex: selLote.partos), cada item precisa de
 // mae_id, data_parto, natimorto e bezerro:{id,brinco,sexo,situacao,
-// data_desmame,pesagens:[{tipo,peso_kg}]}. `dataMonta` = selLote.data (usada
-// pra calcular dataPrevistaParto = monta + GESTACAO_ANGUS_DIAS e, a partir
-// dela, perdaPresumida — ver PERDA_PRESUMIDA_DIAS_APOS_PREVISTO acima).
+// data_desmame,data_nascimento,pesagens:[{tipo,peso_kg}]} — data_nascimento
+// (2026-08-12) é exigido por dataDesmameEfetiva (desmame natural presumido
+// aos DESMAME_NATURAL_DIAS, ver acima); sem ela no embed, cai como null e
+// simplesmente nunca presume (comportamento de antes, não quebra). `dataMonta`
+// = selLote.data (usada pra calcular dataPrevistaParto = monta +
+// GESTACAO_ANGUS_DIAS e, a partir dela, perdaPresumida — ver
+// PERDA_PRESUMIDA_DIAS_APOS_PREVISTO acima).
 //
 // IMPORTANTE pra quem chamar isto fora do contexto de um lote específico
 // (ex: ficha do animal): `partos` precisa estar filtrado pra conter só
@@ -1155,7 +1329,7 @@ export const FALHA_MOTIVO_LABEL = {
 // 'desmamado' | null (vazia, ou qualquer outra situação sem linha do tempo
 // própria — a tela mantém o badge de sempre nesses casos, sem usar isto).
 export function statusReprodutivoDetalhado(animal, partos, dataMonta) {
-  const vazio = { etapa: null, dataParto: null, bezerro: null, dataDesmame: null, pesoDesmame: null, dataPrevistaParto: null, perdaPresumida: false }
+  const vazio = { etapa: null, dataParto: null, bezerro: null, dataDesmame: null, pesoDesmame: null, dataPrevistaParto: null, perdaPresumida: false, desmameNatural: false }
   if (!animal) return vazio
 
   const partosDaMae = (partos || [])
@@ -1201,7 +1375,8 @@ export function statusReprodutivoDetalhado(animal, partos, dataMonta) {
   const pesoDesm = (b?.pesagens || []).find(ps => ps.tipo === 'desmama')
   return {
     ...vazio, etapa: 'desmamado', dataParto: ultimoParto.data_parto, bezerro,
-    dataDesmame: b?.data_desmame || null,
+    dataDesmame: dataDesmameEfetiva(b),
+    desmameNatural: ehDesmameNaturalPresumido(b),
     pesoDesmame: pesoDesm ? parseFloat(pesoDesm.peso_kg) : null,
   }
 }
@@ -1554,6 +1729,26 @@ export function nomePai(animal, opts = {}) {
     animal: animal?.pai_animal, externo: animal?.pai_externo,
     textoLegado: animal?.pai, comBrinco: opts.comBrinco,
   })
+}
+
+// Companheiras de nomeTouro/nomePai (2026-08-12) — true quando há texto de
+// pai/touro mas NENHUM vínculo por id (nem cadastro, nem externo): dado de
+// antes da migração de vínculo por id (migration_touro_vinculo_id.sql), que
+// não reescreveu histórico. Um rename do animal cadastrado NUNCA atualiza
+// esse texto (não há id pra resolver de novo) — ao contrário dos vinculados,
+// que já derivam ao vivo. Monta natural com vários touros (paternidade
+// indefinida) não conta como "sem vínculo" aqui — é um caso intencional
+// (paternidade de fato não definida), não um dado órfão de migração.
+export function paiSemVinculo(animal) {
+  if (!animal?.pai) return false
+  if (paiEhMontaNaturalIndefinida(animal.pai)) return false
+  return !animal.pai_animal_id && !animal.pai_externo_id
+}
+export function touroSemVinculo(lote) {
+  const texto = lote?.touro ?? lote?.nome
+  if (!texto) return false
+  if (lote?.lote_touros?.length > 0) return false
+  return !lote?.touro_animal_id && !lote?.touro_externo_id
 }
 
 // ── Ordenação de brincos ──────────────────────────────────────────────────────

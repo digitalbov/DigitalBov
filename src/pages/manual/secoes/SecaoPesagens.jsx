@@ -176,7 +176,10 @@ export default function SecaoPesagens({ item }) {
         Um animal já desmamado aparece com o selo verde de sempre ("Desmamado em dd/mm · Xkg") e um botão
         <strong> ✕ Desfazer desmame</strong>, disponível nos dois pontos de entrada — corrige um lançamento por
         engano apagando a data de desmame e a pesagem "Desmama" associada. O sistema avisa, antes de desfazer,
-        que isso também muda o cálculo de Kg ao Desmame e Kg Desmamado/Matriz.
+        que isso também muda o cálculo de Kg ao Desmame e Kg Desmamado/Matriz. Na aba de Pesagens o botão só
+        aparece pra animais ativos (a lista já é filtrada assim); no detalhe do lote, em Gestão Reprodutiva, um
+        terneiro já vendido ou morto mostra um cadeado no lugar do botão — desfazer o desmame de quem já saiu da
+        fazenda voltaria ele pra "ainda não desmamado" sem sentido nenhum, então fica bloqueado (2026-08-12).
       </p>
 
       <h4 style={{ fontSize: '.88rem', fontWeight: 700, color: '#1a1a1a', marginBottom: 8 }}>Badges de origem da pesagem</h4>

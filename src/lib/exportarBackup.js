@@ -39,7 +39,7 @@ const safeQ = async (table, contaId, fazendaId, opts = {}) => {
   return data || []
 }
 
-// Monta o payload completo do backup (formato_versao '2', 26 tabelas) — não
+// Monta o payload completo do backup (formato_versao '2', 27 tabelas) — não
 // dispara download nenhum, só busca e monta o objeto. Quem chama decide o
 // que fazer com o resultado (Backup.jsx baixa um .json; RestaurarBackup.jsx
 // usa o mesmo payload como "backup de segurança" antes de uma restauração
@@ -56,6 +56,7 @@ export async function gerarBackupPayload({ contaId, fazendaId, contaNome, fazend
     lote_touros, estacoes_monta, touros_externos,
     planejamentos, planejamento_acoes, simulacoes_transacoes,
     feiras, feira_edicoes, feira_participacoes,
+    avisos_dispensados,
   ] = await Promise.all([
     safeQ('proprietarios', contaId, fazendaId),
     safeQ('fazendas', contaId, fazendaId, { porId: true }),
@@ -87,6 +88,12 @@ export async function gerarBackupPayload({ contaId, fazendaId, contaNome, fazend
     safeQ('feiras', contaId, fazendaId),
     safeQ('feira_edicoes', contaId, fazendaId),
     safeQ('feira_participacoes', contaId, fazendaId),
+    // avisos_dispensados (Parte 3, 2026-08-13) — TEM fazenda_id (ao contrário
+    // do Veterinário, que é conta-scoped puro e por isso fica fora do backup
+    // de fazenda por design): entra no backup normal, mesmo critério.
+    // Restaurar sem isso faria a caixa de avisos do login "esquecer" toda
+    // dispensa já feita e voltar a incomodar por lotes que já foram tratados.
+    safeQ('avisos_dispensados', contaId, fazendaId),
   ])
 
   const dados = {
@@ -100,6 +107,7 @@ export async function gerarBackupPayload({ contaId, fazendaId, contaNome, fazend
     lote_touros, estacoes_monta, touros_externos,
     planejamentos, planejamento_acoes, simulacoes_transacoes,
     feiras, feira_edicoes, feira_participacoes,
+    avisos_dispensados,
   }
 
   return {

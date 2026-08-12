@@ -245,6 +245,9 @@ export default function SecaoAnimais({ item }) {
         <AlertBox type="green" icon="ti-info-circle"
           title="Pai e mãe com resolução ao vivo, mas ainda aceitam texto livre"
           body='Se o brinco/nome digitado não bate com nenhum animal cadastrado (ou, no caso do Pai, com um touro externo já usado), o sistema mostra que vai salvar só como texto e segue normalmente — a árvore genealógica só encontra o vínculo de verdade quando o texto bate com um cadastro existente no momento de salvar. Renomear o brinco da mãe depois não quebra mais vínculos já resolvidos por cadastro; só quem ficou como texto solto precisa de correção manual, e o sistema avisa quando isso acontece.' />
+        <AlertBox type="amber" icon="ti-alert-circle"
+          title="Ícone de aviso no nó do touro (2026-08-12)"
+          body='Na árvore genealógica e no campo "Pai" da ficha, um touro sem vínculo por id (nem cadastro, nem externo) aparece com um ícone de alerta discreto: esse nome é texto congelado no momento em que foi lançado — se você renomear o touro cadastrado depois, esse texto específico NÃO acompanha (ao contrário dos vinculados por id, que sempre mostram o nome atual). O mesmo aviso aparece no cabeçalho do lote em Gestão Reprodutiva, para o touro daquela monta.' />
       </div>
     </div>
   )

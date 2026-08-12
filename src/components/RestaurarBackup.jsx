@@ -29,6 +29,7 @@ const LABEL_TABELA = {
   planejamentos: 'Planejamentos', planejamento_acoes: 'Ações de planejamento',
   simulacoes_transacoes: 'Simulações',
   feiras: 'Feiras', feira_edicoes: 'Feiras (datas/locais por ano)', feira_participacoes: 'Participações em feiras',
+  avisos_dispensados: 'Avisos de pendência dispensados',
 }
 
 // Formato aceito — qualquer outro valor (ou ausente) é rejeitado antes de
@@ -44,6 +45,7 @@ const TABELAS_ESPERADAS = [
   'lancamento_rateios', 'transacao_animais_itens', 'sanidade_animais',
   'lote_touros', 'touros_externos', 'estacoes_monta', 'planejamentos', 'planejamento_acoes',
   'simulacoes_transacoes', 'feiras', 'feira_edicoes', 'feira_participacoes',
+  'avisos_dispensados',
 ]
 
 // [tabela de origem, campo FK, tabela alvo, é opcional/nullable]. Cobre toda
@@ -157,6 +159,10 @@ const REFERENCIAS = [
   ['feira_edicoes', 'feira_id', 'feiras', false],
   ['feira_participacoes', 'edicao_id', 'feira_edicoes', false],
   ['feira_participacoes', 'animal_id', 'animais', false],
+  // avisos_dispensados.lote_id (Parte 3, 2026-08-13): dispensa aponta pro
+  // lote que motivou o aviso — nunca opcional, uma dispensa sem lote não
+  // significa nada.
+  ['avisos_dispensados', 'lote_id', 'lotes_inseminacao', false],
 ]
 
 function validarArquivo(payload) {

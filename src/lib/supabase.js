@@ -193,7 +193,7 @@ export const db = {
     // ADICIONAL também pode estar vinculado por id, mesma regra do principal.
     list: (cicloId) => T('lotes_inseminacao').select(`
       *, inseminacoes(*, animal:animais(brinco,proprietario_id,sit_reprodutiva,situacao,data_baixa,proprietario:proprietarios(nome))),
-      partos(id,bezerro_id,mae_id,data_parto,natimorto,mae:animais!mae_id(brinco,proprietario_id),bezerro:animais!bezerro_id(id,brinco,sexo,pai,situacao,data_desmame,pesagens(id,data,tipo,peso_kg))),
+      partos(id,bezerro_id,mae_id,data_parto,natimorto,mae:animais!mae_id(brinco,proprietario_id),bezerro:animais!bezerro_id(id,brinco,sexo,pai,situacao,data_desmame,data_nascimento,pesagens(id,data,tipo,peso_kg))),
       abortos(id,animal_id,data,causa,observacoes,animal:animais(proprietario_id)),
       estacao:estacoes_monta(id,nome,inicio,fim),
       touro_animal:animais!touro_animal_id(id,brinco,nome), touro_externo:touros_externos(id,nome),
@@ -202,7 +202,7 @@ export const db = {
     listAll: () => T('lotes_inseminacao').select(`
       *, ciclo:ciclos_financeiros(id,nome,inicio,fim),
       inseminacoes(*, animal:animais(brinco,proprietario_id,sit_reprodutiva,situacao,data_baixa,proprietario:proprietarios(nome))),
-      partos(id,bezerro_id,mae_id,data_parto,natimorto,mae:animais!mae_id(proprietario_id),bezerro:animais!bezerro_id(situacao,data_desmame,pesagens(data,tipo,peso_kg))),
+      partos(id,bezerro_id,mae_id,data_parto,natimorto,mae:animais!mae_id(proprietario_id),bezerro:animais!bezerro_id(situacao,data_desmame,data_nascimento,pesagens(data,tipo,peso_kg))),
       abortos(id,animal_id,data,causa,animal:animais(proprietario_id)),
       estacao:estacoes_monta(id,nome,inicio,fim),
       touro_animal:animais!touro_animal_id(id,brinco,nome), touro_externo:touros_externos(id,nome),
@@ -244,6 +244,26 @@ export const db = {
       partos(mae_id, bezerro_id, data_parto, natimorto, bezerro:animais!bezerro_id(situacao,data_desmame,data_nascimento)),
       abortos(animal_id, data)
     `).eq('ciclo_id', cicloId).order('data', { ascending: false }),
+    // Avisos de pendência no login (Parte 3) — mesmo shape de
+    // listPendenciasCiclo, sem escopo de ciclo (varre todos, pra nunca
+    // esconder pendência de um ciclo que não é o local no momento do login)
+    // e com tipo/estacao/ciclo pro texto do aviso poder nomear estação(ões)
+    // e ciclo. Corte de 2 anos: pendência mais velha que isso já devia ter
+    // sido resolvida ou aceita como perdida — sem o corte, a consulta cresce
+    // sem limite pra sempre. `abortos` entra igual a listPendenciasCiclo —
+    // desfechoReprodutivo precisa saber quem abortou pra não contar como
+    // "partos pendentes" quem já teve a gestação resolvida.
+    listPendenciasLogin: () => {
+      const desde = new Date()
+      desde.setFullYear(desde.getFullYear() - 2)
+      return T('lotes_inseminacao').select(`
+        id, data, tipo,
+        estacao:estacoes_monta(id,nome), ciclo:ciclos_financeiros(id,nome),
+        inseminacoes(animal_id, diagnostico, data_diagnostico, animal:animais(situacao,data_baixa)),
+        partos(mae_id, bezerro_id, data_parto, natimorto, bezerro:animais!bezerro_id(situacao,data_desmame,data_nascimento)),
+        abortos(animal_id, data)
+      `).gte('data', desde.toISOString().slice(0, 10)).order('data', { ascending: false })
+    },
     // Item 5 (Financeiro.jsx — Situação reprodutiva na venda): só o
     // necessário pra atribuir cada diagnóstico/parto/aborto ao lote (e, por
     // ele, à estação) em que aconteceu, e pra classificar o desfecho
@@ -435,7 +455,7 @@ export const db = {
     // ancorar na safra da monta (via lote_inseminacao_id) em vez do nascimento.
     // lote:tipo — usado por Metas.jsx pra separar intervalo_partos por modo
     // (IA/Natural/Consolidado, Fase 2 da monta natural) sem mudar o resto do select.
-    listAll:   ()           => T('partos').select('bezerro_id,mae_id,data_parto,ciclo_id,lote_inseminacao_id,natimorto,mae:animais!mae_id(proprietario_id),bezerro:animais!bezerro_id(data_desmame,situacao),lote:lotes_inseminacao(tipo)').order('data_parto', { ascending: true }),
+    listAll:   ()           => T('partos').select('bezerro_id,mae_id,data_parto,ciclo_id,lote_inseminacao_id,natimorto,mae:animais!mae_id(proprietario_id),bezerro:animais!bezerro_id(data_desmame,situacao,data_nascimento),lote:lotes_inseminacao(tipo)').order('data_parto', { ascending: true }),
     insert:    (data)       => T('partos').insertOne(data).select().single(),
     // bezerro: id/situacao/data_desmame/pesagens — usado por
     // statusReprodutivoDetalhado (Animais.jsx, ficha do animal) além dos
@@ -443,7 +463,7 @@ export const db = {
     // lote.estacao_monta_id: usado por Animais.jsx (ficha) pra saber se um
     // parto pertence à ESTAÇÃO avaliada em desfechoReprodutivo (helpers.js) —
     // mesmo motivo do embed em inseminacoes.byAnimal/abortos.byAnimal.
-    byMae:     (maeId)      => T('partos').select('*, bezerro:animais!bezerro_id(id,brinco,sexo,situacao,data_desmame,pesagens(id,data,tipo,peso_kg)), lote:lotes_inseminacao(estacao_monta_id)').eq('mae_id', maeId).order('data_parto', { ascending: true }),
+    byMae:     (maeId)      => T('partos').select('*, bezerro:animais!bezerro_id(id,brinco,sexo,situacao,data_desmame,data_nascimento,pesagens(id,data,tipo,peso_kg)), lote:lotes_inseminacao(estacao_monta_id)').eq('mae_id', maeId).order('data_parto', { ascending: true }),
     // lote: usado por Animais.jsx pra resolver o clique em "pai" quando o valor
     // é "Monta natural — Lote N" (paternidade indefinida) — leva pro detalhe do
     // lote em vez de tentar achar um animal com esse nome (ver PAI_MONTA_NATURAL_PREFIX).
@@ -657,6 +677,25 @@ export const db = {
     list:   () => T('simulacoes_transacoes').select('*').order('data', { ascending: false }),
     insert: (data) => T('simulacoes_transacoes').insertOne(data).select().single(),
     delete: (id)   => escopo(T('simulacoes_transacoes').raw().delete().eq('id', id)),
+  },
+
+  // Avisos de pendência no login (Parte 3, migration_avisos_dispensados_login.sql)
+  // — dispensa por conta (nunca por usuário: a pendência é um fato da
+  // fazenda, não de quem está olhando), por tipo de aviso, por lote.
+  avisosDispensados: {
+    // Só os 2 campos que importam pra montar o Set de "já dispensado" no
+    // cliente — nunca o objeto inteiro, essa tabela só existe pra isso.
+    list: () => T('avisos_dispensados').select('tipo_aviso,lote_id'),
+    // upsert + ignoreDuplicates: dispensar de novo um lote já dispensado
+    // (ex: duplo clique, ou dois usuários dispensando quase ao mesmo tempo)
+    // nunca esbarra no UNIQUE(conta_id,tipo_aviso,lote_id) — vira no-op.
+    dispensar: (tipoAviso, loteIds) => {
+      const rows = (loteIds || []).map(loteId => ({
+        tipo_aviso: tipoAviso, lote_id: loteId, conta_id: cid(), fazenda_id: fid(),
+      }))
+      if (rows.length === 0) return Promise.resolve({ data: [], error: null })
+      return T('avisos_dispensados').raw().upsert(rows, { onConflict: 'conta_id,tipo_aviso,lote_id', ignoreDuplicates: true })
+    },
   },
 
   ciclos: {

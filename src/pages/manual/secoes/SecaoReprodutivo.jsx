@@ -224,6 +224,17 @@ export default function SecaoReprodutivo({ item }) {
             isso visível. Se esse terneiro for depois <strong>vendido</strong>, o peso da venda passa a valer
             como peso de desmame (volta a entrar em "Peso médio ao desmame"/"Kg desmamado por matriz"; P205
             continua de fora, porque depende da data real do desmame, que nesse caso não existe).</li>
+          <li><strong>Desmame natural (presumido)</strong> — "Desmame natural (presumido) em dd/mm/aaaa — 365
+            dias sem desmame registrado" (2026-08-12), em amarelo/âmbar, quando o terneiro completa 365 dias com
+            cria ao pé sem nenhum desmame lançado. <strong>100% derivado, nada é gravado</strong> — mesmo
+            princípio da "Perda gestacional presumida": a cada vez que a tela abre, o sistema recalcula "nasceu
+            há mais de 365 dias e não tem desmame real?" — sem cron, sem depender de alguém abrir o sistema num
+            dia certo, sem data errada. Não tem botão de desfazer (não existe registro nenhum pra desfazer); o
+            campo de peso e o botão "Registrar desmame" continuam disponíveis do lado — se você registrar o
+            desmame de verdade a qualquer momento, com data e peso reais, ele passa a valer sozinho, sem nenhuma
+            ação extra. Conta normalmente em "Desmamados"/"Taxa de desmama" (mesma contagem de um desmame real),
+            mas nunca tem peso — cai na mesma regra do desmame sem peso do item anterior, fora do numerador e do
+            denominador de peso.</li>
           <li><strong>Falhada</strong> — "Falhada — [motivo] (nome da estação)", quando a vaca foi exposta na
             estação de monta e <strong>não entregou terneiro nela</strong>, qualquer que seja o motivo. Ver a
             seção seguinte para os 3 motivos e como marcar manualmente.</li>

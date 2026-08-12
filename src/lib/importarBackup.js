@@ -60,6 +60,10 @@ const FKS_POR_TABELA = {
   planejamento_acoes:       { planejamento_id: 'planejamentos' },
   feira_edicoes:            { feira_id: 'feiras' },
   feira_participacoes:      { edicao_id: 'feira_edicoes', animal_id: 'animais' },
+  // avisos_dispensados (Parte 3, 2026-08-13) — TEM fazenda_id, ao contrário
+  // do Veterinário (conta-scoped puro, fora do backup por design); entra no
+  // caminho genérico normal, remapeando lote_id igual a qualquer outra FK.
+  avisos_dispensados:       { lote_id: 'lotes_inseminacao' },
 }
 
 // Ordem de FK, camada a camada (ver diagnóstico) — "fazendas" fica de fora
@@ -85,6 +89,7 @@ const ORDEM_GENERICA = [
   'feira_participacoes',
   'estoque_itens', 'estoque_movimentacoes',
   'metas', 'planejamentos', 'planejamento_acoes', 'simulacoes_transacoes',
+  'avisos_dispensados',
 ]
 
 // Ponto exato de inserção do bloco especial de lancamentos_financeiros —
