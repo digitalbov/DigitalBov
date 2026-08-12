@@ -6,6 +6,7 @@ import { useNavigate } from 'react-router-dom'
 import { db } from '../lib/supabase'
 import { calcCategoria, calcCategoriaRebanho, calcTaxaPrenhez, contarExpostas, contarPrenhas, calcGMD, pct, fmtMoeda, ehMatriz, algumErro, calcResultadoFinanceiro, CATEGORIAS_VALOR, idadeFormatada, calcDesempenhoVidaFemea, classificarDesfechosPorSafra, CORES_DESFECHO, ROTULOS_DESFECHO } from '../lib/helpers'
 import { Loading, IndexCard, BotaoPDF, ErroCarregamento, Badge, EmptyState, AlertBox } from '../components/UI'
+import Filtros from '../components/Filtros'
 import { useCiclo } from '../lib/CicloContext'
 import {
   BarChart, Bar, XAxis, YAxis,
@@ -361,24 +362,25 @@ export function Rebanho() {
         ))}
       </div>
 
-      <div style={{ marginBottom:12, display:'flex', justifyContent:'space-between', flexWrap:'wrap', gap:8, alignItems:'center' }}>
-        <div style={{ display:'flex', flexWrap:'wrap', gap:8, alignItems:'center' }}>
-          <div className="pill-group">
-            <button className={`pill ${!filtProp?'active':''}`} onClick={()=>setFiltProp('')}>Todos</button>
-            {props.map(p => (
-              <button key={p.id} className={`pill ${filtProp===p.id?'active':''}`} onClick={()=>setFiltProp(p.id)}>
-                {p.nome.split(' ')[0]}
-              </button>
-            ))}
-          </div>
-          {tab === 5 && categoriasRanking.length > 0 && (
-            <div className="pill-group">
-              <button className={`pill ${!filtCatRanking?'active':''}`} onClick={()=>setFiltCatRanking('')}>Todas categorias</button>
-              {categoriasRanking.map(c => (
-                <button key={c} className={`pill ${filtCatRanking===c?'active':''}`} onClick={()=>setFiltCatRanking(c)}>{c}</button>
-              ))}
-            </div>
-          )}
+      <div style={{ marginBottom:12, display:'flex', justifyContent:'space-between', flexWrap:'wrap', gap:8, alignItems:'flex-start' }}>
+        <div style={{ flex:1, minWidth:240 }}>
+          <Filtros
+            itens={[
+              {
+                chave: 'proprietario', label: 'Proprietário', tipo: 'pills', quick: true,
+                opcoes: [{ valor: '', label: 'Todos' }, ...props.map(p => ({ valor: p.id, label: p.nome.split(' ')[0] }))],
+              },
+              ...(tab === 5 && categoriasRanking.length > 0 ? [{
+                chave: 'categoriaRanking', label: 'Categoria', tipo: 'pills', quick: true,
+                opcoes: [{ valor: '', label: 'Todas categorias' }, ...categoriasRanking.map(c => ({ valor: c, label: c }))],
+              }] : []),
+            ]}
+            valores={{ proprietario: filtProp, categoriaRanking: filtCatRanking }}
+            onChange={(chave, valor) => {
+              if (chave === 'proprietario') setFiltProp(valor)
+              else if (chave === 'categoriaRanking') setFiltCatRanking(valor)
+            }}
+          />
         </div>
         <BotaoPDF contentRef={pdfAtualR.ref} filename={pdfAtualR.filename} titulo={pdfAtualR.titulo} />
       </div>

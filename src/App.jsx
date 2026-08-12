@@ -6,11 +6,13 @@ import { ContaProvider, useConta } from './lib/ContaContext'
 import { CicloProvider } from './lib/CicloContext'
 import { PermissoesProvider, usePermissoes } from './lib/PermissoesContext'
 import { ToastContainer, toast, FullLoading } from './components/UI'
+import { useIsMobile } from './lib/useIsMobile'
 import InstallPrompt from './components/InstallPrompt'
 import Layout          from './components/layout/Layout'
 import Login           from './components/auth/Login'
 
 const Dashboard   = lazy(() => import('./pages/Dashboard'))
+const Modulos     = lazy(() => import('./pages/Modulos'))
 const Propriedade = lazy(() => import('./pages/Propriedade'))
 const Animais     = lazy(() => import('./pages/Animais'))
 const Feiras      = lazy(() => import('./pages/Feiras'))
@@ -138,6 +140,15 @@ function RotaProtegida({ modulo, children }) {
   )
 }
 
+// ── Entrada padrão do app: no celular cai na tela de módulos (cards); no
+// desktop cai no Painel de sempre, sem tela de cards nenhuma. Mesmo
+// useIsMobile (768px) usado em Filtros/Modulos — um único lugar decide
+// "onde é celular", nunca um window.innerWidth avulso espalhado por aí.
+function EntradaPadrao() {
+  const isMobile = useIsMobile()
+  return <Navigate to={isMobile ? '/modulos' : '/'} replace />
+}
+
 function ProtectedRoutes({ user, perfil }) {
   if (!user) return <Navigate to="/login" replace />
   return (
@@ -185,9 +196,10 @@ export default function App() {
       <ToastContainer />
       <InstallPrompt />
       <Routes>
-        <Route path="/login" element={user ? <Navigate to="/" replace /> : <Login />} />
+        <Route path="/login" element={user ? <EntradaPadrao /> : <Login />} />
         <Route element={<ProtectedRoutes user={user} perfil={perfil} />}>
           <Route path="/"            element={<Suspense fallback={null}><Dashboard  perfil={perfil} /></Suspense>} />
+          <Route path="/modulos"     element={<Suspense fallback={null}><Modulos /></Suspense>} />
           <Route path="/assistente"  element={<Suspense fallback={null}><Assistente /></Suspense>} />
           <Route path="/calendario"  element={<Suspense fallback={null}><Calendario /></Suspense>} />
           <Route path="/metas"       element={<RotaProtegida modulo="metas"><Suspense fallback={null}><Metas /></Suspense></RotaProtegida>} />
@@ -207,7 +219,7 @@ export default function App() {
           <Route path="/usuarios"   element={<Suspense fallback={null}><Usuarios /></Suspense>} />
           <Route path="/manual"     element={<Suspense fallback={null}><Manual /></Suspense>} />
         </Route>
-        <Route path="*" element={<Navigate to="/" replace />} />
+        <Route path="*" element={<EntradaPadrao />} />
       </Routes>
     </BrowserRouter>
   )

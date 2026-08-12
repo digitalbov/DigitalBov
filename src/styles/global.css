@@ -363,6 +363,92 @@ tbody tr:hover td { background: #EAF0FB; transition: background 0.15s; }
 }
 .pill:hover { border-color: var(--gray-400); color: var(--gray-700); }
 .pill.active { background: var(--brand-green); color: white; border-color: var(--brand-green); }
+.pill:focus-visible,
+.filtros-btn:focus-visible,
+.filtros-chip-x:focus-visible,
+.filtros-limpar:focus-visible {
+  outline: 2px solid var(--brand-green); outline-offset: 2px;
+}
+
+/* ── Filtros (componente compartilhado) ────────────────────────────
+   Fase 1 da Rodada de layout, item 3. Reaproveita .pill/.pill-group —
+   nenhuma classe visual nova pra esses dois tipos de campo. */
+.filtros-wrap { margin-bottom: 14px; }
+.filtros-bar {
+  display: flex; align-items: center; flex-wrap: nowrap; gap: 10px;
+  overflow: hidden; min-height: 34px;
+}
+/* flex-shrink:0 é essencial aqui: o algoritmo de medição (Filtros.jsx) soma
+   larguras NATURAIS e decide o corte a partir delas — se o flex container
+   pudesse espremer um item abaixo do que foi medido, o pill-group quebraria
+   linha por dentro (.pill-group tem flex-wrap:wrap) e a conta furaria. */
+.filtros-bar > * { flex-shrink: 0; }
+.filtros-campo-label {
+  font-size: .72rem; font-weight: 600; color: var(--gray-500); margin-bottom: 4px;
+}
+.filtros-select, .filtros-busca { min-width: 150px; padding: 6px 10px; font-size: .8rem; }
+.filtros-busca { min-width: 180px; }
+
+.filtros-panel-wrap { position: relative; flex-shrink: 0; margin-left: auto; }
+.filtros-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 13px; border-radius: var(--radius-md);
+  font-size: .8rem; font-weight: 600; white-space: nowrap;
+  color: white; border: none; cursor: pointer;
+  background: linear-gradient(160deg, #2B6CD9 0%, #5B3FBE 55%, #7B2FBE 100%);
+}
+.filtros-btn-count {
+  background: rgba(255,255,255,.28); border-radius: 999px;
+  font-size: .68rem; font-weight: 700; padding: 1px 6px;
+}
+
+.filtros-backdrop { position: fixed; inset: 0; z-index: 300; background: transparent; }
+.filtros-panel {
+  position: absolute; top: calc(100% + 8px); right: 0; z-index: 301;
+  width: 300px; max-width: 90vw; background: white;
+  border: .5px solid var(--gray-200); border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg); padding: 14px;
+}
+.filtros-panel-title {
+  font-size: .72rem; font-weight: 700; color: var(--gray-400);
+  letter-spacing: .05em; text-transform: uppercase; margin-bottom: 10px;
+}
+.filtros-panel-campos { display: flex; flex-direction: column; gap: 12px; max-height: 50vh; overflow-y: auto; }
+.filtros-panel-campos .filtros-select, .filtros-panel-campos .filtros-busca { width: 100%; }
+.filtros-panel-foot {
+  display: flex; justify-content: flex-end; align-items: center;
+  margin-top: 12px; padding-top: 10px; border-top: .5px solid var(--gray-100);
+}
+.filtros-sheet-grabber { display: none; }
+
+.filtros-limpar {
+  background: none; border: none; padding: 2px 4px; cursor: pointer;
+  font-size: .76rem; color: var(--gray-500); text-decoration: underline;
+  font-family: var(--font-sans);
+}
+.filtros-limpar:hover { color: var(--gray-700); }
+.filtros-limpar:disabled { color: var(--gray-300); text-decoration: none; cursor: default; }
+
+.filtros-aplicados { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; margin-top: 10px; font-size: .78rem; }
+.filtros-aplicados-lbl { color: var(--gray-500); }
+.filtros-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: var(--brand-green-bg); color: var(--brand-green-dark);
+  border-radius: 999px; padding: 4px 4px 4px 11px; font-size: .76rem; font-weight: 600;
+}
+.filtros-chip-x {
+  width: 16px; height: 16px; border-radius: 50%; border: none; cursor: pointer;
+  background: rgba(30,85,176,.14); color: inherit;
+  display: flex; align-items: center; justify-content: center; font-size: .6rem; padding: 0;
+}
+.filtros-chip-x:hover { background: rgba(30,85,176,.26); }
+.filtros-chip-x i { font-size: 10px; }
+
+/* Medidor — fora da tela, nunca visível nem alcançável (ver `inert` no JSX). */
+.filtros-medidor {
+  position: fixed; top: -9999px; left: -9999px; visibility: hidden;
+  display: flex; gap: 10px; white-space: nowrap;
+}
 
 /* ── Alerts ─────────────────────────────────────────────────────── */
 .alert {
@@ -484,6 +570,47 @@ tbody tr:hover td { background: #EAF0FB; transition: background 0.15s; }
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 12px;
+}
+
+/* ── Módulos (tela inicial em cards) ──────────────────────────────
+   auto-fill + minmax em vez de breakpoints fixos: o número de colunas cai
+   sozinho conforme a largura disponível (~4 em desktop largo, 3/2 em telas
+   intermediárias), sem precisar inventar um breakpoint novo pra cada
+   tamanho — só o mobile (max-width:768px, mesmo breakpoint já usado no
+   resto do sistema) força 1 coluna, porque nessa largura o auto-fill ainda
+   deixaria 2 cards apertados lado a lado. */
+.modulos-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 16px;
+}
+.modulo-card {
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  background: white; border: .5px solid var(--gray-200); border-radius: var(--radius-xl);
+  padding: 22px 14px; cursor: pointer; position: relative;
+  font-family: var(--font-sans); text-align: center;
+  box-shadow: var(--shadow-sm);
+  transition: transform .15s, box-shadow .15s, border-color .15s;
+}
+.modulo-card:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-lg);
+  border-color: var(--brand-green-pale);
+}
+.modulo-card-icon {
+  width: 52px; height: 52px; border-radius: var(--radius-lg);
+  display: flex; align-items: center; justify-content: center;
+  background: linear-gradient(160deg, #2B6CD9 0%, #5B3FBE 55%, #7B2FBE 100%);
+  color: white; font-size: 24px; flex-shrink: 0;
+}
+.modulo-card-label {
+  font-size: .83rem; font-weight: 600; color: var(--gray-700); line-height: 1.35;
+}
+.modulo-card-badge {
+  position: absolute; top: 10px; right: 10px;
+  font-size: .62rem; font-weight: 700; letter-spacing: .03em;
+  background: rgba(123,47,190,.12); color: var(--db-purple);
+  border-radius: 6px; padding: 2px 6px;
 }
 
 /* ── Hamburger button (hidden on desktop) ────────────────────────── */
@@ -630,6 +757,25 @@ tbody tr:hover td { background: #EAF0FB; transition: background 0.15s; }
 
   /* Piquetes grid: 1 column on mobile */
   .piq-grid { grid-template-columns: 1fr; }
+
+  /* Módulos: 1 card por linha no celular — auto-fill sozinho ainda deixaria
+     2 cards espremidos nessa largura. */
+  .modulos-grid { grid-template-columns: 1fr; }
+  .modulo-card  { flex-direction: row; justify-content: flex-start; text-align: left; padding: 14px 16px; }
+  .modulo-card-icon { width: 42px; height: 42px; font-size: 19px; }
+
+  /* Filtros: painel vira bottom sheet (sobe de baixo, rodapé fixo) em vez
+     de dropdown ancorado — mesmo conteúdo, só a casca muda. */
+  .filtros-backdrop { background: rgba(17,24,39,.4); }
+  .filtros-panel {
+    position: fixed; top: auto; bottom: 0; left: 0; right: 0;
+    width: 100%; max-width: none; max-height: 80vh; overflow-y: auto;
+    border-radius: 18px 18px 0 0; box-shadow: 0 -8px 30px rgba(0,0,0,.2);
+    padding: 10px 18px 18px;
+  }
+  .filtros-sheet-grabber { display: block; width: 36px; height: 4px; border-radius: 2px; background: var(--gray-300); margin: 0 auto 12px; }
+  .filtros-panel-foot { justify-content: stretch; gap: 8px; }
+  .filtros-panel-foot .btn { flex: 1; justify-content: center; min-height: 44px; }
 
   /* Tabs: scroll horizontally */
   .tabs-bar { overflow-x: auto; -webkit-overflow-scrolling: touch; }

@@ -5,47 +5,7 @@ import { useFazenda } from '../../lib/FazendaContext'
 import { useConta } from '../../lib/ContaContext'
 import { usePermissoes } from '../../lib/PermissoesContext'
 import Tutorial from '../Tutorial'
-
-// Módulos com permissão gerenciável (mesma lista de Usuarios.jsx). Itens fora
-// desta lista (assistente, calendário, backup) ficam sempre visíveis: o
-// sistema de permissões não os cobre.
-const MODULOS_GERENCIAVEIS = [
-  'propriedade', 'animais', 'feiras', 'reprodutivo', 'rebanho', 'sanidade',
-  'pesagens', 'estoque', 'financeiro', 'relatorios', 'metas', 'veterinario',
-]
-
-// Ordem/agrupamento/rótulos definidos pelo usuário — só isso muda aqui. Rota,
-// ícone e regra de visibilidade de cada item continuam os mesmos de antes;
-// Comparativo/Usuários/Tutorial só entraram no array (eram blocos JSX
-// separados, hardcoded, cada um com sua própria seção) pra caber nas 3 seções
-// pedidas, com a MESMA condição de visibilidade que já tinham (ver itemVisivel
-// abaixo: `condicao:'comparativo'` = mostrarComparativo; `adminOnly` = ehAdmin).
-const NAV = [
-  { section: 'PRINCIPAL' },
-  { path: '/',             icon: 'ti-layout-dashboard', label: 'Painel' },
-  { path: '/metas',        icon: 'ti-target',           label: 'Metas e Indicadores' },
-  { path: '/rebanho',      icon: 'ti-chart-line',       label: 'Controle de Rebanho' },
-  { path: '/calendario',   icon: 'ti-calendar-event',   label: 'Calendário' },
-  { path: '/comparativo',  icon: 'ti-chart-bar',        label: 'Comparativo de Fazendas', condicao: 'comparativo' },
-  { path: '/relatorios',   icon: 'ti-file-text',        label: 'Relatório de Fechamento' },
-  { path: '/assistente',  icon: 'ti-message-chatbot',  label: 'Assistente IA', destaque: true },
-
-  { section: 'GESTÃO OPERACIONAL' },
-  { path: '/propriedade', icon: 'ti-home-2',           label: 'Propriedades' },
-  { path: '/animais',     icon: 'ti-clipboard-list',   label: 'Cadastro de Animais' },
-  { path: '/feiras',      icon: 'ti-trophy',           label: 'Feiras e Premiações' },
-  { path: '/reprodutivo', icon: 'ti-activity',         label: 'Gestão Reprodutiva' },
-  { path: '/sanidade',    icon: 'ti-shield-check',     label: 'Manejo Sanitário' },
-  { path: '/pesagens',    icon: 'ti-weight',           label: 'Pesagens' },
-  { path: '/estoque',     icon: 'ti-box',              label: 'Estoque' },
-  { path: '/financeiro',  icon: 'ti-cash',             label: 'Gestão Financeira' },
-  { path: '/veterinario', icon: 'ti-stethoscope',      label: 'Veterinário' },
-
-  { section: 'SISTEMA' },
-  { path: '/usuarios', icon: 'ti-users',           label: 'Configurações de Usuários', adminOnly: true },
-  { path: '/backup',   icon: 'ti-database-export', label: 'Backup e Dados' },
-  { tipo: 'modal',     icon: 'ti-school',          label: 'Tutorial', adminOnly: true },
-]
+import { NAV, calcularNavVisivel } from '../../lib/navModulos'
 
 export default function Sidebar({ user, perfil, mobileOpen, onClose }) {
   const navigate  = useNavigate()
@@ -89,32 +49,10 @@ export default function Sidebar({ user, perfil, mobileOpen, onClose }) {
 
   const mostrarComparativo = fazendas.length >= 2
 
-  // Itens visíveis do menu: admin vê tudo (exceto Comparativo, que depende de
-  // ter 2+ fazendas independente de admin); operador vê dashboard + módulos
-  // fora da lista gerenciável sempre, e os demais conforme podeVer(modulo).
-  // adminOnly (Usuários/Tutorial) sempre exige ehAdmin, mesmo pra quem "vê
-  // tudo". Cabeçalhos de seção (item.section) só aparecem se sobrar algum
-  // item abaixo — mesmas regras de antes, só que agora cobrindo também os
-  // itens que eram blocos JSX hardcoded (Comparativo/Usuários/Tutorial).
-  const navVisivel = (() => {
-    const itemVisivel = (item) => {
-      if (item.condicao === 'comparativo') return mostrarComparativo
-      if (item.adminOnly) return ehAdmin
-      if (ehAdmin) return true
-      const modulo = item.path === '/' ? 'dashboard' : item.path.slice(1)
-      if (modulo === 'dashboard' || !MODULOS_GERENCIAVEIS.includes(modulo)) return true
-      return podeVer(modulo)
-    }
-    const out = []
-    let secaoPendente = null
-    NAV.forEach(item => {
-      if (item.section) { secaoPendente = item; return }
-      if (!itemVisivel(item)) return
-      if (secaoPendente) { out.push(secaoPendente); secaoPendente = null }
-      out.push(item)
-    })
-    return out
-  })()
+  // Lista de itens e regra de visibilidade vêm de navModulos.js — mesma fonte
+  // usada por Modulos.jsx (tela inicial em cards), pra nunca divergir sobre o
+  // que existe ou quem enxerga o quê.
+  const navVisivel = calcularNavVisivel({ ehAdmin, podeVer, mostrarComparativo })
 
   return (
     <>

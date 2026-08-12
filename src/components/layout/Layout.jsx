@@ -14,7 +14,8 @@ import { usePermissoes } from '../../lib/PermissoesContext'
 import { useConta } from '../../lib/ContaContext'
 
 const PAGE_TITLES = {
-  '/':             { title: 'Dashboard',            sub: 'Visão geral da fazenda' },
+  '/':             { title: 'Painel',                sub: 'Visão geral da fazenda' },
+  '/modulos':      { title: 'Módulos',               sub: 'Todas as áreas do sistema em um só lugar' },
   '/propriedade':  { title: 'Propriedade',           sub: 'Fazenda, piquetes e lotes' },
   '/animais':      { title: 'Cadastro de Animais',   sub: 'Registro individual do rebanho' },
   '/reprodutivo':  { title: 'Gestão Reprodutiva',    sub: 'Inseminação, diagnósticos e partos' },
@@ -229,7 +230,7 @@ export default function Layout({ user, perfil }) {
           </main>
         </div>
 
-        <BottomNav onMais={() => setSidebarOpen(true)} />
+        <BottomNav />
       </div>
     </div>
   )

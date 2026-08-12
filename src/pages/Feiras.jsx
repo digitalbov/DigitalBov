@@ -6,6 +6,7 @@ import { useSubmitGuard } from '../lib/useSubmitGuard'
 import { fmtData, algumErro, calcCategoriaRebanho, catCor, nomeBaseFeira, resolverFeiraDigitada, statusFeiraParticipacao } from '../lib/helpers'
 import { hojeISO } from '../lib/hoje'
 import { Loading, ErroCarregamento, EmptyState, Modal, Field, Badge, Confirm, toast, BotaoPDF } from '../components/UI'
+import Filtros from '../components/Filtros'
 
 const STATUS_COR = {
   agendada:              { bg: '#E8F0FC', text: '#1E55B0' },
@@ -301,30 +302,40 @@ export default function Feiras() {
         </div>
       </div>
 
-      <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
-        <input className="input" style={{ flex: 1, minWidth: 160 }} value={busca}
-          onChange={e => setBusca(e.target.value)} placeholder="Buscar por brinco ou feira..." />
-        <select className="input" style={{ flex: 1, minWidth: 160 }} value={filtCategoria} onChange={e => setFiltCategoria(e.target.value)}>
-          <option value="">Todas as categorias</option>
-          {categoriasDisponiveis.map(c => <option key={c} value={c}>{c}</option>)}
-        </select>
-        <select className="input" style={{ flex: 1, minWidth: 160 }} value={filtProp} onChange={e => setFiltProp(e.target.value)}>
-          <option value="">Todos os proprietários</option>
-          {proprietariosDisponiveis.map(([id, nome]) => <option key={id} value={id}>{nome}</option>)}
-        </select>
-        <select className="input" style={{ flex: 1, minWidth: 160 }} value={filtLote} onChange={e => setFiltLote(e.target.value)}>
-          <option value="">Todos os lotes</option>
-          {lotesDisponiveis.map(([id, nome]) => <option key={id} value={id}>{nome}</option>)}
-        </select>
-        <select className="input" style={{ flex: 1, minWidth: 160 }} value={filtFeira} onChange={e => setFiltFeira(e.target.value)}>
-          <option value="">Todas as feiras</option>
-          {feirasDisponiveis.map(f => <option key={f.id} value={f.id}>{f.nome}</option>)}
-        </select>
-        <select className="input" style={{ flex: 1, minWidth: 120 }} value={filtAno} onChange={e => setFiltAno(e.target.value)}>
-          <option value="">Todos os anos</option>
-          {anosDisponiveis.map(a => <option key={a} value={a}>{a}</option>)}
-        </select>
-      </div>
+      <Filtros
+        itens={[
+          { chave: 'busca', label: 'Buscar', tipo: 'busca', quick: true, placeholder: 'Buscar por brinco ou feira...' },
+          {
+            chave: 'feira', label: 'Feira', tipo: 'select', quick: true,
+            opcoes: [{ valor: '', label: 'Todas as feiras' }, ...feirasDisponiveis.map(f => ({ valor: f.id, label: f.nome }))],
+          },
+          {
+            chave: 'categoria', label: 'Categoria', tipo: 'select',
+            opcoes: [{ valor: '', label: 'Todas as categorias' }, ...categoriasDisponiveis.map(c => ({ valor: c, label: c }))],
+          },
+          {
+            chave: 'proprietario', label: 'Proprietário', tipo: 'select',
+            opcoes: [{ valor: '', label: 'Todos os proprietários' }, ...proprietariosDisponiveis.map(([id, nome]) => ({ valor: id, label: nome }))],
+          },
+          {
+            chave: 'lote', label: 'Lote', tipo: 'select',
+            opcoes: [{ valor: '', label: 'Todos os lotes' }, ...lotesDisponiveis.map(([id, nome]) => ({ valor: id, label: nome }))],
+          },
+          {
+            chave: 'ano', label: 'Ano', tipo: 'select', larguraMin: 120,
+            opcoes: [{ valor: '', label: 'Todos os anos' }, ...anosDisponiveis.map(a => ({ valor: String(a), label: String(a) }))],
+          },
+        ]}
+        valores={{ busca, feira: filtFeira, categoria: filtCategoria, proprietario: filtProp, lote: filtLote, ano: filtAno }}
+        onChange={(chave, valor) => {
+          if (chave === 'busca') setBusca(valor)
+          else if (chave === 'feira') setFiltFeira(valor)
+          else if (chave === 'categoria') setFiltCategoria(valor)
+          else if (chave === 'proprietario') setFiltProp(valor)
+          else if (chave === 'lote') setFiltLote(valor)
+          else if (chave === 'ano') setFiltAno(valor)
+        }}
+      />
 
       <div ref={refLista}>
         {filtradas.length === 0 ? (

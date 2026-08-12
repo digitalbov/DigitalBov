@@ -59,6 +59,14 @@ export default function SecaoPrimeirosPassos({ item }) {
         conta — só ele consegue criar novos usuários.
       </p>
 
+      <p style={{ color: '#374151', fontSize: '.85rem', lineHeight: 1.8, marginBottom: 18 }}>
+        No <strong>computador</strong>, entrar leva direto ao Dashboard, e a navegação é sempre pelo menu lateral.
+        No <strong>celular</strong>, entrar leva a <strong>Módulos</strong>: um card por área do sistema (só as
+        que você tem permissão de ver), organizados nas mesmas seções do menu lateral — clique num card para
+        abrir aquele módulo. O botão <strong>"Mais"</strong> da barra inferior volta para esta tela a qualquer
+        momento, é o jeito mais rápido de trocar de módulo sem abrir o menu lateral completo.
+      </p>
+
       <h4 style={{ fontSize: '.88rem', fontWeight: 700, color: '#1a1a1a', marginBottom: 8 }}>Como o sistema é organizado: Conta → Fazenda → Ciclo</h4>
       <ul style={{ color: '#374151', fontSize: '.85rem', lineHeight: 1.8, marginBottom: 18, paddingLeft: 20 }}>
         <li><strong>Conta</strong> — é o seu contrato com o DigitalBov. Pode ter uma ou várias fazendas dentro, e uma ou várias pessoas com acesso (dono, administradores, operadores).</li>
