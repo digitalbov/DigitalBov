@@ -761,17 +761,25 @@ tbody tr:hover td { background: #EAF0FB; transition: background 0.15s; }
   .modulos-grid { grid-template-columns: repeat(2, 1fr); gap: 12px; }
 
   /* Card com foto real (revisão 2026-08-17 — a 1ª versão, só gradiente +
-     ícone gigante apagado, testou "pouco criativa"). Três camadas de
+     ícone gigante apagado, testou "pouco criativa"). QUATRO camadas de
      background, de cima pra baixo:
-       1) SCRIM preto ancorado embaixo (onde o texto sempre fica) — garante
-          contraste de texto INDEPENDENTE do que tem na foto (céu claro,
-          animal escuro, tanto faz): não é ajuste olhando cada uma das 19
-          fotos, é uma técnica que funciona pra qualquer foto por
-          construção, igual thumbnail de streaming.
-       2) Tinta na cor do módulo (o "filtro de cor forte" pedido) — forte o
+       1) VÉU uniforme (~16% preto no cartão inteiro) — cobertura extra pro
+          selo do ícone, que fica no canto SEM o scrim forte de baixo (ele
+          senta na parte menos escurecida de propósito, pra não competir
+          com o texto). Sem isso, fotos muito claras — aérea da fazenda ao
+          pôr do sol, o papel branco do calendário — arriscavam deixar o
+          selo quase-branco em cima de um fundo quase-branco. Adicionado
+          2026-08-18 revisando as fotos geradas por IA, que são bem mais
+          claras em média que as do Unsplash que substituíram.
+       2) SCRIM preto ancorado onde o texto sempre fica (embaixo nos cards
+          normais, à direita nos de destaque) — garante contraste de texto
+          INDEPENDENTE do que tem na foto: não é ajuste olhando cada foto,
+          é técnica que funciona por construção, igual thumbnail de
+          streaming.
+       3) Tinta na cor do módulo (o "filtro de cor forte" pedido) — forte o
           bastante pra cor dominar, translúcida o bastante pra foto ainda
           aparecer por baixo.
-       3) A foto em si (--card-foto, uma var() por card).
+       4) A foto em si (--card-foto, uma var() por card).
      color-mix() só na tinta (não precisa de hex "escuro" cadastrado à
      mão); a foto entra como camada de verdade, não filtro CSS sobre nada. */
   .modulo-card-v2 {
@@ -780,6 +788,7 @@ tbody tr:hover td { background: #EAF0FB; transition: background 0.15s; }
     border: 1px solid rgba(255,255,255,.07); border-radius: var(--radius-xl);
     padding: 16px; text-align: left;
     background:
+      linear-gradient(rgba(0,0,0,.16), rgba(0,0,0,.16)),
       linear-gradient(to top, rgba(4,6,12,.88) 0%, rgba(4,6,12,.42) 42%, rgba(4,6,12,.04) 68%),
       linear-gradient(160deg, color-mix(in srgb, var(--card-color) 74%, transparent) 0%, color-mix(in srgb, var(--card-color) 42%, black) 100%),
       var(--card-foto) center/cover no-repeat;
@@ -789,13 +798,16 @@ tbody tr:hover td { background: #EAF0FB; transition: background 0.15s; }
 
   /* Card de destaque — 1º item de cada seção, mais largo/baixo e em linha
      (ícone à esquerda, texto à direita) em vez de empilhado — é a variação
-     que evita a tela virar uma grade de 19 células idênticas. Mesmas 3
-     camadas de fundo, só o scrim muda de direção (ancorado à direita, onde
-     o texto fica aqui, não embaixo). */
+     que evita a tela virar uma grade de 19 células idênticas. Mesmas 4
+     camadas de fundo do card normal (ver comentário acima), só o scrim
+     muda de direção (ancorado à direita, onde o texto fica aqui, não
+     embaixo) — o véu uniforme continua igual, cobrindo o ícone à esquerda
+     que aqui também fica fora do scrim direcional forte. */
   .modulo-card-v2--destaque {
     grid-column: span 2; aspect-ratio: auto; min-height: 128px;
     flex-direction: row; align-items: center; gap: 14px;
     background:
+      linear-gradient(rgba(0,0,0,.16), rgba(0,0,0,.16)),
       linear-gradient(to left, rgba(4,6,12,.86) 0%, rgba(4,6,12,.38) 48%, rgba(4,6,12,.04) 80%),
       linear-gradient(160deg, color-mix(in srgb, var(--card-color) 74%, transparent) 0%, color-mix(in srgb, var(--card-color) 42%, black) 100%),
       var(--card-foto) center/cover no-repeat;
