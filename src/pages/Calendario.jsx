@@ -3,6 +3,7 @@ import { db } from '../lib/supabase'
 import { fmtData, algumErro, calcLotesFEFO, sanidadeRealizada, sanidadeAgendada, labelTipoSanidade, nomeTouro } from '../lib/helpers'
 import { hoje as hojeAgora } from '../lib/hoje'
 import { Loading, BotaoPDF, EmptyState, ErroCarregamento } from '../components/UI'
+import Filtros from '../components/Filtros'
 import { useCiclo } from '../lib/CicloContext'
 import { addDays, parseISO, differenceInDays } from 'date-fns'
 
@@ -375,21 +376,23 @@ export default function Calendario() {
 
       {/* ── Filtros + PDF ── */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
-        <div className="pill-group">
-          {[
-            { key: 'todos',      icon: '',    label: 'Todos'      },
-            { key: 'parto',      icon: '🍼 ', label: 'Partos'     },
-            { key: 'sanidade',   icon: '💉 ', label: 'Manejo Sanitário'   },
-            { key: 'estoque',    icon: '📦 ', label: 'Estoque'    },
-            { key: 'feira',      icon: '🏆 ', label: 'Feiras'     },
-            { key: 'reproducao', icon: '🔄 ', label: 'Reprodução' },
-          ].map(t => (
-            <button key={t.key} className={`pill ${filtTipo === t.key ? 'active' : ''}`}
-              onClick={() => setFiltTipo(t.key)}>
-              {t.icon}{t.label}
-            </button>
-          ))}
-        </div>
+        {/* filtTipo usa 'todos' como sentinela de "sem filtro" — <Filtros> só
+            entende '', então a tradução fica isolada aqui. */}
+        <Filtros
+          itens={[{
+            chave: 'tipo', label: 'Tipo de evento', tipo: 'pills', quick: true,
+            opcoes: [
+              { valor: '',           label: 'Todos' },
+              { valor: 'parto',      label: '🍼 Partos' },
+              { valor: 'sanidade',   label: '💉 Manejo Sanitário' },
+              { valor: 'estoque',    label: '📦 Estoque' },
+              { valor: 'feira',      label: '🏆 Feiras' },
+              { valor: 'reproducao', label: '🔄 Reprodução' },
+            ],
+          }]}
+          valores={{ tipo: filtTipo === 'todos' ? '' : filtTipo }}
+          onChange={(chave, valor) => setFiltTipo(valor === '' ? 'todos' : valor)}
+        />
         <BotaoPDF contentRef={agendaRef} filename="agenda-fazenda" titulo="Calendário: Agenda" />
       </div>
 

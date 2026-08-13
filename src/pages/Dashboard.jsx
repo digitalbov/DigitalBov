@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { supabase, db } from '../lib/supabase'
 import { calcCategoria, calcCategoriaRebanho, calcTaxaPrenhez, contarExpostas, contarPrenhas, fmtMoeda, calcResultadoFinanceiro, contarMatrizes, algumErro, calcLotesFEFO, diasAteValidade, CATEGORIAS_VALOR, mesesDeVida } from '../lib/helpers'
 import { Loading, FullLoading, AlertBox, IndexCard, ErroCarregamento } from '../components/UI'
+import Filtros from '../components/Filtros'
 import { useFazenda } from '../lib/FazendaContext'
 import { useCiclo } from '../lib/CicloContext'
 import { hoje as hojeAgora } from '../lib/hoje'
@@ -334,23 +335,20 @@ export default function Dashboard({ perfil }) {
         </div>
       )}
 
-      {/* Filtro proprietário */}
+      {/* Filtro proprietário — filtProp usa 0 como sentinela de "Todos" (lógica
+          de cálculo mais abaixo já depende disso); <Filtros> só entende ''
+          como vazio, então a tradução 0↔'' fica isolada aqui no valores/
+          onChange, sem mexer no resto do arquivo. */}
       <div style={{ marginBottom:16, display:'flex', alignItems:'center', gap:8 }}>
         <span style={{ fontSize:'.78rem', color:'#6B7280', fontWeight:500 }}>Exibindo:</span>
-        <div className="pill-group">
-          <button className={`pill ${filtProp===0?'active':''}`} onClick={() => setFiltProp(0)}>
-            Todos
-          </button>
-          {props.map(p => (
-            <button
-              key={p.id}
-              className={`pill ${filtProp===p.id?'active':''}`}
-              onClick={() => setFiltProp(p.id)}
-            >
-              {p.nome.split(' ')[0]}
-            </button>
-          ))}
-        </div>
+        <Filtros
+          itens={[{
+            chave: 'proprietario', label: 'Proprietário', tipo: 'pills', quick: true,
+            opcoes: [{ valor: '', label: 'Todos' }, ...props.map(p => ({ valor: p.id, label: p.nome.split(' ')[0] }))],
+          }]}
+          valores={{ proprietario: filtProp === 0 ? '' : filtProp }}
+          onChange={(chave, valor) => setFiltProp(valor === '' ? 0 : valor)}
+        />
       </div>
 
       {/* KPIs */}

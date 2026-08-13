@@ -13,6 +13,7 @@ import { usePermissoes } from '../lib/PermissoesContext'
 import { diasDesde, fmtMoeda, calcCategoriaRebanho, algumErro, capitalizarPrimeira, capitalizarNome } from '../lib/helpers'
 import { hoje as hojeAgora, hojeISO } from '../lib/hoje'
 import { Loading, Modal, Field, Badge, toast, EmptyState, Confirm, ErroCarregamento } from '../components/UI'
+import Filtros from '../components/Filtros'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   Legend, ResponsiveContainer, ReferenceLine
@@ -1203,16 +1204,23 @@ export default function Propriedade() {
             })
             return (
               <>
-                <select value={filtroCategLote} onChange={e => setFiltroCategLote(e.target.value)}
-                  className="input" style={{ width:'100%', marginBottom:8 }}>
-                  <option value="">Todas as categorias</option>
-                  {categoriasDisponiveis.map(c => <option key={c} value={c}>{c}</option>)}
-                </select>
-                <select value={filtroPropLote} onChange={e => setFiltroPropLote(e.target.value)}
-                  className="input" style={{ width:'100%', marginBottom:8 }}>
-                  <option value="">Todos os proprietários</option>
-                  {props.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}
-                </select>
+                <Filtros
+                  itens={[
+                    {
+                      chave: 'categoria', label: 'Categoria', tipo: 'select',
+                      opcoes: [{ valor: '', label: 'Todas as categorias' }, ...categoriasDisponiveis.map(c => ({ valor: c, label: c }))],
+                    },
+                    {
+                      chave: 'proprietario', label: 'Proprietário', tipo: 'select',
+                      opcoes: [{ valor: '', label: 'Todos os proprietários' }, ...props.map(p => ({ valor: p.id, label: p.nome }))],
+                    },
+                  ]}
+                  valores={{ categoria: filtroCategLote, proprietario: filtroPropLote }}
+                  onChange={(chave, valor) => {
+                    if (chave === 'categoria') setFiltroCategLote(valor)
+                    else if (chave === 'proprietario') setFiltroPropLote(valor)
+                  }}
+                />
                 {animaisFiltradosLote.length > 0 && (
                   <button type="button" className="btn btn-secondary btn-xs" style={{ marginBottom:8 }}
                     onClick={() => {
