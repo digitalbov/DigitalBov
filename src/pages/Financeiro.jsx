@@ -8,6 +8,7 @@ import RateioProprietarios from '../components/RateioProprietarios'
 import GrupoSelect from '../components/GrupoSelect'
 import { hoje as hojeAgora, hojeISO } from '../lib/hoje'
 import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, AlertBox, BotaoPDF, ErroCarregamento, BadgeSomenteLeitura, Confirm } from '../components/UI'
+import Filtros from '../components/Filtros'
 import { usePermissoes } from '../lib/PermissoesContext'
 import { useConta } from '../lib/ContaContext'
 import { useFazenda } from '../lib/FazendaContext'
@@ -1100,30 +1101,34 @@ export default function Financeiro() {
         <BadgeSomenteLeitura ciclo={cicloLocal} />
       </div>
 
-      {/* Abas + Gerar PDF na mesma linha, alinhado à direita (Fase 14) — o
-          botão troca de alvo conforme a aba ativa (pdfAtual). */}
-      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:8, marginBottom:16, borderBottom:'.5px solid var(--gray-200)' }}>
-        <div className="tabs-bar" style={{ flex:1, minWidth:0, marginBottom:0, border:'none' }}>
+      {/* Abas + Gerar PDF: mesma linha no desktop (Fase 14, o botão troca de
+          alvo conforme a aba ativa, pdfAtual); no celular, CSS
+          (.tabs-actions-row, global.css) troca pra coluna com o botão em
+          cima e as abas soltas — uma árvore só. */}
+      <div className="tabs-actions-row">
+        <div className="tabs-bar">
           {TABS.map((t,i)=>(
             <button key={t} className={`tab-btn ${tab===i?'active':''}`} onClick={()=>setTab(i)}>{t}</button>
           ))}
         </div>
-        {pdfAtual && (
-          <BotaoPDF contentRef={pdfAtual.ref} filename={pdfAtual.filename} titulo={pdfAtual.titulo} />
-        )}
+        <div className="tabs-actions-btns">
+          {pdfAtual && (
+            <BotaoPDF contentRef={pdfAtual.ref} filename={pdfAtual.filename} titulo={pdfAtual.titulo} />
+          )}
+        </div>
       </div>
 
       {/* ── Resumo ── */}
       {tab===0 && (
         <div>
-          <div className="pill-group" style={{ marginBottom:8 }}>
-            <button className={`pill ${filtProp===''?'active':''}`} onClick={() => setFiltProp('')}>Todos os proprietários</button>
-            {props.map(p => (
-              <button key={p.id} className={`pill ${filtProp===p.id?'active':''}`} onClick={() => setFiltProp(p.id)}>
-                {p.nome.split(' ')[0]}
-              </button>
-            ))}
-          </div>
+          <Filtros
+            itens={[{
+              chave: 'proprietario', label: 'Proprietário', tipo: 'pills', quick: true,
+              opcoes: [{ valor: '', label: 'Todos os proprietários' }, ...props.map(p => ({ valor: p.id, label: p.nome.split(' ')[0] }))],
+            }]}
+            valores={{ proprietario: filtProp }}
+            onChange={(chave, valor) => setFiltProp(valor)}
+          />
           <div ref={refResumo}>
           <div className="kpi-grid">
             {[
@@ -1211,33 +1216,36 @@ export default function Financeiro() {
       {tab===1 && (
         <div>
           <div style={{display:'flex',justifyContent:'space-between',marginBottom:12,flexWrap:'wrap',gap:8}}>
-            <div style={{display:'flex', gap:8, flexWrap:'wrap'}}>
-              <div className="pill-group">
-                <button className={`pill ${filtTp===''?'active':''}`} onClick={()=>{setFiltTp('');setFiltGrupo('')}}>Todos</button>
-                <button className={`pill ${filtTp==='R'?'active':''}`} onClick={()=>{setFiltTp('R');setFiltGrupo('')}}>Receitas</button>
-                <button className={`pill ${filtTp==='D'?'active':''}`} onClick={()=>{setFiltTp('D');setFiltGrupo('')}}>Despesas</button>
-              </div>
-              {/* Filtro por grupo — mesmo campo `grupo` de lancamentos_financeiros
-                  usado no formulário (GrupoSelect) e nos cards "Despesas/Receitas
-                  por grupo" acima; não existe uma noção separada de categoria/
-                  plano de contas pra lançamento, então não há ambiguidade a
-                  resolver aqui. Select (não pill) de propósito: a lista de
-                  grupos é grande (6 a 14 fixos por tipo + extras
-                  personalizados por fazenda) — pills virariam uma parede de
-                  botões, ao contrário dos poucos proprietários ao lado. */}
-              <select className="input" style={{ maxWidth: 200 }} value={filtGrupo} onChange={e => setFiltGrupo(e.target.value)}>
-                <option value="">Todos os grupos</option>
-                {gruposFiltro.map(g => <option key={g} value={g}>{g}</option>)}
-              </select>
-              <div className="pill-group">
-                <button className={`pill ${filtProp===''?'active':''}`} onClick={() => setFiltProp('')}>Todos os proprietários</button>
-                {props.map(p => (
-                  <button key={p.id} className={`pill ${filtProp===p.id?'active':''}`} onClick={() => setFiltProp(p.id)}>
-                    {p.nome.split(' ')[0]}
-                  </button>
-                ))}
-              </div>
-            </div>
+            <Filtros
+              itens={[
+                {
+                  chave: 'tipo', label: 'Tipo', tipo: 'pills', quick: true,
+                  opcoes: [{ valor: '', label: 'Todos' }, { valor: 'R', label: 'Receitas' }, { valor: 'D', label: 'Despesas' }],
+                },
+                /* Filtro por grupo — mesmo campo `grupo` de lancamentos_financeiros
+                   usado no formulário (GrupoSelect) e nos cards "Despesas/Receitas
+                   por grupo" acima; não existe uma noção separada de categoria/
+                   plano de contas pra lançamento, então não há ambiguidade a
+                   resolver aqui. Select (não pill) de propósito: a lista de
+                   grupos é grande (6 a 14 fixos por tipo + extras
+                   personalizados por fazenda) — pills virariam uma parede de
+                   botões, ao contrário dos poucos proprietários ao lado. */
+                {
+                  chave: 'grupo', label: 'Grupo', tipo: 'select',
+                  opcoes: [{ valor: '', label: 'Todos os grupos' }, ...gruposFiltro.map(g => ({ valor: g, label: g }))],
+                },
+                {
+                  chave: 'proprietario', label: 'Proprietário', tipo: 'pills', quick: true,
+                  opcoes: [{ valor: '', label: 'Todos os proprietários' }, ...props.map(p => ({ valor: p.id, label: p.nome.split(' ')[0] }))],
+                },
+              ]}
+              valores={{ tipo: filtTp, grupo: filtGrupo, proprietario: filtProp }}
+              onChange={(chave, valor) => {
+                if (chave === 'tipo') { setFiltTp(valor); setFiltGrupo('') }
+                else if (chave === 'grupo') setFiltGrupo(valor)
+                else if (chave === 'proprietario') setFiltProp(valor)
+              }}
+            />
             {podeEditarFinCiclo && (
               <button className="btn btn-primary btn-sm" onClick={abrirModalLanc}>
                 <i className="ti ti-plus"/> Novo lançamento
@@ -1304,21 +1312,30 @@ export default function Financeiro() {
       {/* ── Compra & Venda ── */}
       {tab===2 && (
         <div>
-          <div style={{display:'flex',justifyContent:'space-between',marginBottom:12,flexWrap:'wrap',gap:8}}>
-            <div style={{display:'flex', gap:8, flexWrap:'wrap', alignItems:'center'}}>
-              <div className="pill-group">
-                <button className={`pill ${filtTransacTipo===''?'active':''}`} onClick={()=>setFiltTransacTipo('')}>Todos</button>
-                <button className={`pill ${filtTransacTipo==='V'?'active':''}`} onClick={()=>setFiltTransacTipo('V')}>Venda</button>
-                <button className={`pill ${filtTransacTipo==='C'?'active':''}`} onClick={()=>setFiltTransacTipo('C')}>Compra</button>
-              </div>
-              <select value={filtTransacCategoria} onChange={e=>setFiltTransacCategoria(e.target.value)} style={{width:170}}>
-                <option value="">Todas as categorias</option>
-                {categoriasTransac.map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
-              <select value={filtTransacContraparte} onChange={e=>setFiltTransacContraparte(e.target.value)} style={{width:170}}>
-                <option value="">Todas as contrapartes</option>
-                {contrapartesTransac.map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
+          <div style={{display:'flex',justifyContent:'space-between',marginBottom:12,flexWrap:'wrap',gap:8,alignItems:'center'}}>
+            <div style={{display:'flex', gap:12, flexWrap:'wrap', alignItems:'center'}}>
+              <Filtros
+                itens={[
+                  {
+                    chave: 'tipo', label: 'Tipo', tipo: 'pills', quick: true,
+                    opcoes: [{ valor: '', label: 'Todos' }, { valor: 'V', label: 'Venda' }, { valor: 'C', label: 'Compra' }],
+                  },
+                  {
+                    chave: 'categoria', label: 'Categoria', tipo: 'select',
+                    opcoes: [{ valor: '', label: 'Todas as categorias' }, ...categoriasTransac.map(c => ({ valor: c, label: c }))],
+                  },
+                  {
+                    chave: 'contraparte', label: 'Contraparte', tipo: 'select',
+                    opcoes: [{ valor: '', label: 'Todas as contrapartes' }, ...contrapartesTransac.map(c => ({ valor: c, label: c }))],
+                  },
+                ]}
+                valores={{ tipo: filtTransacTipo, categoria: filtTransacCategoria, contraparte: filtTransacContraparte }}
+                onChange={(chave, valor) => {
+                  if (chave === 'tipo') setFiltTransacTipo(valor)
+                  else if (chave === 'categoria') setFiltTransacCategoria(valor)
+                  else if (chave === 'contraparte') setFiltTransacContraparte(valor)
+                }}
+              />
               <span style={{fontSize:'.85rem',color:'#6B7280'}}>{transacsFiltradas.length} de {transacs.length} transações</span>
             </div>
             {podeEditarFinCiclo && (
@@ -1407,14 +1424,14 @@ export default function Financeiro() {
       {/* ── Resultados ── */}
       {tab===3 && (
         <div>
-          <div className="pill-group" style={{ marginBottom:8 }}>
-            <button className={`pill ${filtProp===''?'active':''}`} onClick={() => setFiltProp('')}>Todos os proprietários</button>
-            {props.map(p => (
-              <button key={p.id} className={`pill ${filtProp===p.id?'active':''}`} onClick={() => setFiltProp(p.id)}>
-                {p.nome.split(' ')[0]}
-              </button>
-            ))}
-          </div>
+          <Filtros
+            itens={[{
+              chave: 'proprietario', label: 'Proprietário', tipo: 'pills', quick: true,
+              opcoes: [{ valor: '', label: 'Todos os proprietários' }, ...props.map(p => ({ valor: p.id, label: p.nome.split(' ')[0] }))],
+            }]}
+            valores={{ proprietario: filtProp }}
+            onChange={(chave, valor) => setFiltProp(valor)}
+          />
           <div ref={refResultados}>
           <div className="card" style={{marginBottom:12}}>
             <div className="card-title"><i className="ti ti-chart-bar"/> Resultado por ciclo</div>

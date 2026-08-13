@@ -13,6 +13,7 @@ import { TIPOS_ATESTADO, CAMPOS_DOCUMENTO_POR_TIPO, CAMPOS_ANIMAL_POR_TIPO, linh
 import { gerarBackupVeterinarioPayload } from '../lib/exportarBackupVeterinario'
 import { baixarBackupJSON } from '../lib/exportarBackup'
 import RestaurarBackupVeterinario from '../components/RestaurarBackupVeterinario'
+import Filtros from '../components/Filtros'
 
 const TABS = ['Configuração', 'Financeiro', 'Clientes', 'Documentos', 'Backup']
 // Uma sub-aba por tipo em TIPOS_ATESTADO + Prestação de Contas + Histórico —
@@ -465,16 +466,23 @@ function AbaFinanceiro({ contaAtual, podeEditarVet, guard, categorias, setCatego
       )}
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <select value={filtroCategoria} onChange={e => setFiltroCategoria(e.target.value)}>
-            <option value="">Todas as categorias</option>
-            {categorias.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
-          </select>
-          <select value={filtroCliente} onChange={e => setFiltroCliente(e.target.value)}>
-            <option value="">Todos os clientes</option>
-            {clientes.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
-          </select>
-        </div>
+        <Filtros
+          itens={[
+            {
+              chave: 'categoria', label: 'Categoria', tipo: 'select',
+              opcoes: [{ valor: '', label: 'Todas as categorias' }, ...categorias.map(c => ({ valor: c.id, label: c.nome }))],
+            },
+            {
+              chave: 'cliente', label: 'Cliente', tipo: 'select',
+              opcoes: [{ valor: '', label: 'Todos os clientes' }, ...clientes.map(c => ({ valor: c.id, label: c.nome }))],
+            },
+          ]}
+          valores={{ categoria: filtroCategoria, cliente: filtroCliente }}
+          onChange={(chave, valor) => {
+            if (chave === 'categoria') setFiltroCategoria(valor)
+            else if (chave === 'cliente') setFiltroCliente(valor)
+          }}
+        />
         {podeEditarVet && (
           <div style={{ display: 'flex', gap: 8 }}>
             <button className="btn btn-secondary btn-sm" onClick={() => setModalCategorias(true)}>

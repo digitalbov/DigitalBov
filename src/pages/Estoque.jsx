@@ -452,8 +452,12 @@ export default function Estoque() {
         <BadgeSomenteLeitura ciclo={cicloLocal} />
       </div>
 
-      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:8, marginBottom:16, borderBottom:'.5px solid var(--gray-200)' }}>
-        <div className="tabs-bar" style={{ flex:1, minWidth:0, marginBottom:0, border:'none' }}>
+      {/* Abas + Gerar PDF: mesma linha no desktop (sempre foi assim); no
+          celular, CSS (.tabs-actions-row, global.css) troca pra coluna com
+          o botão em cima e as abas soltas — uma árvore só, ver comentário
+          na definição da classe. */}
+      <div className="tabs-actions-row">
+        <div className="tabs-bar">
           {TABS.map((t, i) => (
             <button key={t} className={`tab-btn ${tab === i ? 'active' : ''}`} onClick={() => setTab(i)}>
               {t}
@@ -467,7 +471,9 @@ export default function Estoque() {
             </button>
           ))}
         </div>
-        <BotaoPDF contentRef={pdfAtual.ref} filename={pdfAtual.filename} titulo={pdfAtual.titulo} />
+        <div className="tabs-actions-btns">
+          <BotaoPDF contentRef={pdfAtual.ref} filename={pdfAtual.filename} titulo={pdfAtual.titulo} />
+        </div>
       </div>
 
       {/* ── Inventário ── */}

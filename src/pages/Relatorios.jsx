@@ -2,6 +2,7 @@
 import { db } from '../lib/supabase'
 import { calcCategoria, calcCategoriaRebanho, calcTaxaPrenhez, contarExpostas, contarPrenhas, contarMatrizesCiclo, ehLotePrenhezAdquirida, calcGestacaoLote, calcTaxaParicao, calcResultadoFinanceiro, calcDesmameMetrics, calcIntervaloPartos, calcGMD, estavaNoRebanho, fmtData, fmtMoeda, pct, ehMatriz, algumErro, CATEGORIAS_VALOR, gruposPorValor, sanidadeRealizada, nomeTouro } from '../lib/helpers'
 import { Loading, Badge, AlertBox, toast, ErroCarregamento } from '../components/UI'
+import Filtros from '../components/Filtros'
 import { useFazenda } from '../lib/FazendaContext'
 import { useCiclo } from '../lib/CicloContext'
 import { hoje as hojeAgora } from '../lib/hoje'
@@ -693,14 +694,14 @@ export default function Relatorios() {
 
       {/* Linha 2: filtro por proprietário (esquerda) + Gerar PDF (direita) */}
       <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:8, marginBottom:16 }}>
-        <div className="pill-group">
-          <button className={`pill ${!filtroProp ? 'active' : ''}`} onClick={() => setFiltroProp('')}>Todos</button>
-          {props.map(p => (
-            <button key={p.id} className={`pill ${filtroProp === p.id ? 'active' : ''}`} onClick={() => setFiltroProp(p.id)}>
-              {p.nome.split(' ')[0]}
-            </button>
-          ))}
-        </div>
+        <Filtros
+          itens={[{
+            chave: 'proprietario', label: 'Proprietário', tipo: 'pills', quick: true,
+            opcoes: [{ valor: '', label: 'Todos' }, ...props.map(p => ({ valor: p.id, label: p.nome.split(' ')[0] }))],
+          }]}
+          valores={{ proprietario: filtroProp }}
+          onChange={(chave, valor) => setFiltroProp(valor)}
+        />
         <button className="btn btn-primary btn-sm" onClick={gerarPDF} disabled={generating}>
           <i className="ti ti-file-type-pdf" /> {generating ? 'Gerando...' : 'Gerar PDF'}
         </button>

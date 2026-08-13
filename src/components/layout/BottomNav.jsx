@@ -2,13 +2,19 @@ import { NavLink } from 'react-router-dom'
 import { usePermissoes } from '../../lib/PermissoesContext'
 
 const ITENS = [
-  { path: '/',           icon: 'ti-layout-dashboard', label: 'Início',     modulo: 'dashboard' },
+  { path: '/',           icon: 'ti-layout-dashboard', label: 'Painel',     modulo: 'dashboard' },
   { path: '/animais',    icon: 'ti-paw',              label: 'Animais',    modulo: 'animais' },
   { path: '/financeiro', icon: 'ti-cash',             label: 'Financeiro', modulo: 'financeiro' },
   { path: '/rebanho',    icon: 'ti-chart-bar',        label: 'Rebanho',    modulo: 'rebanho' },
 ]
 
-export default function BottomNav({ onMais }) {
+// "Mais" agora leva pra /modulos (tela inicial em cards com TODOS os
+// módulos) em vez de abrir a sidebar em overlay — Rodada de layout, item 1.
+// A tela de módulos já cobre tudo que a sidebar mostraria (inclusive
+// Backup/Usuários/Tutorial, que não cabem nos 4 atalhos fixos acima), então
+// vira a superfície de "ver tudo" no celular; o hamburger no topo continua
+// abrindo a sidebar tradicional pra quem preferir aquele formato.
+export default function BottomNav() {
   const { podeVer, ehAdmin } = usePermissoes()
   const visiveis = ITENS.filter(i => i.modulo === 'dashboard' || ehAdmin || podeVer(i.modulo))
   return (
@@ -20,10 +26,10 @@ export default function BottomNav({ onMais }) {
           <span>{item.label}</span>
         </NavLink>
       ))}
-      <button type="button" className="bottom-nav-item" onClick={onMais}>
+      <NavLink to="/modulos" className={({isActive}) => `bottom-nav-item ${isActive ? 'active' : ''}`}>
         <i className="ti ti-menu-2" />
         <span>Mais</span>
-      </button>
+      </NavLink>
     </nav>
   )
 }

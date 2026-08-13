@@ -9,6 +9,7 @@ import { usePermissoes } from '../lib/PermissoesContext'
 import { useCiclo } from '../lib/CicloContext'
 import { useFazenda } from '../lib/FazendaContext'
 import GraficoPrecoVenda from '../components/GraficoPrecoVenda'
+import Filtros from '../components/Filtros'
 import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer, BarChart, Bar,
   XAxis, YAxis, CartesianGrid, LabelList, ReferenceLine, Legend,
@@ -1532,14 +1533,14 @@ export default function Metas() {
       {/* Filtro por proprietário + seletor de ciclo (alinhado à direita, mesma
           linha — Fase 14). flexWrap: em tela estreita empilha em vez de espremer. */}
       <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:10, marginBottom: 12 }}>
-        <div className="pill-group">
-          <button className={`pill ${!filtroProp ? 'active' : ''}`} onClick={() => setFiltroProp('')}>Todos</button>
-          {proprietarios.map(p => (
-            <button key={p.id} className={`pill ${filtroProp === p.id ? 'active' : ''}`} onClick={() => setFiltroProp(p.id)}>
-              {p.nome.split(' ')[0]}
-            </button>
-          ))}
-        </div>
+        <Filtros
+          itens={[{
+            chave: 'proprietario', label: 'Proprietário', tipo: 'pills', quick: true,
+            opcoes: [{ valor: '', label: 'Todos' }, ...proprietarios.map(p => ({ valor: p.id, label: p.nome.split(' ')[0] }))],
+          }]}
+          valores={{ proprietario: filtroProp }}
+          onChange={(chave, valor) => setFiltroProp(valor)}
+        />
       </div>
 
       {/* Ciclo + sumário */}

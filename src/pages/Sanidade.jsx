@@ -9,6 +9,7 @@ import { hoje as hojeAgora, hojeISO } from '../lib/hoje'
 import { validarSaldoEstoque, aplicarMovimentacaoEstoque, reverterCascata } from '../lib/estoqueFinanceiro'
 import { useSubmitGuard } from '../lib/useSubmitGuard'
 import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, AlertBox, BotaoPDF, Confirm, ErroCarregamento, BadgeSomenteLeitura } from '../components/UI'
+import Filtros from '../components/Filtros'
 
 const TABS   = ['Registros','Calendário de vacinação','Alertas','Histórico']
 // TIPOS é o valor GRAVADO (procedimentos_sanitarios.tipo) — sempre singular,
@@ -694,13 +695,18 @@ export default function Sanidade() {
         <BadgeSomenteLeitura ciclo={cicloLocal} />
       </div>
 
-      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:8, marginBottom:16, borderBottom:'.5px solid var(--gray-200)' }}>
-        <div className="tabs-bar" style={{ flex:1, minWidth:0, marginBottom:0, border:'none' }}>
+      {/* Abas + Gerar PDF: mesma linha no desktop (sempre foi assim); no
+          celular, CSS (.tabs-actions-row, global.css) troca pra coluna com
+          o botão em cima e as abas soltas — uma árvore só. */}
+      <div className="tabs-actions-row">
+        <div className="tabs-bar">
           {TABS.map((t, i) => (
             <button key={t} className={`tab-btn ${tab === i ? 'active' : ''}`} onClick={() => setTab(i)}>{t}</button>
           ))}
         </div>
-        {pdfAtual && <BotaoPDF contentRef={pdfAtual.ref} filename={pdfAtual.filename} titulo={pdfAtual.titulo} />}
+        <div className="tabs-actions-btns">
+          {pdfAtual && <BotaoPDF contentRef={pdfAtual.ref} filename={pdfAtual.filename} titulo={pdfAtual.titulo} />}
+        </div>
       </div>
 
       {/* ── Registros ── */}
@@ -1106,23 +1112,28 @@ export default function Sanidade() {
                 caso que antes era "Por lote": filtra por um lote e marca
                 todos de uma vez, sem perder a opção de desmarcar alguns
                 depois. */}
-            <div style={{ display:'flex', gap:8, marginBottom:8, flexWrap:'wrap' }}>
-              <select value={filtroCategSan} onChange={e => setFiltroCategSan(e.target.value)}
-                className="input" style={{ flex:1, minWidth:140 }}>
-                <option value="">Todas as categorias</option>
-                {categoriasDisponiveis.map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
-              <select value={filtroPropSan} onChange={e => setFiltroPropSan(e.target.value)}
-                className="input" style={{ flex:1, minWidth:140 }}>
-                <option value="">Todos os proprietários</option>
-                {props.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}
-              </select>
-              <select value={filtroLoteSan} onChange={e => setFiltroLoteSan(e.target.value)}
-                className="input" style={{ flex:1, minWidth:140 }}>
-                <option value="">Todos os lotes</option>
-                {lotes.map(l => <option key={l.id} value={l.id}>{l.nome}</option>)}
-              </select>
-            </div>
+            <Filtros
+              itens={[
+                {
+                  chave: 'categoria', label: 'Categoria', tipo: 'select',
+                  opcoes: [{ valor: '', label: 'Todas as categorias' }, ...categoriasDisponiveis.map(c => ({ valor: c, label: c }))],
+                },
+                {
+                  chave: 'proprietario', label: 'Proprietário', tipo: 'select',
+                  opcoes: [{ valor: '', label: 'Todos os proprietários' }, ...props.map(p => ({ valor: p.id, label: p.nome }))],
+                },
+                {
+                  chave: 'lote', label: 'Lote', tipo: 'select',
+                  opcoes: [{ valor: '', label: 'Todos os lotes' }, ...lotes.map(l => ({ valor: l.id, label: l.nome }))],
+                },
+              ]}
+              valores={{ categoria: filtroCategSan, proprietario: filtroPropSan, lote: filtroLoteSan }}
+              onChange={(chave, valor) => {
+                if (chave === 'categoria') setFiltroCategSan(valor)
+                else if (chave === 'proprietario') setFiltroPropSan(valor)
+                else if (chave === 'lote') setFiltroLoteSan(valor)
+              }}
+            />
             {animaisFiltradosSan.length > 0 && (
               <button type="button" className="btn btn-secondary btn-xs" style={{ marginBottom:8 }}
                 onClick={() => {

@@ -19,6 +19,7 @@ import { confirmarPerdaPresumida } from '../lib/perdaGestacionalPresumida'
 import { useSubmitGuard } from '../lib/useSubmitGuard'
 import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, AlertBox, BotaoPDF, ErroCarregamento, BadgeSomenteLeitura, Confirm } from '../components/UI'
 import { SeletorTouro, ResolucaoTouro } from '../components/SeletorTouro'
+import Filtros from '../components/Filtros'
 import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer
@@ -2564,13 +2565,16 @@ export default function Reprodutivo() {
         <BadgeSomenteLeitura ciclo={cicloLocal} />
       </div>
 
-      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:8, marginBottom:16, borderBottom:'.5px solid var(--gray-200)' }}>
-        <div className="tabs-bar" style={{ flex:1, minWidth:0, marginBottom:0, border:'none' }}>
+      {/* Abas + botões de ação: mesma linha no desktop (sempre foi assim);
+          no celular, CSS (.tabs-actions-row, global.css) troca pra coluna
+          com os botões em cima e as abas soltas — uma árvore só. */}
+      <div className="tabs-actions-row">
+        <div className="tabs-bar">
           {TABS.map((t,i) => (
             <button key={t} className={`tab-btn ${tab===i?'active':''}`} onClick={() => { setTab(i); setSelLote(null) }}>{t}</button>
           ))}
         </div>
-        <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+        <div className="tabs-actions-btns">
           {/* Só na lista de lotes (não no detalhe de um lote aberto nem nas
               outras abas) — ciclo já tem lotes, então os botões ficam ao lado
               do Gerar PDF em vez de no meio da tela (esse é o caso do
@@ -2859,22 +2863,15 @@ export default function Reprodutivo() {
             return (
               <>
                 {propsNoLote.length > 1 && (
-                  <div style={{ display:'flex', gap:6, flexWrap:'wrap', marginBottom:12 }}>
-                    {[{ id:'', nome:'Todos' }, ...propsNoLote].map(prop => {
-                      const active = filtroPropLote === prop.id
-                      return (
-                        <button key={prop.id || 'todos'} onClick={() => setFiltroPropLote(prop.id)} style={{
-                          padding:'4px 14px', borderRadius:20, fontSize:'.82rem', cursor:'pointer',
-                          fontFamily:'inherit', fontWeight: active ? 600 : 400,
-                          background: active ? '#7B2FBE' : 'white',
-                          color: active ? 'white' : '#374151',
-                          border: active ? '.5px solid #7B2FBE' : '.5px solid #D1D5DB',
-                          transition: 'all .15s'
-                        }}>
-                          {prop.id === '' ? 'Todos' : prop.nome.split(' ')[0]}
-                        </button>
-                      )
-                    })}
+                  <div style={{ marginBottom:12 }}>
+                    <Filtros
+                      itens={[{
+                        chave: 'proprietario', label: 'Proprietário', tipo: 'pills', quick: true,
+                        opcoes: [{ valor: '', label: 'Todos' }, ...propsNoLote.map(p => ({ valor: p.id, label: p.nome.split(' ')[0] }))],
+                      }]}
+                      valores={{ proprietario: filtroPropLote }}
+                      onChange={(chave, valor) => setFiltroPropLote(valor)}
+                    />
                   </div>
                 )}
                 <div className="card-title" style={{ marginBottom:8 }}><i className="ti ti-clipboard-list" /> Resumo do lote</div>
@@ -3546,57 +3543,48 @@ export default function Reprodutivo() {
 
             {(loadingNasc || partosNasc === null) ? <Loading /> : <>
             <div ref={refNasc}>
-              {/* Linha 2 — pills de filtro */}
-              <div style={{ display:'flex', gap:6, flexWrap:'wrap', marginBottom:12 }}>
-                {[{ id:'todos', nome:'Todos' }, ...proprietarios].map(prop => {
-                  const active = filtroNasc === prop.id
-                  return (
-                    <button key={prop.id} onClick={() => setFiltroNasc(prop.id)} style={{
-                      padding:'4px 14px', borderRadius:20, fontSize:'.82rem', cursor:'pointer',
-                      fontFamily:'inherit', fontWeight: active ? 600 : 400,
-                      background: active ? '#7B2FBE' : 'white',
-                      color: active ? 'white' : '#374151',
-                      border: active ? '.5px solid #7B2FBE' : '.5px solid #D1D5DB',
-                      transition: 'all .15s'
-                    }}>
-                      {prop.id === 'todos' ? 'Todos' : prop.nome.split(' ')[0]}
-                    </button>
-                  )
-                })}
-              </div>
-
-              {/* Linha 2b — filtros combináveis (Fase 10 — etapa D): touro, sexo,
-                  lote de inseminação e estação de monta, em AND entre si e com
-                  as pills de proprietário acima. */}
-              <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginBottom:12 }}>
-                <select value={filtroSexoNasc} onChange={e => setFiltroSexoNasc(e.target.value)}
-                  className="input" style={{ maxWidth:150 }}>
-                  <option value="">Todos os sexos</option>
-                  <option value="M">Macho ♂</option>
-                  <option value="F">Fêmea ♀</option>
-                </select>
-                <select value={filtroTouroNasc} onChange={e => setFiltroTouroNasc(e.target.value)}
-                  className="input" style={{ maxWidth:200 }}>
-                  <option value="">Todos os touros</option>
-                  {touroOpcoes.map(t => <option key={t} value={t}>{t}</option>)}
-                </select>
-                <select value={filtroLoteNasc} onChange={e => setFiltroLoteNasc(e.target.value)}
-                  className="input" style={{ maxWidth:260 }}>
-                  <option value="">Todos os lotes</option>
-                  {loteOpcoes.map(l => <option key={l.id} value={l.id}>Lote {l.numero} — {nomeTouro(l)} ({fmtData(l.data)})</option>)}
-                </select>
-                <select value={filtroEstacaoNasc} onChange={e => setFiltroEstacaoNasc(e.target.value)}
-                  className="input" style={{ maxWidth:200 }}>
-                  <option value="">Todas as estações</option>
-                  {estacaoOpcoes.map(es => <option key={es.id} value={es.id}>{es.nome}</option>)}
-                </select>
-                {(filtroSexoNasc || filtroTouroNasc || filtroLoteNasc || filtroEstacaoNasc) && (
-                  <button className="btn btn-secondary btn-sm" onClick={() => {
-                    setFiltroSexoNasc(''); setFiltroTouroNasc(''); setFiltroLoteNasc(''); setFiltroEstacaoNasc('')
-                  }}>
-                    <i className="ti ti-x" /> Limpar filtros
-                  </button>
-                )}
+              {/* Filtros combináveis (Fase 10 — etapa D, migrado pro <Filtros> na
+                  Fase 3 do padrão de filtros): proprietário, sexo, touro, lote
+                  de inseminação e estação de monta, todos em AND entre si.
+                  filtroNasc usa 'todos' como sentinela de "sem filtro" (lógica
+                  de pFilt abaixo já depende disso) — <Filtros> só entende '',
+                  então a tradução 'todos'↔'' fica isolada aqui. */}
+              <div style={{ marginBottom:12 }}>
+                <Filtros
+                  itens={[
+                    {
+                      chave: 'proprietario', label: 'Proprietário', tipo: 'pills', quick: true,
+                      opcoes: [{ valor: '', label: 'Todos' }, ...proprietarios.map(p => ({ valor: p.id, label: p.nome.split(' ')[0] }))],
+                    },
+                    {
+                      chave: 'sexo', label: 'Sexo', tipo: 'select',
+                      opcoes: [{ valor: '', label: 'Todos os sexos' }, { valor: 'M', label: 'Macho ♂' }, { valor: 'F', label: 'Fêmea ♀' }],
+                    },
+                    {
+                      chave: 'touro', label: 'Touro', tipo: 'select',
+                      opcoes: [{ valor: '', label: 'Todos os touros' }, ...touroOpcoes.map(t => ({ valor: t, label: t }))],
+                    },
+                    {
+                      chave: 'lote', label: 'Lote', tipo: 'select',
+                      opcoes: [{ valor: '', label: 'Todos os lotes' }, ...loteOpcoes.map(l => ({ valor: l.id, label: `Lote ${l.numero} — ${nomeTouro(l)} (${fmtData(l.data)})` }))],
+                    },
+                    {
+                      chave: 'estacao', label: 'Estação', tipo: 'select',
+                      opcoes: [{ valor: '', label: 'Todas as estações' }, ...estacaoOpcoes.map(es => ({ valor: es.id, label: es.nome }))],
+                    },
+                  ]}
+                  valores={{
+                    proprietario: filtroNasc === 'todos' ? '' : filtroNasc,
+                    sexo: filtroSexoNasc, touro: filtroTouroNasc, lote: filtroLoteNasc, estacao: filtroEstacaoNasc,
+                  }}
+                  onChange={(chave, valor) => {
+                    if (chave === 'proprietario') setFiltroNasc(valor === '' ? 'todos' : valor)
+                    else if (chave === 'sexo') setFiltroSexoNasc(valor)
+                    else if (chave === 'touro') setFiltroTouroNasc(valor)
+                    else if (chave === 'lote') setFiltroLoteNasc(valor)
+                    else if (chave === 'estacao') setFiltroEstacaoNasc(valor)
+                  }}
+                />
               </div>
 
               {/* Linha 3 — KPI cards (só total/machos/fêmeas — os cards por
@@ -3720,23 +3708,14 @@ export default function Reprodutivo() {
               pra uma linha própria — mas nunca sozinho ocupando a largura
               toda, sempre ao lado do que couber dos filtros. */}
           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:8, marginBottom:14 }}>
-            <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
-              {[{ id:'', nome:'Todos' }, ...proprietarios].map(prop => {
-                const active = filtroPropIdx === prop.id
-                return (
-                  <button key={prop.id || 'todos'} onClick={() => setFiltroPropIdx(prop.id)} style={{
-                    padding:'4px 14px', borderRadius:20, fontSize:'.82rem', cursor:'pointer',
-                    fontFamily:'inherit', fontWeight: active ? 600 : 400,
-                    background: active ? '#7B2FBE' : 'white',
-                    color: active ? 'white' : '#374151',
-                    border: active ? '.5px solid #7B2FBE' : '.5px solid #D1D5DB',
-                    transition: 'all .15s'
-                  }}>
-                    {prop.id === '' ? 'Todos' : prop.nome.split(' ')[0]}
-                  </button>
-                )
-              })}
-            </div>
+            <Filtros
+              itens={[{
+                chave: 'proprietario', label: 'Proprietário', tipo: 'pills', quick: true,
+                opcoes: [{ valor: '', label: 'Todos' }, ...proprietarios.map(p => ({ valor: p.id, label: p.nome.split(' ')[0] }))],
+              }]}
+              valores={{ proprietario: filtroPropIdx }}
+              onChange={(chave, valor) => setFiltroPropIdx(valor)}
+            />
           </div>
           {loadingIdx ? <Loading /> : <>
           <div ref={refIndices}>

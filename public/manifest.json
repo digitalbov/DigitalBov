@@ -2,13 +2,15 @@
   "name": "DigitalBov",
   "short_name": "DigitalBov",
   "description": "Sistema de Gestão Pecuária - DigitalBov",
-  "start_url": "/",
+  "start_url": "/modulos",
   "display": "standalone",
-  "background_color": "#2B6CD9",
+  "background_color": "#FFFFFF",
   "theme_color": "#2B6CD9",
   "orientation": "portrait-primary",
   "icons": [
-    {"src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable"},
-    {"src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"}
+    {"src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+    {"src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+    {"src": "/icon-192-maskable.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable"},
+    {"src": "/icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}
   ]
 }

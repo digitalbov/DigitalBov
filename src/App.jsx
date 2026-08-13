@@ -1,4 +1,4 @@
-﻿import { lazy, useEffect, useState, Suspense } from 'react'
+﻿import { lazy, useEffect, useLayoutEffect, useState, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { auth, supabase } from './lib/supabase'
 import { FazendaProvider, useFazenda } from './lib/FazendaContext'
@@ -6,11 +6,13 @@ import { ContaProvider, useConta } from './lib/ContaContext'
 import { CicloProvider } from './lib/CicloContext'
 import { PermissoesProvider, usePermissoes } from './lib/PermissoesContext'
 import { ToastContainer, toast, FullLoading } from './components/UI'
+import { useIsMobile } from './lib/useIsMobile'
 import InstallPrompt from './components/InstallPrompt'
 import Layout          from './components/layout/Layout'
 import Login           from './components/auth/Login'
 
 const Dashboard   = lazy(() => import('./pages/Dashboard'))
+const Modulos     = lazy(() => import('./pages/Modulos'))
 const Propriedade = lazy(() => import('./pages/Propriedade'))
 const Animais     = lazy(() => import('./pages/Animais'))
 const Feiras      = lazy(() => import('./pages/Feiras'))
@@ -138,6 +140,61 @@ function RotaProtegida({ modulo, children }) {
   )
 }
 
+// ── Entrada padrão do app: no celular cai na tela de módulos (cards); no
+// desktop cai no Painel de sempre, sem tela de cards nenhuma. Mesmo
+// useIsMobile (768px) usado em Filtros/Modulos — um único lugar decide
+// "onde é celular", nunca um window.innerWidth avulso espalhado por aí.
+//
+// Só cobre /login (usuário já autenticado revisitando a tela de login) e
+// * (rota desconhecida) — NÃO cobre uma visita direta a "/", que casa com
+// a rota do Painel diretamente e nunca passa por aqui. É por isso que
+// EntradaDashboard (abaixo) existe: sem ele, abrir a URL raiz no celular
+// sempre cai no Painel, porque o React Router resolve "/" pro elemento da
+// rota sem nunca invocar este redirecionamento.
+function EntradaPadrao() {
+  const isMobile = useIsMobile()
+  // Marca "já entrou" também aqui — sem isso, quem chega pelo /login ou
+  // pelo catch-all nunca passa por EntradaDashboard marcando a sessão, e
+  // um clique deliberado em "Painel" na sidebar logo depois seria
+  // confundido com "primeira entrada" e voltaria pra /modulos sozinho.
+  useLayoutEffect(() => {
+    sessionStorage.setItem(JA_ENTROU_NESTA_ABA, '1')
+  }, [])
+  return <Navigate to={isMobile ? '/modulos' : '/'} replace />
+}
+
+// ── Guarda da rota "/": só ela precisa de tratamento especial, porque é a
+// ÚNICA rota que é tanto (a) o destino de um link permanente no menu
+// ("Painel", sempre deve abrir de verdade quando clicado) quanto (b) a
+// porta de entrada real do navegador (visita direta à URL raiz, sem passar
+// por /login nem pelo catch-all). As outras rotas não têm esse conflito.
+//
+// "1ª entrada nesta aba" é decidido por sessionStorage, não por estado/ref
+// mutado durante o render: mutar uma ref/variável DENTRO do corpo do
+// componente pra decidir o que renderizar quebra sob o StrictMode do
+// React em dev — ele chama a função do componente 2x e usa o resultado da
+// 2ª chamada; se a 1ª chamada já tivesse marcado "já entrou", a 2ª (que é
+// a que realmente é commitada) já veria a marca e nunca redirecionaria.
+// sessionStorage.getItem é uma LEITURA pura (as duas chamadas do
+// StrictMode leem o mesmo valor, porque a escrita só acontece depois, no
+// useLayoutEffect) — por isso a decisão não desalinha entre as duas
+// chamadas. useLayoutEffect (não useEffect) pra gravar e redirecionar
+// ANTES do navegador pintar a tela — sem isso, um usuário no celular veria
+// o Painel por um instante antes de ser jogado pra /modulos.
+const JA_ENTROU_NESTA_ABA = 'digitalbov_ja_entrou_sessao'
+
+function EntradaDashboard({ perfil }) {
+  const isMobile = useIsMobile()
+  const jaEntrou = sessionStorage.getItem(JA_ENTROU_NESTA_ABA) === '1'
+
+  useLayoutEffect(() => {
+    sessionStorage.setItem(JA_ENTROU_NESTA_ABA, '1')
+  }, [])
+
+  if (!jaEntrou && isMobile) return <Navigate to="/modulos" replace />
+  return <Suspense fallback={null}><Dashboard perfil={perfil} /></Suspense>
+}
+
 function ProtectedRoutes({ user, perfil }) {
   if (!user) return <Navigate to="/login" replace />
   return (
@@ -185,9 +242,10 @@ export default function App() {
       <ToastContainer />
       <InstallPrompt />
       <Routes>
-        <Route path="/login" element={user ? <Navigate to="/" replace /> : <Login />} />
+        <Route path="/login" element={user ? <EntradaPadrao /> : <Login />} />
         <Route element={<ProtectedRoutes user={user} perfil={perfil} />}>
-          <Route path="/"            element={<Suspense fallback={null}><Dashboard  perfil={perfil} /></Suspense>} />
+          <Route path="/"            element={<EntradaDashboard perfil={perfil} />} />
+          <Route path="/modulos"     element={<Suspense fallback={null}><Modulos /></Suspense>} />
           <Route path="/assistente"  element={<Suspense fallback={null}><Assistente /></Suspense>} />
           <Route path="/calendario"  element={<Suspense fallback={null}><Calendario /></Suspense>} />
           <Route path="/metas"       element={<RotaProtegida modulo="metas"><Suspense fallback={null}><Metas /></Suspense></RotaProtegida>} />
@@ -207,7 +265,7 @@ export default function App() {
           <Route path="/usuarios"   element={<Suspense fallback={null}><Usuarios /></Suspense>} />
           <Route path="/manual"     element={<Suspense fallback={null}><Manual /></Suspense>} />
         </Route>
-        <Route path="*" element={<Navigate to="/" replace />} />
+        <Route path="*" element={<EntradaPadrao />} />
       </Routes>
     </BrowserRouter>
   )

@@ -14,7 +14,8 @@ import { usePermissoes } from '../../lib/PermissoesContext'
 import { useConta } from '../../lib/ContaContext'
 
 const PAGE_TITLES = {
-  '/':             { title: 'Dashboard',            sub: 'Visão geral da fazenda' },
+  '/':             { title: 'Painel',                sub: 'Visão geral da fazenda' },
+  '/modulos':      { title: 'Módulos',               sub: 'Todas as áreas do sistema em um só lugar' },
   '/propriedade':  { title: 'Propriedade',           sub: 'Fazenda, piquetes e lotes' },
   '/animais':      { title: 'Cadastro de Animais',   sub: 'Registro individual do rebanho' },
   '/reprodutivo':  { title: 'Gestão Reprodutiva',    sub: 'Inseminação, diagnósticos e partos' },
@@ -37,6 +38,14 @@ export default function Layout({ user, perfil }) {
   const [modalCicloOpen, setModalCicloOpen] = useState(false)
   const location = useLocation()
   const page = PAGE_TITLES[location.pathname] || { title: 'Sistema', sub: '' }
+  // /modulos desenha o próprio cabeçalho (escuro, com saudação) — o
+  // cabeçalho padrão simplesmente não entra pra essa rota, em vez de um
+  // segundo <header> por cima ou um monte de `{!isModulos && ...}` picado
+  // por dentro do de sempre. O botão de abrir a sidebar do cabeçalho escuro
+  // usa o MESMO setSidebarOpen de sempre, passado via contexto do Outlet —
+  // não é um segundo mecanismo de abrir a sidebar, só um segundo botão
+  // chamando a mesma função.
+  const isModulos = location.pathname === '/modulos'
   const today = hojeAgora().toLocaleDateString('pt-BR', { weekday:'long', day:'numeric', month:'long', year:'numeric' })
   const dataSimulada = getDataSimulada()
   const { cicloAtual } = useCiclo()
@@ -180,56 +189,58 @@ export default function Layout({ user, perfil }) {
         />
 
         <div className="main-content">
-          {/* Page header */}
-          <header className="page-header">
-            <div style={{ display:'flex', alignItems:'center', gap:10, minWidth:0, flex:1 }}>
-              <button
-                className="hamburger-btn"
-                onClick={() => setSidebarOpen(o => !o)}
-                aria-label="Abrir menu"
-              >
-                <i className="ti ti-menu-2" />
-              </button>
-              <div style={{ minWidth:0, flexShrink:1 }}>
-                <div className="page-title">{page.title}</div>
-                <div className="page-subtitle">{page.sub}</div>
+          {/* Page header — não entra em /modulos, que desenha o próprio. */}
+          {!isModulos && (
+            <header className="page-header">
+              <div style={{ display:'flex', alignItems:'center', gap:10, minWidth:0, flex:1 }}>
+                <button
+                  className="hamburger-btn"
+                  onClick={() => setSidebarOpen(o => !o)}
+                  aria-label="Abrir menu"
+                >
+                  <i className="ti ti-menu-2" />
+                </button>
+                <div style={{ minWidth:0, flexShrink:1 }}>
+                  <div className="page-title">{page.title}</div>
+                  <div className="page-subtitle">{page.sub}</div>
+                </div>
+                {/* Barra sombreada — separa o texto do módulo dos seletores de
+                    fazenda/ciclo (Fase 14, movidos aqui da sidebar). */}
+                <div className="header-divider" />
+                <SeletoresTopo />
               </div>
-              {/* Barra sombreada — separa o texto do módulo dos seletores de
-                  fazenda/ciclo (Fase 14, movidos aqui da sidebar). */}
-              <div className="header-divider" />
-              <SeletoresTopo />
-            </div>
-            <div style={{ display:'flex', alignItems:'center', gap:12, flexShrink:0 }}>
-              <div className="page-date" style={{
-                fontSize:'.78rem', color:'#9CA3AF',
-                display:'flex', alignItems:'center', gap:5
-              }}>
-                <i className="ti ti-calendar" style={{fontSize:13}} />
-                {today}
+              <div style={{ display:'flex', alignItems:'center', gap:12, flexShrink:0 }}>
+                <div className="page-date" style={{
+                  fontSize:'.78rem', color:'#9CA3AF',
+                  display:'flex', alignItems:'center', gap:5
+                }}>
+                  <i className="ti ti-calendar" style={{fontSize:13}} />
+                  {today}
+                </div>
+                <div className="page-ia-badge" style={{
+                  background:'#EEEDFE', color:'#3C3489',
+                  borderRadius:8, padding:'3px 9px',
+                  fontSize:'.72rem', fontWeight:600,
+                  display:'flex', alignItems:'center', gap:4
+                }}>
+                  <i className="ti ti-brain" style={{fontSize:11}} />
+                  IA + Voz
+                </div>
               </div>
-              <div className="page-ia-badge" style={{
-                background:'#EEEDFE', color:'#3C3489',
-                borderRadius:8, padding:'3px 9px',
-                fontSize:'.72rem', fontWeight:600,
-                display:'flex', alignItems:'center', gap:4
-              }}>
-                <i className="ti ti-brain" style={{fontSize:11}} />
-                IA + Voz
-              </div>
-            </div>
-          </header>
+            </header>
+          )}
 
           {/* Page content */}
-          <main className="page-body">
+          <main className={`page-body ${isModulos ? 'page-body-modulos' : ''}`}>
             <ErrorBoundary key={location.pathname}>
               <Suspense fallback={<Loading text="Carregando..." />}>
-                <Outlet />
+                <Outlet context={{ abrirSidebar: () => setSidebarOpen(true), perfil }} />
               </Suspense>
             </ErrorBoundary>
           </main>
         </div>
 
-        <BottomNav onMais={() => setSidebarOpen(true)} />
+        <BottomNav />
       </div>
     </div>
   )

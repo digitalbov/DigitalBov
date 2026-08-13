@@ -7,6 +7,7 @@ import { hoje as hojeAgora, hojeISO } from '../lib/hoje'
 import { registrarDesmame as gravarDesmame, desfazerDesmame } from '../lib/reprodutivoDesmame'
 import { useSubmitGuard } from '../lib/useSubmitGuard'
 import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, IndexCard, BotaoPDF, Confirm, ErroCarregamento, BadgeSomenteLeitura } from '../components/UI'
+import Filtros from '../components/Filtros'
 import GraficoEvolucaoPeso from '../components/GraficoEvolucaoPeso'
 
 const TAMANHO_PAGINA_LISTA = 100
@@ -567,13 +568,18 @@ export default function Pesagens() {
         <BadgeSomenteLeitura ciclo={cicloLocal} />
       </div>
 
-      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:8, marginBottom:16, borderBottom:'.5px solid var(--gray-200)' }}>
-        <div className="tabs-bar" style={{ flex:1, minWidth:0, marginBottom:0, border:'none' }}>
+      {/* Abas + Gerar PDF: mesma linha no desktop (sempre foi assim); no
+          celular, CSS (.tabs-actions-row, global.css) troca pra coluna com
+          o botão em cima e as abas soltas — uma árvore só. */}
+      <div className="tabs-actions-row">
+        <div className="tabs-bar">
           {TABS.map((t,i) => (
             <button key={t} className={`tab-btn ${tab===i?'active':''}`} onClick={()=>setTab(i)}>{t}</button>
           ))}
         </div>
-        {pdfAtual && <BotaoPDF contentRef={pdfAtual.ref} filename={pdfAtual.filename} titulo={pdfAtual.titulo} />}
+        <div className="tabs-actions-btns">
+          {pdfAtual && <BotaoPDF contentRef={pdfAtual.ref} filename={pdfAtual.filename} titulo={pdfAtual.titulo} />}
+        </div>
       </div>
 
       {/* ── Registrar ── */}
@@ -670,30 +676,34 @@ export default function Pesagens() {
               continuam intactos enquanto o gráfico está aberto). */}
           <div style={{ position:'relative' }}>
 
-          {/* Filtros da lista — mesmo padrão visual/funcional dos seletores de
-              venda em Financeiro.jsx (3 <select> num flex row, "Todos/
-              Todas..." como opção em branco). Compõem entre si e com a busca
-              por brinco (AND), aplicados ANTES da paginação. */}
-          <div style={{ display:'flex', gap:8, marginBottom:8, flexWrap:'wrap' }}>
-            <input className="input" style={{ flex:1, minWidth:140 }} value={filtroLista}
-              onChange={e => { setFiltroLista(e.target.value); setPaginaLista(1) }}
-              placeholder="Filtrar por brinco..." />
-            <select className="input" style={{ flex:1, minWidth:140 }} value={filtroCategoriaLista}
-              onChange={e => { setFiltroCategoriaLista(e.target.value); setPaginaLista(1) }}>
-              <option value="">Todas as categorias</option>
-              {categoriasComAnimais.map(c => <option key={c} value={c}>{c}</option>)}
-            </select>
-            <select className="input" style={{ flex:1, minWidth:140 }} value={filtroLoteLista}
-              onChange={e => { setFiltroLoteLista(e.target.value); setPaginaLista(1) }}>
-              <option value="">Todos os lotes</option>
-              {lotesSistema.map(l => <option key={l.id} value={l.id}>{l.nome}</option>)}
-            </select>
-            <select className="input" style={{ flex:1, minWidth:140 }} value={filtroProprietarioLista}
-              onChange={e => { setFiltroProprietarioLista(e.target.value); setPaginaLista(1) }}>
-              <option value="">Todos os proprietários</option>
-              {proprietariosComAnimais.map(([id, nome]) => <option key={id} value={id}>{nome}</option>)}
-            </select>
-          </div>
+          {/* Filtros da lista — compõem entre si e com a busca por brinco
+              (AND), aplicados ANTES da paginação. Cada onChange também zera
+              a página (mesmo efeito colateral que os <select> tinham antes). */}
+          <Filtros
+            itens={[
+              { chave: 'busca', label: 'Buscar', tipo: 'busca', quick: true, placeholder: 'Filtrar por brinco...' },
+              {
+                chave: 'categoria', label: 'Categoria', tipo: 'select',
+                opcoes: [{ valor: '', label: 'Todas as categorias' }, ...categoriasComAnimais.map(c => ({ valor: c, label: c }))],
+              },
+              {
+                chave: 'lote', label: 'Lote', tipo: 'select',
+                opcoes: [{ valor: '', label: 'Todos os lotes' }, ...lotesSistema.map(l => ({ valor: l.id, label: l.nome }))],
+              },
+              {
+                chave: 'proprietario', label: 'Proprietário', tipo: 'select',
+                opcoes: [{ valor: '', label: 'Todos os proprietários' }, ...proprietariosComAnimais.map(([id, nome]) => ({ valor: id, label: nome }))],
+              },
+            ]}
+            valores={{ busca: filtroLista, categoria: filtroCategoriaLista, lote: filtroLoteLista, proprietario: filtroProprietarioLista }}
+            onChange={(chave, valor) => {
+              if (chave === 'busca') setFiltroLista(valor)
+              else if (chave === 'categoria') setFiltroCategoriaLista(valor)
+              else if (chave === 'lote') setFiltroLoteLista(valor)
+              else if (chave === 'proprietario') setFiltroProprietarioLista(valor)
+              setPaginaLista(1)
+            }}
+          />
           <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:8 }}>
             <span style={{ fontSize:'.78rem', color:'#9CA3AF' }}>
               {animaisListaFiltrados.length} de {animais.length} animais
@@ -1089,10 +1099,14 @@ export default function Pesagens() {
               }} />
             </Field>
             <Field label="Filtrar por lote">
-              <select value={filtroLoteDesm} onChange={e => setFiltroLoteDesm(e.target.value)}>
-                <option value="">Todos os lotes</option>
-                {lotesSistema.map(l => <option key={l.id} value={l.id}>{l.nome}</option>)}
-              </select>
+              <Filtros
+                itens={[{
+                  chave: 'lote', label: 'Lote', tipo: 'select',
+                  opcoes: [{ valor: '', label: 'Todos os lotes' }, ...lotesSistema.map(l => ({ valor: l.id, label: l.nome }))],
+                }]}
+                valores={{ lote: filtroLoteDesm }}
+                onChange={(chave, valor) => setFiltroLoteDesm(valor)}
+              />
             </Field>
           </div>
 
