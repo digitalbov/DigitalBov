@@ -7,6 +7,7 @@ import { hojeISO } from '../lib/hoje'
 import { confirmarPerdaPresumida } from '../lib/perdaGestacionalPresumida'
 import { Loading, EmptyState, Modal, Field, MicButton, Badge, toast, BotaoPDF, ErroCarregamento, Confirm, AlertBox } from '../components/UI'
 import { SeletorTouro, ResolucaoTouro } from '../components/SeletorTouro'
+import Filtros from '../components/Filtros'
 import { baixarModeloAnimais, lerPlanilhaAnimais, validarLinhas } from '../lib/importacaoAnimais'
 import GraficoEvolucaoPeso from '../components/GraficoEvolucaoPeso'
 import { BarChart, Bar, Cell, LabelList, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
@@ -304,24 +305,6 @@ function ArvoreGenealogica({ animal, animais, onSelect, onClickPai }) {
           )}
 
         </div>
-      </div>
-    </div>
-  )
-}
-
-// ── Grupo de filtros (rótulo discreto + contêiner sutil) ───────────
-function FiltroGrupo({ label, children }) {
-  return (
-    <div style={{
-      display: 'flex', flexDirection: 'column', gap: 5,
-      background: '#F9FAFB', border: '.5px solid #E5E7EB', borderRadius: 10,
-      padding: '6px 10px'
-    }}>
-      <span style={{ fontSize: '.65rem', fontWeight: 600, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '.04em' }}>
-        {label}
-      </span>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
-        {children}
       </div>
     </div>
   )
@@ -1863,64 +1846,54 @@ export default function Animais() {
   // ── Lista ─────────────────────────────────────────────────────────
   const lista = !selected ? (
     <div>
-      <div className="animais-filtros-bar" style={{
-        background: 'white', border: '.5px solid #E5E7EB', borderRadius: 12,
-        padding: '12px 14px', marginBottom: 12,
-        display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center'
-      }}>
-        <div className="animais-filtros-pills" style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'flex-start' }}>
-          <FiltroGrupo label="Situação">
-            <button className={`pill ${filtSit === '' ? 'active' : ''}`}         onClick={() => setFiltSit('')}>Todos ({animais.length})</button>
-            <button className={`pill ${filtSit === 'ativo' ? 'active' : ''}`}    onClick={() => setFiltSit('ativo')}>Ativos ({ativos})</button>
-            <button className={`pill ${filtSit !== 'ativo' && filtSit !== '' ? 'active' : ''}`} onClick={() => setFiltSit('vendido')}>Inativos ({inativos})</button>
-          </FiltroGrupo>
-
-          <FiltroGrupo label="Proprietários">
-            <button className={`pill ${!filtProp ? 'active' : ''}`}              onClick={() => setFiltProp('')}>Todos</button>
-            {props.map(p => (
-              <button key={p.id} className={`pill ${filtProp === p.id ? 'active' : ''}`} onClick={() => setFiltProp(p.id)}>
-                {p.nome.split(' ')[0]}
-              </button>
-            ))}
-          </FiltroGrupo>
-
-          <FiltroGrupo label="Sexo">
-            <button className={`pill ${!filtSexo ? 'active' : ''}`}   onClick={() => setFiltSexo('')}>♀♂</button>
-            <button className={`pill ${filtSexo === 'F' ? 'active' : ''}`} onClick={() => setFiltSexo('F')}>♀ Fêmeas</button>
-            <button className={`pill ${filtSexo === 'M' ? 'active' : ''}`} onClick={() => setFiltSexo('M')}>♂ Machos</button>
-          </FiltroGrupo>
-
-          <FiltroGrupo label="Reprodutivo">
-            <button className={`pill ${!filtRep ? 'active' : ''}`} onClick={() => setFiltRep('')}>Todas</button>
-            {repsDisponiveis.map(r => (
-              <button key={r} className={`pill ${filtRep === r ? 'active' : ''}`} onClick={() => setFiltRep(r)}>
-                {r.replace('_', ' ')}
-              </button>
-            ))}
-          </FiltroGrupo>
-
-          <FiltroGrupo label="Categoria / Lote">
-            <select value={filtCategoria} onChange={e => setFiltCategoria(e.target.value)}
-              style={{ width: 'auto', fontSize: '.8rem', padding: '6px 10px' }}>
-              <option value="">Todas as categorias</option>
-              {categoriasDisponiveis.map(c => <option key={c} value={c}>{c}</option>)}
-            </select>
-            <select value={filtLote} onChange={e => setFiltLote(e.target.value)}
-              style={{ width: 'auto', fontSize: '.8rem', padding: '6px 10px' }}>
-              <option value="">Todos os lotes</option>
-              {lotes.map(l => <option key={l.id} value={l.id}>{l.nome}</option>)}
-            </select>
-          </FiltroGrupo>
-
-          <input
-            className="animais-search-input"
-            style={{ flex: 1, minWidth: 130, maxWidth: 200 }}
-            placeholder="🔍 Buscar brinco..."
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-          />
-        </div>
-        <div className="animais-lote-botoes" style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginLeft: 'auto', alignItems: 'center' }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 12 }}>
+        <Filtros
+          itens={[
+            { chave: 'busca', label: 'Buscar', tipo: 'busca', quick: true, placeholder: 'Buscar brinco...' },
+            {
+              chave: 'situacao', label: 'Situação', tipo: 'pills', quick: true,
+              opcoes: [
+                { valor: '', label: `Todos (${animais.length})` },
+                { valor: 'ativo', label: `Ativos (${ativos})` },
+                { valor: 'vendido', label: `Inativos (${inativos})` },
+              ],
+            },
+            {
+              chave: 'proprietario', label: 'Proprietário', tipo: 'pills',
+              opcoes: [{ valor: '', label: 'Todos' }, ...props.map(p => ({ valor: p.id, label: p.nome.split(' ')[0] }))],
+            },
+            {
+              chave: 'sexo', label: 'Sexo', tipo: 'pills',
+              opcoes: [{ valor: '', label: '♀♂' }, { valor: 'F', label: '♀ Fêmeas' }, { valor: 'M', label: '♂ Machos' }],
+            },
+            {
+              chave: 'reprodutivo', label: 'Reprodutivo', tipo: 'pills',
+              opcoes: [{ valor: '', label: 'Todas' }, ...repsDisponiveis.map(r => ({ valor: r, label: r.replace('_', ' ') }))],
+            },
+            {
+              chave: 'categoria', label: 'Categoria', tipo: 'select',
+              opcoes: [{ valor: '', label: 'Todas as categorias' }, ...categoriasDisponiveis.map(c => ({ valor: c, label: c }))],
+            },
+            {
+              chave: 'lote', label: 'Lote', tipo: 'select',
+              opcoes: [{ valor: '', label: 'Todos os lotes' }, ...lotes.map(l => ({ valor: l.id, label: l.nome }))],
+            },
+          ]}
+          valores={{
+            busca: search, situacao: filtSit, proprietario: filtProp, sexo: filtSexo,
+            reprodutivo: filtRep, categoria: filtCategoria, lote: filtLote,
+          }}
+          onChange={(chave, valor) => {
+            if (chave === 'busca') setSearch(valor)
+            else if (chave === 'situacao') setFiltSit(valor)
+            else if (chave === 'proprietario') setFiltProp(valor)
+            else if (chave === 'sexo') setFiltSexo(valor)
+            else if (chave === 'reprodutivo') setFiltRep(valor)
+            else if (chave === 'categoria') setFiltCategoria(valor)
+            else if (chave === 'lote') setFiltLote(valor)
+          }}
+        />
+        <div className="animais-lote-botoes" style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
           {podeEditarAnimais && (
             <>
               <div className="animais-lote-btn-group">

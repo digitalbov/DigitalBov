@@ -691,17 +691,18 @@ export default function Sanidade() {
 
   return (
     <div>
+      {/* Abas em linha própria, sem disputar espaço com botão de ação no
+          celular — Gerar PDF sobe pra linha de cima, junto do indicador de
+          somente leitura. */}
       <div style={{ display:'flex', justifyContent:'flex-end', alignItems:'center', flexWrap:'wrap', gap:8, marginBottom:14 }}>
         <BadgeSomenteLeitura ciclo={cicloLocal} />
+        {pdfAtual && <BotaoPDF contentRef={pdfAtual.ref} filename={pdfAtual.filename} titulo={pdfAtual.titulo} />}
       </div>
 
-      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:8, marginBottom:16, borderBottom:'.5px solid var(--gray-200)' }}>
-        <div className="tabs-bar" style={{ flex:1, minWidth:0, marginBottom:0, border:'none' }}>
-          {TABS.map((t, i) => (
-            <button key={t} className={`tab-btn ${tab === i ? 'active' : ''}`} onClick={() => setTab(i)}>{t}</button>
-          ))}
-        </div>
-        {pdfAtual && <BotaoPDF contentRef={pdfAtual.ref} filename={pdfAtual.filename} titulo={pdfAtual.titulo} />}
+      <div className="tabs-bar">
+        {TABS.map((t, i) => (
+          <button key={t} className={`tab-btn ${tab === i ? 'active' : ''}`} onClick={() => setTab(i)}>{t}</button>
+        ))}
       </div>
 
       {/* ── Registros ── */}

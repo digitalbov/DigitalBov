@@ -448,26 +448,28 @@ export default function Estoque() {
 
   return (
     <div>
+      {/* Abas em linha própria, sem disputar espaço com botões de ação no
+          celular (abas com muitos itens precisam da largura toda pra não
+          empurrar a maioria pra fora do scroll) — Gerar PDF sobe pra linha
+          de cima, junto do indicador de somente leitura. */}
       <div style={{ display:'flex', justifyContent:'flex-end', alignItems:'center', flexWrap:'wrap', gap:8, marginBottom:14 }}>
         <BadgeSomenteLeitura ciclo={cicloLocal} />
+        <BotaoPDF contentRef={pdfAtual.ref} filename={pdfAtual.filename} titulo={pdfAtual.titulo} />
       </div>
 
-      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:8, marginBottom:16, borderBottom:'.5px solid var(--gray-200)' }}>
-        <div className="tabs-bar" style={{ flex:1, minWidth:0, marginBottom:0, border:'none' }}>
-          {TABS.map((t, i) => (
-            <button key={t} className={`tab-btn ${tab === i ? 'active' : ''}`} onClick={() => setTab(i)}>
-              {t}
-              {t === 'Alertas' && totalAlertas > 0 && (
-                <span style={{
-                  background: '#E24B4A', color: 'white',
-                  borderRadius: 10, padding: '0px 5px',
-                  fontSize: '.68rem', marginLeft: 5
-                }}>{totalAlertas}</span>
-              )}
-            </button>
-          ))}
-        </div>
-        <BotaoPDF contentRef={pdfAtual.ref} filename={pdfAtual.filename} titulo={pdfAtual.titulo} />
+      <div className="tabs-bar">
+        {TABS.map((t, i) => (
+          <button key={t} className={`tab-btn ${tab === i ? 'active' : ''}`} onClick={() => setTab(i)}>
+            {t}
+            {t === 'Alertas' && totalAlertas > 0 && (
+              <span style={{
+                background: '#E24B4A', color: 'white',
+                borderRadius: 10, padding: '0px 5px',
+                fontSize: '.68rem', marginLeft: 5
+              }}>{totalAlertas}</span>
+            )}
+          </button>
+        ))}
       </div>
 
       {/* ── Inventário ── */}

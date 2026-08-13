@@ -85,7 +85,15 @@ function labelValor(item, valor) {
 // ── Modo desktop: TODOS os itens sempre visíveis, lado a lado, envolvendo
 // linha — reprodução exata do que Rebanho.jsx/Feiras.jsx já faziam antes
 // deste componente existir. Sem medição, sem painel, sem chips.
+//
+// "Limpar filtros" (2026-08-13): com 2+ itens combináveis, zerar um por um
+// é ruim em qualquer tela, não só no celular (que já tinha "Limpar tudo"
+// nos chips desde o início) — por isso mora aqui no componente, não numa
+// tela específica. Só aparece quando compensa: 2+ itens (num filtro único,
+// clicar "Todos"/"Todas as X" já limpa) e pelo menos um ativo.
 function FiltrosDesktop({ itens, valores, onChange }) {
+  const ativos = itens.filter(i => valores[i.chave])
+  const limparTudo = () => itens.forEach(i => onChange(i.chave, VAZIO))
   return (
     <div className="filtros-wrap">
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
@@ -93,6 +101,11 @@ function FiltrosDesktop({ itens, valores, onChange }) {
           <Campo key={item.chave} item={item} desktop valor={valores[item.chave] || VAZIO}
             onValor={(v) => onChange(item.chave, v)} />
         ))}
+        {itens.length > 1 && ativos.length > 0 && (
+          <button type="button" className="btn btn-secondary btn-sm" onClick={limparTudo}>
+            <i className="ti ti-x" /> Limpar filtros
+          </button>
+        )}
       </div>
     </div>
   )

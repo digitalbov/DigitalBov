@@ -1096,22 +1096,21 @@ export default function Financeiro() {
   return (
     <div>
       {/* Ciclo agora é selecionado exclusivamente pelo seletor global no
-          topo (SeletoresTopo) — aqui só o indicador de somente leitura. */}
+          topo (SeletoresTopo) — aqui só o indicador de somente leitura.
+          Gerar PDF sobe pra essa mesma linha (o botão troca de alvo conforme
+          a aba ativa, pdfAtual) — abas ficam em linha própria logo abaixo,
+          sem disputar espaço com botão de ação no celular. */}
       <div style={{ display:'flex', justifyContent:'flex-end', alignItems:'center', flexWrap:'wrap', gap:8, marginBottom:14 }}>
         <BadgeSomenteLeitura ciclo={cicloLocal} />
-      </div>
-
-      {/* Abas + Gerar PDF na mesma linha, alinhado à direita (Fase 14) — o
-          botão troca de alvo conforme a aba ativa (pdfAtual). */}
-      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:8, marginBottom:16, borderBottom:'.5px solid var(--gray-200)' }}>
-        <div className="tabs-bar" style={{ flex:1, minWidth:0, marginBottom:0, border:'none' }}>
-          {TABS.map((t,i)=>(
-            <button key={t} className={`tab-btn ${tab===i?'active':''}`} onClick={()=>setTab(i)}>{t}</button>
-          ))}
-        </div>
         {pdfAtual && (
           <BotaoPDF contentRef={pdfAtual.ref} filename={pdfAtual.filename} titulo={pdfAtual.titulo} />
         )}
+      </div>
+
+      <div className="tabs-bar">
+        {TABS.map((t,i)=>(
+          <button key={t} className={`tab-btn ${tab===i?'active':''}`} onClick={()=>setTab(i)}>{t}</button>
+        ))}
       </div>
 
       {/* ── Resumo ── */}
