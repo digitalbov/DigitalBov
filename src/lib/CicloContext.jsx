@@ -69,6 +69,7 @@ export function CicloProvider({ children }) {
       if (existente) return existente
       await db.ciclos.deactivateAll()
       const { data: criado, error } = await db.ciclos.insert({
+        fazenda_id: fazendaId,
         nome: esperado.nome, inicio: esperado.inicio, fim: esperado.fim, atual: true,
       })
       if (error) { console.error('[CicloContext] erro ao criar ciclo automático:', error); return null }

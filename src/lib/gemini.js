@@ -1,8 +1,10 @@
 import { hoje as hojeAgora } from './hoje'
+import { supabase } from './supabase'
 
-const API_KEY  = import.meta.env.VITE_GEMINI_API_KEY
-// gemini-2.5-flash é o modelo estável mais recente disponível nesta chave
-const ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${API_KEY}`
+// A chave do Gemini NÃO vive mais no navegador. As chamadas passam por uma
+// função serverless da Netlify (netlify/functions/gemini.js), que guarda a
+// chave no servidor e só atende usuário autenticado.
+const ENDPOINT = '/.netlify/functions/gemini'
 
 const SISTEMA = `Você é o assistente de gestão pecuária do DigitalBov, um sistema de gestão de bovinos.
 Responda sempre em português brasileiro, de forma clara e objetiva.
@@ -11,10 +13,6 @@ Quando calcular taxas ou percentuais, mostre o raciocínio brevemente.
 Não invente dados que não estejam no contexto fornecido.`
 
 export async function perguntarIA(pergunta, contextoDados) {
-  if (!API_KEY) {
-    throw new Error('Chave da API Gemini não configurada. Adicione VITE_GEMINI_API_KEY no painel do Netlify.')
-  }
-
   const prompt = `${SISTEMA}
 
 --- DADOS ATUAIS DO SISTEMA (${hojeAgora().toLocaleDateString('pt-BR')}) ---
@@ -30,9 +28,14 @@ Pergunta do usuário: ${pergunta}`
 
   let res
   try {
+    const { data: sess } = await supabase.auth.getSession()
+    const token = sess?.session?.access_token
     res = await fetch(ENDPOINT, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {})
+      },
       body: JSON.stringify(body)
     })
   } catch {
@@ -52,10 +55,13 @@ Pergunta do usuário: ${pergunta}`
       throw new Error('Muitas requisições em pouco tempo. Aguarde alguns segundos e tente novamente.')
     }
     if (res.status === 400) {
-      throw new Error('Requisição inválida para a API Gemini. Verifique a chave no Netlify.')
+      throw new Error('Requisição inválida para a API Gemini. Tente novamente.')
+    }
+    if (res.status === 401) {
+      throw new Error('Sessão expirada. Faça login novamente para usar o assistente.')
     }
     if (res.status === 403) {
-      throw new Error('Chave de API inválida ou sem permissão. Verifique a variável VITE_GEMINI_API_KEY no Netlify.')
+      throw new Error('Sem permissão para usar o assistente. Faça login novamente.')
     }
     throw new Error(`Erro na API Gemini (${res.status}): ${msg || 'tente novamente em instantes.'}`)
   }

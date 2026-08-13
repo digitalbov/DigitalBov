@@ -1,8 +1,6 @@
-const CACHE_NAME = 'ventos-varzea-v5'
+const CACHE_NAME = 'digitalbov-v6'
 
-self.addEventListener('install', (event) => {
-  self.skipWaiting()
-})
+self.addEventListener('install', () => { self.skipWaiting() })
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
@@ -21,15 +19,32 @@ self.addEventListener('fetch', (event) => {
   // como fallback de rede lenta/instável.
   if (request.method !== 'GET') return
   if (request.mode === 'navigate') return
-  if (new URL(request.url).origin !== self.location.origin) return
+
+  let url
+  try { url = new URL(request.url) } catch { return }
+  if (url.origin !== self.location.origin) return
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return
 
   event.respondWith(
     fetch(request)
       .then((response) => {
-        const clone = response.clone()
-        caches.open(CACHE_NAME).then((cache) => cache.put(request, clone))
+        // Só guarda resposta boa e não-parcial; cache.put rejeita 206/opaque
+        if (response && response.ok && response.type === 'basic') {
+          const clone = response.clone()
+          caches.open(CACHE_NAME)
+            .then((cache) => cache.put(request, clone))
+            .catch(() => {})
+        }
         return response
       })
-      .catch(() => caches.match(request))
+      .catch(async () => {
+        const cached = await caches.match(request)
+        // SEM ISTO o handler devolve undefined e o navegador lança
+        // "Failed to convert value to 'Response'"
+        return cached || new Response('', {
+          status: 504,
+          statusText: 'Offline e sem cópia em cache'
+        })
+      })
   )
 })
