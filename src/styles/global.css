@@ -752,7 +752,7 @@ tbody tr:hover td { background: #EAF0FB; transition: background 0.15s; }
   }
   .modulos-menu-btn:active { background: var(--gray-200); }
 
-  .modulos-greeting { padding: 16px 2px 22px; }
+  .modulos-greeting { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 2px 22px; }
   .modulos-greeting-hi { font-size: 1.5rem; font-weight: 700; color: var(--gray-900); }
   /* --db-cyan tinha contraste fraco contra branco (era pensado pra pop
      contra o navy escuro). --db-blue é a cor primária da marca, já usada
@@ -760,6 +760,10 @@ tbody tr:hover td { background: #EAF0FB; transition: background 0.15s; }
      que qualquer destaque de texto do sistema já usa contra fundo claro. */
   .modulos-greeting-name { color: var(--db-blue); }
   .modulos-greeting-sub { font-size: .82rem; color: var(--gray-500); margin-top: 3px; }
+  /* Altura menor que a linha "Olá" (24px) + subtítulo — de propósito, pra
+     não competir com a saudação. width:auto preserva a proporção real do
+     recorte (public/logo-marca-vazada.png, 360x238), sem esticar. */
+  .modulos-greeting-logo { height: 34px; width: auto; flex-shrink: 0; }
 
   .modulos-secao { margin-bottom: 22px; }
   .modulos-secao-label {

@@ -98,8 +98,14 @@ export default function Modulos() {
       </div>
 
       <div className="modulos-greeting">
-        <div className="modulos-greeting-hi">Olá, <span className="modulos-greeting-name">{primeiroNome}</span></div>
-        <div className="modulos-greeting-sub">Bem-vindo ao DigitalBov</div>
+        <div className="modulos-greeting-textos">
+          <div className="modulos-greeting-hi">Olá, <span className="modulos-greeting-name">{primeiroNome}</span></div>
+          <div className="modulos-greeting-sub">Bem-vindo ao DigitalBov</div>
+        </div>
+        {/* Recorte só da cabeça de boi do anel de pdf-marca.png (sem o anel
+            nem "DIGITAL BOV" — não cabe legível nesse tamanho) — ver
+            public/logo-marca-vazada.png. */}
+        <img src="/logo-marca-vazada.png" alt="" aria-hidden="true" className="modulos-greeting-logo" />
       </div>
 
       {secoes.map((secao, i) => (
