@@ -1096,21 +1096,26 @@ export default function Financeiro() {
   return (
     <div>
       {/* Ciclo agora é selecionado exclusivamente pelo seletor global no
-          topo (SeletoresTopo) — aqui só o indicador de somente leitura.
-          Gerar PDF sobe pra essa mesma linha (o botão troca de alvo conforme
-          a aba ativa, pdfAtual) — abas ficam em linha própria logo abaixo,
-          sem disputar espaço com botão de ação no celular. */}
+          topo (SeletoresTopo) — aqui só o indicador de somente leitura. */}
       <div style={{ display:'flex', justifyContent:'flex-end', alignItems:'center', flexWrap:'wrap', gap:8, marginBottom:14 }}>
         <BadgeSomenteLeitura ciclo={cicloLocal} />
-        {pdfAtual && (
-          <BotaoPDF contentRef={pdfAtual.ref} filename={pdfAtual.filename} titulo={pdfAtual.titulo} />
-        )}
       </div>
 
-      <div className="tabs-bar">
-        {TABS.map((t,i)=>(
-          <button key={t} className={`tab-btn ${tab===i?'active':''}`} onClick={()=>setTab(i)}>{t}</button>
-        ))}
+      {/* Abas + Gerar PDF: mesma linha no desktop (Fase 14, o botão troca de
+          alvo conforme a aba ativa, pdfAtual); no celular, CSS
+          (.tabs-actions-row, global.css) troca pra coluna com o botão em
+          cima e as abas soltas — uma árvore só. */}
+      <div className="tabs-actions-row">
+        <div className="tabs-bar">
+          {TABS.map((t,i)=>(
+            <button key={t} className={`tab-btn ${tab===i?'active':''}`} onClick={()=>setTab(i)}>{t}</button>
+          ))}
+        </div>
+        <div className="tabs-actions-btns">
+          {pdfAtual && (
+            <BotaoPDF contentRef={pdfAtual.ref} filename={pdfAtual.filename} titulo={pdfAtual.titulo} />
+          )}
+        </div>
       </div>
 
       {/* ── Resumo ── */}

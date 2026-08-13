@@ -2561,37 +2561,41 @@ export default function Reprodutivo() {
 
   return (
     <div>
-      {/* Abas em linha própria, sem disputar espaço com botões de ação no
-          celular — Gerar PDF e os botões de navegação de ciclo sobem pra
-          linha de cima, junto do indicador de somente leitura. */}
       <div style={{ display:'flex', justifyContent:'flex-end', alignItems:'center', flexWrap:'wrap', gap:8, marginBottom:14 }}>
         <BadgeSomenteLeitura ciclo={cicloLocal} />
-        {/* Só na lista de lotes (não no detalhe de um lote aberto nem nas
-            outras abas) — ciclo já tem lotes, então os botões ficam ao lado
-            do Gerar PDF em vez de no meio da tela (esse é o caso do
-            EmptyState abaixo, quando o ciclo ainda não tem nenhum lote). */}
-        {tab === 0 && !selLote && lotes.length > 0 && cicloAnterior && (
-          <div style={{ position: 'relative' }}>
-            <button className="btn btn-secondary btn-sm" onClick={irParaCicloAnterior}>
-              <i className="ti ti-history" /> Ver ciclo anterior
-            </button>
-            {balaoCicloAnteriorAberto && (
-              <BalaoPendenciaCicloAnterior texto={textoBalaoCicloAnterior} onFechar={fecharBalaoCicloAnterior} />
-            )}
-          </div>
-        )}
-        {tab === 0 && !selLote && lotes.length > 0 && cicloProximo && (
-          <button className="btn btn-secondary btn-sm" onClick={irParaCicloProximo}>
-            <i className="ti ti-history" /> Ver próximo ciclo
-          </button>
-        )}
-        <BotaoPDF contentRef={pdfAtual.ref} filename={pdfAtual.filename} titulo={pdfAtual.titulo} />
       </div>
 
-      <div className="tabs-bar">
-        {TABS.map((t,i) => (
-          <button key={t} className={`tab-btn ${tab===i?'active':''}`} onClick={() => { setTab(i); setSelLote(null) }}>{t}</button>
-        ))}
+      {/* Abas + botões de ação: mesma linha no desktop (sempre foi assim);
+          no celular, CSS (.tabs-actions-row, global.css) troca pra coluna
+          com os botões em cima e as abas soltas — uma árvore só. */}
+      <div className="tabs-actions-row">
+        <div className="tabs-bar">
+          {TABS.map((t,i) => (
+            <button key={t} className={`tab-btn ${tab===i?'active':''}`} onClick={() => { setTab(i); setSelLote(null) }}>{t}</button>
+          ))}
+        </div>
+        <div className="tabs-actions-btns">
+          {/* Só na lista de lotes (não no detalhe de um lote aberto nem nas
+              outras abas) — ciclo já tem lotes, então os botões ficam ao lado
+              do Gerar PDF em vez de no meio da tela (esse é o caso do
+              EmptyState abaixo, quando o ciclo ainda não tem nenhum lote). */}
+          {tab === 0 && !selLote && lotes.length > 0 && cicloAnterior && (
+            <div style={{ position: 'relative' }}>
+              <button className="btn btn-secondary btn-sm" onClick={irParaCicloAnterior}>
+                <i className="ti ti-history" /> Ver ciclo anterior
+              </button>
+              {balaoCicloAnteriorAberto && (
+                <BalaoPendenciaCicloAnterior texto={textoBalaoCicloAnterior} onFechar={fecharBalaoCicloAnterior} />
+              )}
+            </div>
+          )}
+          {tab === 0 && !selLote && lotes.length > 0 && cicloProximo && (
+            <button className="btn btn-secondary btn-sm" onClick={irParaCicloProximo}>
+              <i className="ti ti-history" /> Ver próximo ciclo
+            </button>
+          )}
+          <BotaoPDF contentRef={pdfAtual.ref} filename={pdfAtual.filename} titulo={pdfAtual.titulo} />
+        </div>
       </div>
 
       {/* ── Lotes ── */}

@@ -353,6 +353,22 @@ tbody tr:hover td { background: #EAF0FB; transition: background 0.15s; }
 .tab-btn:hover { color: var(--gray-700); }
 .tab-btn.active { color: var(--brand-green); border-bottom-color: var(--brand-green); font-weight: 500; }
 
+/* ── Abas + botões de ação (Estoque, Financeiro, Pesagens, Reprodutivo,
+   Sanidade) ────────────────────────────────────────────────────────
+   Uma árvore só: no desktop as abas e os botões ficam lado a lado, na
+   mesma linha (igual sempre foi). No celular (media query lá embaixo),
+   CSS troca a linha pra coluna e reordena com `order` — os botões sobem
+   pra cima, as abas (.tabs-bar) ganham a largura toda e o scroll
+   horizontal próprio, sem disputar espaço com os botões. Nenhum JS
+   decide a ordem; a marcação é idêntica nos dois modos. */
+.tabs-actions-row {
+  display: flex; align-items: center; justify-content: space-between;
+  flex-wrap: wrap; gap: 8px; margin-bottom: 16px;
+  border-bottom: .5px solid var(--gray-200);
+}
+.tabs-actions-row .tabs-bar { flex: 1; min-width: 0; margin-bottom: 0; border: none; }
+.tabs-actions-btns { display: flex; align-items: center; gap: 8px; }
+
 /* ── Pill filters ───────────────────────────────────────────────── */
 .pill-group { display: flex; gap: 5px; flex-wrap: wrap; }
 .pill {
@@ -890,6 +906,13 @@ tbody tr:hover td { background: #EAF0FB; transition: background 0.15s; }
   /* Tabs: scroll horizontally */
   .tabs-bar { overflow-x: auto; -webkit-overflow-scrolling: touch; }
   .tab-btn  { padding: 10px 14px; font-size: .84rem; }
+
+  /* Abas + botões de ação: vira coluna, botões sobem (order:-1), abas
+     ficam com a linha inteira pra elas — só no celular; ver regra base
+     em .tabs-actions-row acima. */
+  .tabs-actions-row { flex-direction: column; align-items: stretch; border-bottom: none; }
+  .tabs-actions-row .tabs-bar { border-bottom: .5px solid var(--gray-200); }
+  .tabs-actions-btns { order: -1; justify-content: flex-end; flex-wrap: wrap; margin-bottom: 10px; }
 
   /* Login */
   .login-side  { display: none; }
