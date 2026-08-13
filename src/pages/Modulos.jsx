@@ -102,10 +102,11 @@ export default function Modulos() {
           <div className="modulos-greeting-hi">Olá, <span className="modulos-greeting-name">{primeiroNome}</span></div>
           <div className="modulos-greeting-sub">Bem-vindo ao DigitalBov</div>
         </div>
-        {/* Recorte só da cabeça de boi do anel de pdf-marca.png (sem o anel
-            nem "DIGITAL BOV" — não cabe legível nesse tamanho) — ver
-            public/logo-marca-vazada.png. */}
-        <img src="/logo-marca-vazada.png" alt="" aria-hidden="true" className="modulos-greeting-logo" />
+        {/* Marca completa (anel + cabeça de boi + "DIGITAL BOV"), sem
+            recorte — pdf-marca.png redimensionado pro tamanho de exibição
+            (240x240, não o 1024x1024 original) em public/logo-marca-
+            completa.png. */}
+        <img src="/logo-marca-completa.png" alt="" aria-hidden="true" className="modulos-greeting-logo" />
       </div>
 
       {secoes.map((secao, i) => (
