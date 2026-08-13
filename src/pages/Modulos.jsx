@@ -17,10 +17,11 @@ import Tutorial from '../components/Tutorial'
 // direto, PWA instalada no desktop — a tela se recusa a aparecer e manda
 // pro Painel (mesmo useIsMobile de Filtros.jsx/App.jsx).
 //
-// Fundo escuro é só desta tela — aplicado também no <body> via classe
-// (useEffect add/remove no mount/unmount), senão a faixa de status bar
-// (safe-area-inset-top, pintada pelo <body>) ficaria clara por cima de um
-// conteúdo escuro logo abaixo.
+// Fundo é só desta tela — aplicado também no <body> via classe (useEffect
+// add/remove no mount/unmount), senão a faixa de status bar (safe-area-
+// inset-top, pintada pelo <body>) ficaria de outra cor por cima do que
+// vem logo abaixo. Era escuro/navy até 2026-08-19, virou branco a pedido —
+// nome da classe (modulos-tema-claro) já reflete o tema atual.
 //
 // 2026-08-17 — visual com foto (revisão da 1ª versão, que usava só
 // gradiente + ícone gigante apagado e ficou "pouco criativo" no teste).
@@ -55,8 +56,8 @@ export default function Modulos() {
 
   useEffect(() => {
     if (!isMobile) return
-    document.body.classList.add('modulos-tema-escuro')
-    return () => document.body.classList.remove('modulos-tema-escuro')
+    document.body.classList.add('modulos-tema-claro')
+    return () => document.body.classList.remove('modulos-tema-claro')
   }, [isMobile])
 
   if (!isMobile) return <Navigate to="/" replace />
