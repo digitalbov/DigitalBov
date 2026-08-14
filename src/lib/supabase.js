@@ -108,7 +108,23 @@ export const auth = {
   signOut:           ()          => supabase.auth.signOut(),
   getSession:        ()          => supabase.auth.getSession(),
   onAuthStateChange: (cb)        => supabase.auth.onAuthStateChange(cb),
-  getUser:           ()          => supabase.auth.getUser()
+  getUser:           ()          => supabase.auth.getUser(),
+
+  // Envia o e-mail com o link de redefinicao. O link volta para /nova-senha,
+  // onde o Supabase troca o token da URL por uma sessao temporaria e o
+  // usuario escolhe a senha nova.
+  recuperarSenha: (email) => supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: `${window.location.origin}/nova-senha`
+  }),
+
+  // Define a senha e marca no perfil que ela foi escolhida pelo proprio
+  // usuario. Enquanto essa marca nao existir, o app forca a troca no login
+  // — e assim quem recebeu senha provisoria do administrador nunca fica
+  // com ela para sempre.
+  definirSenha: (novaSenha) => supabase.auth.updateUser({
+    password: novaSenha,
+    data: { senha_definida_pelo_usuario: true }
+  })
 }
 
 // ── Database helpers ──────────────────────────────────────────────

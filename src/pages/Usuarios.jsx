@@ -42,7 +42,7 @@ export default function Usuarios() {
   const [carregandoPerms, setCarregandoPerms] = useState(false)
   const [salvandoPerms, setSalvandoPerms] = useState(false)
   const [modalNovo, setModalNovo] = useState(false)
-  const [novo, setNovo] = useState({ email:'', senha:'' })
+  const [novo, setNovo] = useState({ email:'' })
   const [criando, setCriando] = useState(false)
   // Confirmação via <Confirm> do app em vez de window.confirm() nativo
   // (padronização — trocar fazenda descarta permissões não salvas; remover
@@ -168,8 +168,7 @@ export default function Usuarios() {
   }
 
   const criarFuncionario = async () => {
-    if (!novo.email || !novo.senha) { toast('Preencha email e senha', 'error'); return }
-    if (novo.senha.length < 6) { toast('Senha mínima de 6 caracteres', 'error'); return }
+    if (!novo.email) { toast('Informe o e-mail', 'error'); return }
     setCriando(true)
     try {
       const { data: { session } } = await supabase.auth.getSession()
@@ -183,16 +182,26 @@ export default function Usuarios() {
             'Content-Type': 'application/json',
             'Authorization': 'Bearer ' + session.access_token,
           },
-          body: JSON.stringify({ email: novo.email, senha: novo.senha, conta_id: contaAtual.id, papel: 'operador' }),
+          // Sem senha: o convite deixa o proprio usuario escolher a dele.
+          // `origem` diz a funcao para onde o link do convite deve voltar
+          // (producao ou localhost), sempre validado contra uma lista la.
+          body: JSON.stringify({
+            email: novo.email,
+            conta_id: contaAtual.id,
+            papel: 'operador',
+            origem: window.location.origin,
+          }),
         }
       )
       const data = await resp.json()
       if (!resp.ok || data?.error) {
         toast('Erro: ' + (data?.error || resp.status), 'error')
       } else {
-        toast('Usuário criado')
+        toast(data?.convidado
+          ? 'Convite enviado para ' + novo.email
+          : 'Usuário já existia e foi vinculado à conta')
         setModalNovo(false)
-        setNovo({ email:'', senha:'' })
+        setNovo({ email:'' })
         await carregar()
       }
     } catch (e) {
@@ -306,23 +315,23 @@ export default function Usuarios() {
         )}
       </div>
 
-      <Modal open={modalNovo} onClose={() => setModalNovo(false)} title="Adicionar operador" width={420}>
+      <Modal open={modalNovo} onClose={() => setModalNovo(false)} title="Convidar operador" width={420}>
         <Field label="E-mail *">
           <input className="input" style={{ width:'100%' }} type="email"
             value={novo.email} onChange={e => setNovo(p => ({...p, email:e.target.value}))} />
         </Field>
-        <Field label="Senha provisória *">
-          <input className="input" style={{ width:'100%' }}
-            value={novo.senha} onChange={e => setNovo(p => ({...p, senha:e.target.value}))} />
-        </Field>
-        <p style={{ fontSize:'.78rem', color:'#6B7280', marginTop:4 }}>
-          O operador entra com este e-mail e senha. Você define as fazendas e
-          permissões dele depois, no botão Gerenciar.
+        <p style={{ fontSize:'.78rem', color:'#6B7280', marginTop:4, lineHeight:1.55 }}>
+          Enviaremos um convite para este e-mail. O operador clica no link e
+          cria a própria senha — você não precisa combinar senha com ele, e
+          nem passa a conhecer a senha dele.
+          <br /><br />
+          Confira o endereço com atenção: se estiver errado, o convite não
+          chega. As fazendas e permissões você define depois, no botão Gerenciar.
         </p>
         <div className="modal-actions" style={{ marginTop:16 }}>
           <button className="btn btn-secondary btn-sm" onClick={() => setModalNovo(false)}>Cancelar</button>
           <button className="btn btn-primary btn-sm" onClick={criarFuncionario} disabled={criando}>
-            {criando ? 'Criando...' : 'Criar usuário'}
+            {criando ? 'Enviando...' : 'Enviar convite'}
           </button>
         </div>
       </Modal>

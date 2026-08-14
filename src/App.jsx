@@ -10,6 +10,7 @@ import { useIsMobile } from './lib/useIsMobile'
 import InstallPrompt from './components/InstallPrompt'
 import Layout          from './components/layout/Layout'
 import Login           from './components/auth/Login'
+import DefinirSenha    from './components/auth/DefinirSenha'
 
 const Dashboard   = lazy(() => import('./pages/Dashboard'))
 const Modulos     = lazy(() => import('./pages/Modulos'))
@@ -74,6 +75,15 @@ function PrimeiroAcesso() {
         <button className="btn btn-primary" style={{ width:'100%' }} onClick={criar} disabled={saving || !form.conta}>
           {saving ? 'Criando...' : 'Criar e começar'}
         </button>
+        {/* Sem esta saida, quem cai aqui por engano — sessao antiga no
+            navegador, convite para o e-mail errado, usuario removido — fica
+            preso: nao ha conta para carregar e nao ha como voltar ao login. */}
+        <button
+          onClick={() => auth.signOut().then(() => { window.location.href = '/login' })}
+          style={{ width:'100%', marginTop:14, background:'none', border:'none',
+                   color:'#6B7280', fontSize:'.82rem', cursor:'pointer' }}>
+          Entrar com outra conta
+        </button>
       </div>
     </div>
   )
@@ -92,6 +102,47 @@ function SemAcessoFazenda() {
         <button className="btn btn-primary" style={{ width:'100%' }} onClick={() => auth.signOut()}>
           Sair
         </button>
+      </div>
+    </div>
+  )
+}
+
+// ── Link de recuperacao que nao virou sessao ──────────────────────
+// O Supabase devolve o motivo no fragmento da URL (#error=...). Sem tratar
+// isso, a tela ficava "Validando o link..." para sempre — que e o pior
+// resultado possivel: o usuario nao sabe se espera ou se desistiu.
+function LinkRecuperacaoInvalido() {
+  const [espera, setEspera] = useState(true)
+  const hash = typeof window !== 'undefined' ? window.location.hash : ''
+  const expirou = /otp_expired|access_denied|invalid/i.test(hash)
+
+  // Sem erro explicito na URL, a sessao ainda pode estar sendo criada:
+  // damos 4s antes de declarar falha.
+  useEffect(() => {
+    if (expirou) { setEspera(false); return }
+    const t = setTimeout(() => setEspera(false), 4000)
+    return () => clearTimeout(t)
+  }, [expirou])
+
+  if (espera) return <FullLoading text="Validando o link..." />
+
+  return (
+    <div style={{ minHeight:'100vh', display:'flex', alignItems:'center', justifyContent:'center', background:'#F9FAFB', padding:24 }}>
+      <div style={{ background:'#fff', borderRadius:16, padding:'40px 36px', maxWidth:420, width:'100%',
+                    boxShadow:'0 8px 32px rgba(0,0,0,.1)', textAlign:'center' }}>
+        <div style={{ fontSize:48, marginBottom:12 }}>&#9203;</div>
+        <h2 style={{ fontSize:'1.2rem', fontWeight:700, color:'#374151', marginBottom:10 }}>
+          Este link nao vale mais
+        </h2>
+        <p style={{ fontSize:'.88rem', color:'#6B7280', lineHeight:1.6, marginBottom:24 }}>
+          Links de redefinicao valem por 1 hora e so podem ser usados uma vez.
+          Peca um novo na tela de login, em "Esqueci minha senha", e clique nele
+          logo que chegar.
+        </p>
+        <a href="/login" className="btn btn-primary"
+           style={{ width:'100%', justifyContent:'center', padding:11, textDecoration:'none' }}>
+          Voltar para o login
+        </a>
       </div>
     </div>
   )
@@ -197,6 +248,11 @@ function EntradaDashboard({ perfil }) {
 
 function ProtectedRoutes({ user, perfil }) {
   if (!user) return <Navigate to="/login" replace />
+  // Senha ainda e a provisoria criada pelo administrador: ninguem entra no
+  // sistema antes de escolher a sua. A marca e gravada em auth.definirSenha.
+  if (!user.user_metadata?.senha_definida_pelo_usuario) {
+    return <DefinirSenha motivo="primeiro-acesso" email={user.email} />
+  }
   return (
     <ContaProvider>
       <ContaGuard user={user} perfil={perfil} />
@@ -208,6 +264,11 @@ export default function App() {
   const [user,    setUser]    = useState(null)
   const [perfil,  setPerfil]  = useState(null)
   const [loading, setLoading] = useState(true)
+  // Link de recuperacao clicado no e-mail: o Supabase dispara
+  // PASSWORD_RECOVERY e cria uma sessao temporaria so para trocar a senha.
+  const [recuperando, setRecuperando] = useState(
+    typeof window !== 'undefined' && window.location.pathname === '/nova-senha'
+  )
 
   useEffect(() => {
     auth.getSession().then(({ data: { session } }) => {
@@ -216,6 +277,7 @@ export default function App() {
       else setLoading(false)
     })
     const { data: { subscription } } = auth.onAuthStateChange((_event, session) => {
+      if (_event === 'PASSWORD_RECOVERY') setRecuperando(true)
       setUser(session?.user ?? null)
       if (session?.user) loadPerfil(session.user.id)
       else { setPerfil(null); setLoading(false) }
@@ -235,6 +297,7 @@ export default function App() {
   }
 
   if (loading) return <FullLoading text="Carregando sistema..." />
+  if (recuperando && user) return <DefinirSenha motivo="recuperacao" email={user.email} />
 
   return (
     <BrowserRouter>
@@ -243,6 +306,10 @@ export default function App() {
       <InstallPrompt />
       <Routes>
         <Route path="/login" element={user ? <EntradaPadrao /> : <Login />} />
+        <Route path="/nova-senha" element={
+          user ? <DefinirSenha motivo="recuperacao" email={user.email} />
+               : <LinkRecuperacaoInvalido />
+        } />
         <Route element={<ProtectedRoutes user={user} perfil={perfil} />}>
           <Route path="/"            element={<EntradaDashboard perfil={perfil} />} />
           <Route path="/modulos"     element={<Suspense fallback={null}><Modulos /></Suspense>} />
