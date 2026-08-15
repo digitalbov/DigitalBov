@@ -534,12 +534,13 @@ export const db = {
 
   sanidadeAnimais: {
     // animal traz sexo/data_nascimento/sit_reprodutiva/is_touro (categoria,
-    // helpers.calcCategoriaRebanho), lote (nome) e situacao -- usado pelo
-    // modal de lista de animais de um procedimento (Sanidade.jsx/Calendario.jsx).
-    // animais NUNCA é apagado ao vender/morrer (só muda situacao), então um
-    // animal vendido/morto depois do procedimento continua vindo aqui — é o
-    // comportamento certo, o modal decide se marca ou esconde.
-    listPorProcedimento: (procId)   => T('sanidade_animais').select('*, animal:animais(id,brinco,sexo,data_nascimento,sit_reprodutiva,is_touro,situacao,lote:lotes(nome))').eq('procedimento_id', procId),
+    // helpers.calcCategoriaRebanho), lote e proprietario (id+nome, pros
+    // filtros do modal) e situacao -- usado pelo modal de lista de animais
+    // de um procedimento (Sanidade.jsx/Calendario.jsx). animais NUNCA é
+    // apagado ao vender/morrer (só muda situacao), então um animal vendido/
+    // morto depois do procedimento continua vindo aqui — é o comportamento
+    // certo, o modal decide se marca ou esconde.
+    listPorProcedimento: (procId)   => T('sanidade_animais').select('*, animal:animais(id,brinco,sexo,data_nascimento,sit_reprodutiva,is_touro,situacao,lote:lotes(id,nome),proprietario:proprietarios(id,nome))').eq('procedimento_id', procId),
     listPorAnimal:       (animalId) => supabase.from('sanidade_animais').select('*, procedimento:procedimentos_sanitarios(*)').eq('animal_id', animalId),
     inserirVarios: async (vinculos) => {
       if (!vinculos?.length) return { error: null }

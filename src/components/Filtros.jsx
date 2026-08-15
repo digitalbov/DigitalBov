@@ -25,6 +25,17 @@ import { useIsMobile } from '../lib/useIsMobile'
 // os valores selecionados e um onChange(chave, valor). Filtrar client-side
 // (Array.filter, como hoje) ou no servidor (nova query a cada onChange) é
 // decisão de quem consome; o componente é opaco a isso por construção.
+//
+// `compacto` (2026-08-17) — única exceção explícita à regra "desktop = todos
+// visíveis": força o formato botão+painel do celular mesmo em tela larga.
+// Existe pra um espaço que É estreito mesmo no desktop (o corpo de um
+// <Modal>, não a página inteira) — ali a barra expandida do FiltrosDesktop
+// não cabe/não faz sentido, e a decisão não é da largura da JANELA, é da
+// largura do CONTAINER. Parâmetro explícito, não detecção: quem consome
+// decide, o componente não infere. Além de pular a escolha isMobile, some
+// com a medição de largura (ResizeObserver) — todo item sempre no painel,
+// nunca tenta caber nada na barra (dentro de um modal isso seria instável:
+// o container muda de largura conforme o conteúdo do próprio modal).
 
 const VAZIO = ''
 
@@ -113,14 +124,18 @@ function FiltrosDesktop({ itens, valores, onChange }) {
 
 // ── Modo celular: barra com medição real de largura (ResizeObserver) +
 // botão "Filtros" (bottom sheet) pro que não coube + chips removíveis.
-function FiltrosMobile({ itens, valores, onChange }) {
+// `compacto` desliga a medição: nenhum item tenta a barra, todos vão direto
+// pro painel — usado dentro de um <Modal>, onde a largura do container não
+// é a largura real disponível pra decisão de layout (ver comentário no topo
+// do arquivo).
+function FiltrosMobile({ itens, valores, onChange, compacto = false }) {
   const barRef = useRef(null)
   const itemRefs = useRef({})
   const btnMedidorRef = useRef(null)
   const painelRef = useRef(null)
   const triggerRef = useRef(null)
 
-  const [inlineKeys, setInlineKeys] = useState(() => itens.map(i => i.chave)) // otimista até medir 1x
+  const [inlineKeys, setInlineKeys] = useState(() => compacto ? [] : itens.map(i => i.chave)) // otimista até medir 1x
   const [painelAberto, setPainelAberto] = useState(false)
   const [rascunho, setRascunho] = useState(null) // rascunho local do bottom sheet, só aplicado no "Aplicar"
 
@@ -133,6 +148,7 @@ function FiltrosMobile({ itens, valores, onChange }) {
   // reservar o botão "Filtros" — se couber tudo, o botão nem aparece.
   // 2) se não coube, refaz reservando a largura do botão e decide o corte.
   useLayoutEffect(() => {
+    if (compacto) return
     const medir = () => {
       const bar = barRef.current
       if (!bar) return
@@ -274,11 +290,9 @@ function FiltrosMobile({ itens, valores, onChange }) {
         </div>
       )}
 
-      {/* Medidor invisível — renderiza TODOS os candidatos + o botão
-          "Filtros" fora da tela, só pra ler offsetWidth real. `inert`
-          tira o galho inteiro do fluxo de foco/clique/leitor de tela de
-          uma vez — sem ele, os controles escondidos ainda seriam
-          alcançáveis via Tab. */}
+      {/* Medidor invisível — só existe pra decidir o que cabe na barra;
+          `compacto` nunca tenta a barra, então nunca precisa medir nada. */}
+      {!compacto && (
       <div className="filtros-medidor" aria-hidden="true" inert="">
         {candidatos.map(item => (
           <div key={item.chave} ref={el => { itemRefs.current[item.chave] = el }} style={{ display: 'inline-block' }}>
@@ -289,13 +303,14 @@ function FiltrosMobile({ itens, valores, onChange }) {
           <i className="ti ti-adjustments-horizontal" /> Filtros <span className="filtros-btn-count">9</span>
         </button>
       </div>
+      )}
     </div>
   )
 }
 
-export default function Filtros({ itens, valores, onChange }) {
+export default function Filtros({ itens, valores, onChange, compacto = false }) {
   const isMobile = useIsMobile()
-  return isMobile
-    ? <FiltrosMobile itens={itens} valores={valores} onChange={onChange} />
+  return (isMobile || compacto)
+    ? <FiltrosMobile itens={itens} valores={valores} onChange={onChange} compacto={compacto} />
     : <FiltrosDesktop itens={itens} valores={valores} onChange={onChange} />
 }
