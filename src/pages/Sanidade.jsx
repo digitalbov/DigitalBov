@@ -10,6 +10,7 @@ import { validarSaldoEstoque, aplicarMovimentacaoEstoque, reverterCascata } from
 import { useSubmitGuard } from '../lib/useSubmitGuard'
 import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, AlertBox, BotaoPDF, Confirm, ErroCarregamento, BadgeSomenteLeitura } from '../components/UI'
 import Filtros from '../components/Filtros'
+import ModalAnimaisSanidade, { BotaoQtdAnimais } from '../components/ModalAnimaisSanidade'
 
 const TABS   = ['Registros','Calendário de vacinação','Alertas','Histórico']
 // TIPOS é o valor GRAVADO (procedimentos_sanitarios.tipo) — sempre singular,
@@ -54,6 +55,11 @@ export default function Sanidade() {
   const [modalIntent, setModalIntent] = useState('novo')
   const [saving,     setSaving]     = useState(false)
   const [confirmDel, setConfirmDel] = useState(null)
+  // Modal de lista de animais de um procedimento (substitui a célula que
+  // despejava todos os brincos) — mesmo componente em Registros/Calendário de
+  // vacinação/Alertas/Histórico, uma instância só, aberta com o procedimento
+  // clicado. Vale pra desktop e celular (é dado/funcionalidade, não layout).
+  const [procAnimaisModal, setProcAnimaisModal] = useState(null)
   const [loadError,  setLoadError]  = useState(false)
   // Bloco D16 — ação sobre um alerta de reaplicação (Editar/Concluir/Não
   // realizado): gera o agendamento na hora se ainda não existir (ver
@@ -758,7 +764,7 @@ export default function Sanidade() {
               <div className="table-wrap">
                 <table>
                   <thead>
-                    <tr><th>Data</th><th>Tipo</th><th>Procedimento</th><th>Grupo/Lote</th><th>Qt</th><th>Próximo</th><th></th></tr>
+                    <tr><th>Data</th><th>Tipo</th><th>Procedimento</th><th>Animais</th><th>Próximo</th><th></th></tr>
                   </thead>
                   <tbody>
                     {dadosFiltrados.map(d => {
@@ -775,8 +781,7 @@ export default function Sanidade() {
                                 title={`Estoque baixado: ${movsPorProcedimento[d.id].map(m => `${parseFloat(m.quantidade).toFixed(1)} ${m.item?.unidade || ''} de ${m.item?.item || 'item'}`).join(', ')}`} />
                             )}
                           </td>
-                          <td style={{ fontSize:'.78rem', color:'#9CA3AF' }}>{d.lote_descricao}</td>
-                          <td>{d.quantidade || '—'}</td>
+                          <td><BotaoQtdAnimais quantidade={d.quantidade} onClick={() => setProcAnimaisModal(d)} /></td>
                           <td style={{ color: venc ? '#791F1F' : '#6B7280', fontSize:'.78rem' }}>
                             {d.proximo ? fmtData(d.proximo) : '—'}
                             {venc && ' ⚠️'}
@@ -830,7 +835,7 @@ export default function Sanidade() {
               <div className="table-wrap">
                 <table>
                   <thead>
-                    <tr><th>Data</th><th>Tipo</th><th>Procedimento</th><th>Grupo/Lote</th><th>Qt</th><th></th><th></th></tr>
+                    <tr><th>Data</th><th>Tipo</th><th>Procedimento</th><th>Animais</th><th></th><th></th></tr>
                   </thead>
                   <tbody>
                     {dadosAgendados.map(d => (
@@ -847,8 +852,7 @@ export default function Sanidade() {
                               }).join(', ')}`} />
                           )}
                         </td>
-                        <td style={{ fontSize:'.78rem', color:'#9CA3AF' }}>{d.lote_descricao}</td>
-                        <td>{d.quantidade || '—'}</td>
+                        <td><BotaoQtdAnimais quantidade={d.quantidade} onClick={() => setProcAnimaisModal(d)} /></td>
                         <td><Badge color="amber">Agendado</Badge></td>
                         <td style={{ whiteSpace:'nowrap' }}>
                           {podeEditarSanidadeCiclo && (
@@ -935,8 +939,8 @@ export default function Sanidade() {
                 ? <>{d.procedimento} — agendamento vencido <Badge color="amber">Agendado</Badge></>
                 : `${d.procedimento} — vencido`}
               body={d._origem === 'agendamento'
-                ? `${d.lote_descricao || 'Sem grupo/lote'} · Estava agendado para ${fmtData(d.data)} · ${diasDesde(d.data)} dias em atraso`
-                : `${d.lote_descricao} · Deveria ter sido aplicado em ${fmtData(d.proximo)} · ${diasDesde(d.proximo)} dias em atraso`}
+                ? <><BotaoQtdAnimais quantidade={d.quantidade} onClick={() => setProcAnimaisModal(d)} /> · Estava agendado para {fmtData(d.data)} · {diasDesde(d.data)} dias em atraso</>
+                : <><BotaoQtdAnimais quantidade={d.quantidade} onClick={() => setProcAnimaisModal(d)} /> · Deveria ter sido aplicado em {fmtData(d.proximo)} · {diasDesde(d.proximo)} dias em atraso</>}
               action={podeEditarSanidadeCiclo && (
                 <div style={{ display:'flex', gap:6 }}>
                   <button className="btn btn-secondary btn-xs" disabled={reaplicacaoEmAndamentoId === d.id} onClick={() => agirSobreAlerta(d, abrirEditarAgendamento)}><i className="ti ti-edit"/> Editar</button>
@@ -954,8 +958,8 @@ export default function Sanidade() {
                 ? <>{d.procedimento} — agendado <Badge color="amber">Agendado</Badge></>
                 : `${d.procedimento} — próximo`}
               body={d._origem === 'agendamento'
-                ? `${d.lote_descricao || 'Sem grupo/lote'} · Agendado para ${fmtData(d.data)} · ${d.quantidade || 0} animais`
-                : `${d.lote_descricao} · Previsto para ${fmtData(d.proximo)} · ${d.quantidade || ''} animais`}
+                ? <><BotaoQtdAnimais quantidade={d.quantidade} onClick={() => setProcAnimaisModal(d)} /> · Agendado para {fmtData(d.data)}</>
+                : <><BotaoQtdAnimais quantidade={d.quantidade} onClick={() => setProcAnimaisModal(d)} /> · Previsto para {fmtData(d.proximo)}</>}
               action={podeEditarSanidadeCiclo && (
                 <div style={{ display:'flex', gap:6 }}>
                   <button className="btn btn-secondary btn-xs" disabled={reaplicacaoEmAndamentoId === d.id} onClick={() => agirSobreAlerta(d, abrirEditarAgendamento)}><i className="ti ti-edit"/> Editar</button>
@@ -978,7 +982,7 @@ export default function Sanidade() {
                 const dias = Math.ceil((prx - hoje) / 86400000)
                 return (
                   <div key={d.id} className="row">
-                    <span className="row-label"><strong>{d.procedimento}</strong> · {d.lote_descricao}</span>
+                    <span className="row-label"><strong>{d.procedimento}</strong> · <BotaoQtdAnimais quantidade={d.quantidade} onClick={() => setProcAnimaisModal(d)} /></span>
                     <span style={{
                       fontSize:'.8rem', fontWeight:500,
                       color: dias < 0 ? '#791F1F' : dias < 30 ? '#BA7517' : '#1E55B0'
@@ -1023,7 +1027,7 @@ export default function Sanidade() {
                   {lst.slice(0,5).map(d => (
                     <div key={d.id} className="row">
                       <span className="row-label">{fmtData(d.data)} · {d.procedimento}</span>
-                      <span style={{ fontSize:'.75rem', color:'#9CA3AF' }}>{d.lote_descricao} · {d.quantidade||0} animais</span>
+                      <BotaoQtdAnimais quantidade={d.quantidade} onClick={() => setProcAnimaisModal(d)} style={{ fontSize:'.75rem' }} />
                     </div>
                   ))}
                 </div>
@@ -1033,6 +1037,8 @@ export default function Sanidade() {
           </div>{/* end refHist */}
         </div>
       )}
+
+      <ModalAnimaisSanidade procedimento={procAnimaisModal} onClose={() => setProcAnimaisModal(null)} />
 
       <Confirm
         open={!!confirmDel}
@@ -1065,7 +1071,7 @@ export default function Sanidade() {
                 return item ? `${p.quantidade} ${item.unidade} de ${item.item}` : `${p.quantidade} de item excluído do estoque`
               }).join(', ') + '.'
             : ''
-          return `${fmtData(confirmConcluir.data)} · ${labelTipoSanidade(confirmConcluir.tipo)} — ${confirmConcluir.procedimento} · ${confirmConcluir.quantidade || 0} animal(is)${confirmConcluir.lote_descricao ? ` (${confirmConcluir.lote_descricao})` : ''}.${itensTxt} Confirma que esta vacinação foi realizada?`
+          return `${fmtData(confirmConcluir.data)} · ${labelTipoSanidade(confirmConcluir.tipo)} — ${confirmConcluir.procedimento} · ${confirmConcluir.quantidade || 0} animal(is).${itensTxt} Confirma que esta vacinação foi realizada?`
         })() : ''}
       />
 

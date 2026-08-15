@@ -286,6 +286,27 @@ export const LABEL_TIPO_SANIDADE = {
 }
 export const labelTipoSanidade = (tipo) => LABEL_TIPO_SANIDADE[tipo] || tipo
 
+// ── Sanidade: termo do procedimento por tipo, flexionado por sexo do animal
+// (ex: "Vacinado"/"Vacinada") — usado na coluna Procedimento da lista de
+// animais de um procedimento (modal aberto a partir de Registros/Calendário
+// de vacinação/Alertas/Histórico e do módulo Calendário). Diferente de
+// LABEL_TIPO_SANIDADE acima (aquele é rótulo do TIPO, este é o verbo da AÇÃO
+// sobre o animal) — mapas propositalmente separados, não derivar um do outro.
+// sexo é obrigatório no cadastro de animais — nunca deveria faltar aqui, mas
+// se um dado excepcional (importação antiga, restauração de backup) vier sem
+// sexo, cai no masculino e segue: nunca "indefinido" na tela, nunca quebra.
+export const LABEL_PROCEDIMENTO_SANIDADE = {
+  'Vacina':        { M: 'Vacinado',    F: 'Vacinada' },
+  'Vermifugação':  { M: 'Vermifugado', F: 'Vermifugada' },
+  'Ectoparasita':  { M: 'Tratado',     F: 'Tratada' },
+  'Medicação':     { M: 'Medicado',    F: 'Medicada' },
+  'Exame':         { M: 'Examinado',   F: 'Examinada' },
+}
+export const labelProcedimentoSanidade = (tipo, sexo) => {
+  const par = LABEL_PROCEDIMENTO_SANIDADE[tipo] || { M: 'Tratado', F: 'Tratada' }
+  return sexo === 'F' ? par.F : par.M
+}
+
 // ── GMD ──────────────────────────────────────────────────────────────────────
 export const calcGMD = (pesagens) => {
   if (!pesagens || pesagens.length < 2) return null
