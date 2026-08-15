@@ -10,7 +10,7 @@ import { validarSaldoEstoque, aplicarMovimentacaoEstoque, reverterCascata } from
 import { useSubmitGuard } from '../lib/useSubmitGuard'
 import { Loading, Modal, Field, MicButton, Badge, toast, EmptyState, AlertBox, BotaoPDF, Confirm, ErroCarregamento, BadgeSomenteLeitura } from '../components/UI'
 import Filtros from '../components/Filtros'
-import ModalAnimaisSanidade, { BotaoQtdAnimais } from '../components/ModalAnimaisSanidade'
+import ModalAnimaisSanidade, { BotaoQtdAnimais, qtdAnimaisTexto } from '../components/ModalAnimaisSanidade'
 
 const TABS   = ['Registros','Calendário de vacinação','Alertas','Histórico']
 // TIPOS é o valor GRAVADO (procedimentos_sanitarios.tipo) — sempre singular,
@@ -1071,7 +1071,7 @@ export default function Sanidade() {
                 return item ? `${p.quantidade} ${item.unidade} de ${item.item}` : `${p.quantidade} de item excluído do estoque`
               }).join(', ') + '.'
             : ''
-          return `${fmtData(confirmConcluir.data)} · ${labelTipoSanidade(confirmConcluir.tipo)} — ${confirmConcluir.procedimento} · ${confirmConcluir.quantidade || 0} animal(is).${itensTxt} Confirma que esta vacinação foi realizada?`
+          return `${fmtData(confirmConcluir.data)} · ${labelTipoSanidade(confirmConcluir.tipo)} — ${confirmConcluir.procedimento} · ${qtdAnimaisTexto(confirmConcluir.quantidade || 0)}.${itensTxt} Confirma que esta vacinação foi realizada?`
         })() : ''}
       />
 

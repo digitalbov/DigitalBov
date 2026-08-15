@@ -5,8 +5,10 @@ import { Modal, Loading, Badge } from './UI'
 
 // "animal" no singular, "animais" no plural -- nunca "animalis" (typo de
 // concatenar "animal"+"is") nem plural fixo pro singular. Único lugar que
-// pluraliza isso; usado pelo botão abaixo e pelo título do modal.
-const qtdAnimaisTexto = (qt) => `${qt} ${qt === 1 ? 'animal' : 'animais'}`
+// pluraliza isso; usado pelo botão e pelo título do modal aqui embaixo, e
+// por qualquer outro texto de quantidade de animais fora deste arquivo
+// (ex: Sanidade.jsx::confirmarConclusao) -- exportada pra não duplicar.
+export const qtdAnimaisTexto = (qt) => `${qt} ${qt === 1 ? 'animal' : 'animais'}`
 
 // Gatilho "62 animais" clicável — substitui a antiga célula que despejava
 // todos os brincos (ilegível em procedimentos de rebanho inteiro). Usado nas
@@ -21,8 +23,13 @@ export function BotaoQtdAnimais({ quantidade, onClick, style }) {
       onClick={onClick}
       style={{
         background:'none', border:'none', padding:0, margin:0,
-        color:'var(--gray-900)', fontWeight:700, cursor:'pointer',
-        fontSize:'inherit', whiteSpace:'nowrap', ...style,
+        // `<button>` não herda tipografia da célula por padrão (regra do
+        // navegador, não do app) -- `font-size: inherit` sozinho não é
+        // suficiente em todo navegador (line-height/family ficam pra trás e
+        // o texto ainda destoa). `font: inherit` (shorthand completo) puxa
+        // tudo do <td>/<span> pai; fontWeight depois sobrescreve só o peso.
+        font:'inherit', fontWeight:700, color:'var(--gray-900)', cursor:'pointer',
+        whiteSpace:'nowrap', ...style,
       }}
     >
       {qtdAnimaisTexto(quantidade || 0)}
