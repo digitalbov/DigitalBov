@@ -223,12 +223,34 @@ export default function Sanidade() {
   // agirSobreAlerta, abaixo, aborta a ação inteira). Usada tanto no gatilho
   // automático (salvar/concluir) quanto sob demanda (clique em Editar/
   // Concluir/Não realizado num alerta de reaplicação, Bloco D16).
+  // Bloco D17 — apaga o agendamento gerado por um pai, mas só se ele ainda
+  // estiver PENDENTE (status='agendado'). Já concluído ou cancelado é
+  // história — apagar um registro de algo que aconteceu (ou que foi
+  // explicitamente marcado como não realizado) é pior do que deixar sem o
+  // vínculo com o pai. Nesses dois casos o próprio FK (gerado_de_id, ON
+  // DELETE SET NULL) já cuida sozinho: o registro sobrevive, só perde a
+  // referência ao pai que não existe mais — comportamento certo, não um bug.
+  // Único lugar que apaga um agendamento gerado — chamado tanto ao limpar
+  // "Próxima aplicação" (abaixo) quanto ao excluir o próprio pai (excluir,
+  // mais abaixo). Antes, excluir() não sabia desse vínculo: o SET NULL
+  // preservava o filho (efeito certo pros casos concluído/cancelado), mas
+  // deixava um agendamento ainda pendente órfão no Calendário — nunca
+  // apagado, porque nada nunca olhava pra ele de novo.
+  const apagarAgendamentoGeradoPendente = async (paiId) => {
+    const gerado = dados.find(d => d.gerado_de_id === paiId && d.status === 'agendado')
+    if (!gerado) return
+    const { error: errVincGerado } = await db.sanidadeAnimais.deletePorProcedimento(gerado.id)
+    if (errVincGerado) { toast('Erro ao remover vínculos do agendamento gerado: ' + errVincGerado.message, 'error'); return }
+    const { error: errGerado } = await db.sanidade.delete(gerado.id)
+    if (errGerado) toast('Agendamento gerado por este procedimento não pôde ser removido: ' + errGerado.message, 'error')
+  }
+
   const sincronizarAgendamentoGerado = async (pai) => {
-    const gerado = dados.find(d => d.gerado_de_id === pai.id && d.status === 'agendado')
     if (!pai.proximo) {
-      if (gerado) await db.sanidade.delete(gerado.id)
+      await apagarAgendamentoGeradoPendente(pai.id)
       return null
     }
+    const gerado = dados.find(d => d.gerado_de_id === pai.id && d.status === 'agendado')
     if (gerado) {
       if (gerado.data === pai.proximo) return gerado
       const { data, error } = await db.sanidade.update(gerado.id, { data: pai.proximo })
@@ -599,6 +621,12 @@ export default function Sanidade() {
 
     const { error: errVinc } = await db.sanidadeAnimais.deletePorProcedimento(id)
     if (errVinc) { toast('Erro ao remover vínculos de animais: ' + errVinc.message, 'error'); return }
+
+    // Bloco D17 — se este procedimento gerou um agendamento (via "Próxima
+    // aplicação") que ainda está pendente, apaga junto — mesma rotina de
+    // sincronizarAgendamentoGerado (ver acima), não um caminho paralelo.
+    // Concluído/cancelado não é tocado (vira história, sobrevive ao pai).
+    await apagarAgendamentoGeradoPendente(id)
 
     const { error } = await db.sanidade.delete(id)
     if (error) { toast('Erro ao excluir: ' + error.message, 'error'); return }
