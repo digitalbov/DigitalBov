@@ -3,22 +3,29 @@ import { db } from '../lib/supabase'
 import { calcCategoriaRebanho, labelProcedimentoSanidade, sortBrinco } from '../lib/helpers'
 import { Modal, Loading, Badge } from './UI'
 
+// "animal" no singular, "animais" no plural -- nunca "animalis" (typo de
+// concatenar "animal"+"is") nem plural fixo pro singular. Único lugar que
+// pluraliza isso; usado pelo botão abaixo e pelo título do modal.
+const qtdAnimaisTexto = (qt) => `${qt} ${qt === 1 ? 'animal' : 'animais'}`
+
 // Gatilho "62 animais" clicável — substitui a antiga célula que despejava
 // todos os brincos (ilegível em procedimentos de rebanho inteiro). Usado nas
-// mesmas telas que ModalAnimaisSanidade, sempre em par com ela.
+// mesmas telas que ModalAnimaisSanidade, sempre em par com ela. Preto e
+// negrito (tipografia padrão do sistema, sem sublinhado/cor de link) — o
+// peso já basta como pista de que é clicável, mesmo critério de outros
+// botões-texto do app que não usam sublinhado.
 export function BotaoQtdAnimais({ quantidade, onClick, style }) {
-  const qt = quantidade || 0
   return (
     <button
       type="button"
       onClick={onClick}
       style={{
         background:'none', border:'none', padding:0, margin:0,
-        color:'#2B6CD9', textDecoration:'underline', cursor:'pointer',
-        font:'inherit', fontSize:'inherit', whiteSpace:'nowrap', ...style,
+        color:'var(--gray-900)', fontWeight:700, cursor:'pointer',
+        fontSize:'inherit', whiteSpace:'nowrap', ...style,
       }}
     >
-      {qt} animal{qt === 1 ? '' : 'is'}
+      {qtdAnimaisTexto(quantidade || 0)}
     </button>
   )
 }
@@ -71,7 +78,7 @@ export default function ModalAnimaisSanidade({ procedimento, onClose }) {
 
   return (
     <Modal open={!!procedimento} onClose={onClose} width={640}
-      title={procedimento ? `${linhas.length || procedimento.quantidade || 0} animais — ${procedimento.procedimento}` : ''}>
+      title={procedimento ? `${qtdAnimaisTexto(linhas.length || procedimento.quantidade || 0)} — ${procedimento.procedimento}` : ''}>
       {carregando ? <Loading text="Carregando animais..." />
         : erro ? <div style={{ padding:'8px 0', color:'#791F1F', fontSize:'.85rem' }}>Não foi possível carregar a lista de animais.</div>
         : linhas.length === 0 ? <div style={{ padding:'8px 0', color:'#9CA3AF', fontSize:'.85rem' }}>Nenhum animal vinculado a este procedimento.</div>
@@ -96,7 +103,7 @@ export default function ModalAnimaisSanidade({ procedimento, onClose }) {
                     <td style={{ fontWeight:500 }}>{l.brinco}</td>
                     <td style={{ fontSize:'.82rem', color:'#4B5563' }}>{l.categoria}</td>
                     <td style={{ fontSize:'.82rem', color:'#4B5563' }}>{l.lote}</td>
-                    <td style={{ fontSize:'.82rem' }}>
+                    <td style={{ fontSize:'.82rem', fontWeight:'normal' }}>
                       {l.termo}
                       {l.situacao === 'vendido' && <Badge color="amber" style={{ marginLeft:6 }}>Vendido</Badge>}
                       {l.situacao === 'morto'   && <Badge color="red"   style={{ marginLeft:6 }}>Morto</Badge>}
