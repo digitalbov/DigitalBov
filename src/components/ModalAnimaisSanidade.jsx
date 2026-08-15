@@ -94,7 +94,7 @@ export default function ModalAnimaisSanidade({ procedimento, onClose }) {
                   <th>Brinco</th>
                   <th>Categoria</th>
                   <th>Lote</th>
-                  <th>Procedimento</th>
+                  <th>Status</th>
                 </tr>
               </thead>
               <tbody>
