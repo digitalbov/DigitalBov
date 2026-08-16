@@ -36,6 +36,12 @@ import { useIsMobile } from '../lib/useIsMobile'
 // com a medição de largura (ResizeObserver) — todo item sempre no painel,
 // nunca tenta caber nada na barra (dentro de um modal isso seria instável:
 // o container muda de largura conforme o conteúdo do próprio modal).
+// Tem um lado CSS correspondente (ver .filtros-bar--compacto em
+// global.css): sem `compacto`, .filtros-panel só escapa do overflow:hidden
+// da barra via @media (max-width:768px) trocando pra position:fixed —
+// bug encontrado ao vivo (2026-08-16): fora desse breakpoint o painel
+// nascia clipado e invisível. `compacto` também remove esse overflow,
+// sem depender de largura de tela.
 
 const VAZIO = ''
 
@@ -229,7 +235,7 @@ function FiltrosMobile({ itens, valores, onChange, compacto = false }) {
 
   return (
     <div className="filtros-wrap">
-      <div className="filtros-bar" ref={barRef}>
+      <div className={`filtros-bar${compacto ? ' filtros-bar--compacto' : ''}`} ref={barRef}>
         {itensInline.map(item => (
           <Campo key={item.chave} item={item} valor={valores[item.chave] || VAZIO}
             onValor={(v) => onChange(item.chave, v)} />
