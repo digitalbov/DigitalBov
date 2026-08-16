@@ -4,6 +4,7 @@ import { fmtData, algumErro, calcLotesFEFO, sanidadeRealizada, sanidadeAgendada,
 import { hoje as hojeAgora } from '../lib/hoje'
 import { Loading, BotaoPDF, EmptyState, ErroCarregamento } from '../components/UI'
 import Filtros from '../components/Filtros'
+import ModalAnimaisSanidade, { BotaoQtdAnimais } from '../components/ModalAnimaisSanidade'
 import { useCiclo } from '../lib/CicloContext'
 import { addDays, parseISO, differenceInDays } from 'date-fns'
 
@@ -43,8 +44,13 @@ function EventoCard({ ev, cicloNome }) {
       <div style={{ fontSize: 18, flexShrink: 0, lineHeight: 1, marginTop: 2 }}>{ev.icon}</div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontWeight: 500, fontSize: '.87rem', color: '#111827' }}>{ev.titulo}</div>
-        {ev.descricao && (
-          <div style={{ fontSize: '.76rem', color: '#6B7280', marginTop: 2 }}>{ev.descricao}</div>
+        {(ev.descricao || (ev.quantidade != null && ev.onClick)) && (
+          <div style={{ fontSize: '.76rem', color: '#6B7280', marginTop: 2 }}>
+            {ev.descricao}
+            {ev.quantidade != null && ev.onClick && (
+              <>{ev.descricao ? ' · ' : ''}<BotaoQtdAnimais quantidade={ev.quantidade} onClick={ev.onClick} style={{ fontSize:'.76rem' }} /></>
+            )}
+          </div>
         )}
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
           <span style={{ fontSize: '.71rem', color: '#9CA3AF', display: 'flex', alignItems: 'center', gap: 3 }}>
@@ -120,6 +126,9 @@ export default function Calendario() {
   const [eventos,   setEventos]  = useState([])
   const [vazias,    setVazias]   = useState([])
   const [filtTipo,  setFiltTipo] = useState('todos')
+  // Mesmo modal de Sanidade.jsx (componente compartilhado) — aberto pelo
+  // gatilho "N animais" nos eventos de Manejo Sanitário.
+  const [procAnimaisModal, setProcAnimaisModal] = useState(null)
 
   const { dentroDoCiclo, cicloDaData, cicloSelecionado: cicloLocal } = useCiclo()
 
@@ -207,6 +216,8 @@ export default function Calendario() {
           tipo: 'sanidade', icon: '💉',
           titulo:    titulo || 'Procedimento sanitário',
           descricao: `Realizado em ${fmtData(proc.data)}`,
+          quantidade: proc.quantidade,
+          onClick: () => setProcAnimaisModal(proc),
           data: proc.proximo, dias
         })
       }
@@ -227,7 +238,9 @@ export default function Calendario() {
         evs.push({
           tipo: 'sanidade', icon: '📅', agendamento: true,
           titulo:    `Agendado: ${titulo || 'Procedimento sanitário'}`,
-          descricao: proc.lote_descricao || 'Vacinação agendada',
+          descricao: 'Vacinação agendada',
+          quantidade: proc.quantidade,
+          onClick: () => setProcAnimaisModal(proc),
           data: proc.data, dias
         })
       }
@@ -453,6 +466,7 @@ export default function Calendario() {
           </>
         )}
       </div>
+      <ModalAnimaisSanidade procedimento={procAnimaisModal} onClose={() => setProcAnimaisModal(null)} />
     </div>
   )
 }

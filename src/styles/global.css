@@ -399,6 +399,18 @@ tbody tr:hover td { background: #EAF0FB; transition: background 0.15s; }
    pudesse espremer um item abaixo do que foi medido, o pill-group quebraria
    linha por dentro (.pill-group tem flex-wrap:wrap) e a conta furaria. */
 .filtros-bar > * { flex-shrink: 0; }
+/* `compacto` (Filtros.jsx) nunca mede largura (não tem chute otimista pra
+   clipar antes da correção) -- então o overflow:hidden acima só sobrava
+   pra clipar o PRÓPRIO painel: .filtros-panel é filho de .filtros-bar, e
+   fora do breakpoint mobile (que troca pra position:fixed, ver
+   @media max-width:768px abaixo) ele é position:absolute -- não escapa do
+   overflow:hidden de um ancestral. Sem isso o painel nascia invisível fora
+   do celular. Isto vale em QUALQUER largura de tela (não é responsivo por
+   design: compacto é decisão de quem consome, não da viewport) -- estilo
+   do formato compacto, não estilo de tela pequena. Todo <Filtros> sem
+   compacto (a maioria do app) nunca ganha esta classe, overflow:hidden
+   continua exatamente como antes pra eles. */
+.filtros-bar--compacto { overflow: visible; }
 .filtros-campo-label {
   font-size: .72rem; font-weight: 600; color: var(--gray-500); margin-bottom: 4px;
 }
