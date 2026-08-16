@@ -1996,7 +1996,7 @@ export default function Animais() {
                         </td>
                         <td><Badge style={{ background: sc.bg, color: sc.text }}>{a.situacao}</Badge></td>
                         <td style={{ fontSize: '.78rem', color: '#9CA3AF' }}>{a.lote?.nome || '—'}</td>
-                        <td style={{ textAlign: 'right', color: '#9CA3AF', fontSize: 12 }}>{ina ? '' : '›'}</td>
+                        <td style={{ textAlign: 'right', color: '#9CA3AF', fontSize: 17 }}>{ina ? '' : '›'}</td>
                       </tr>
                     )
                   })}
