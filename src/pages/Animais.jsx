@@ -2028,7 +2028,7 @@ export default function Animais() {
                         </span>
                       </div>
                     </div>
-                    {!ina && <i className="ti ti-chevron-right" style={{ color:'#D1D5DB' }} />}
+                    {!ina && <i className="ti ti-chevron-right" style={{ color:'#D1D5DB', fontSize:20, flexShrink:0 }} />}
                   </div>
                 )
               })}
